@@ -31,20 +31,22 @@ YouTube accounts get terminated, playlists get emptied, and videos disappear wit
 
 ## Google Cloud setup
 
-Lifeline uses the YouTube Data API v3 with your own OAuth credentials. This keeps your quota and your data under your control.
+Lifeline uses the YouTube Data API v3 with your own OAuth credentials. This keeps your quota and your data under your control. Google now calls this area the **Google Auth Platform**; older guides (and some console screenshots) call it the **OAuth consent screen** and **Credentials** pages — same setup, renamed menus.
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/) and create a new project (any name, for example "Lifeline").
-2. Enable the API:
-   - **APIs & Services → Library** → search for **YouTube Data API v3** → **Enable**.
-3. Configure the consent screen:
-   - **APIs & Services → OAuth consent screen**.
-   - User type: **External**. Fill in the app name; you can leave the optional fields blank.
-   - Add yourself under **Test users**.
-   - **Important:** while the app is in *Testing* mode, Google **expires refresh tokens after 7 days**. To avoid re-authenticating every week, click **Publish app** on the consent screen. For personal use this is fine; you can leave the app unverified, and Google may show you an unverified-app warning once during authorization.
-4. Create credentials:
-   - **APIs & Services → Credentials → Create credentials → OAuth client ID**.
-   - Application type: **Desktop app** (not "Web application").
-   - Copy the **Client ID** and **Client secret**.
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/) and create a new project (any name, for example "Lifeline").
+2. Enable the API: open the [YouTube Data API v3 library page](https://console.cloud.google.com/apis/library/youtube.googleapis.com) and select **Enable**.
+3. Configure the app:
+   - Open the [Google Auth Platform](https://console.cloud.google.com/auth/overview) (**APIs & Services → Google Auth Platform**).
+   - Under **Branding**, fill in the app name and a support email; you can leave the optional fields blank.
+   - Under **Audience**, add yourself under **Test users**. User type is **External**.
+   - **Important:** while the app is in *Testing* mode, Google **expires refresh tokens after 7 days**. To avoid re-authenticating every week, click **Publish app** under **Audience**. For personal use this is fine; you can leave the app unverified, and Google may show you an unverified-app warning once during authorization.
+4. Create the client:
+   - Open the [Clients page](https://console.developers.google.com/auth/clients) and select **Create client** (or the **Create OAuth client** button on the OAuth overview).
+   - Application type: **Desktop app** (not **Web application**).
+   - Select **Create**, then immediately copy the **Client ID** and **Client secret** from the popup.
+   - **The client secret is shown only once.** Google stores it hashed, so afterwards only the last 4 characters stay visible. If you lose it, select your client on the **Clients** page and use **Add secret** to mint a replacement.
+
+If authorization later fails with a `deleted_client` error, Google has auto-deleted your client after six months of inactivity ([details](https://support.google.com/cloud/answer/6158849#unused-client-deletion)) — create a new client and update the stored secret.
 
 ## Connect Obsidian
 
