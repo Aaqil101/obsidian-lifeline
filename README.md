@@ -1,92 +1,179 @@
-# Obsidian Sample Plugin
+# Lifeline
 
-This is a sample plugin for Obsidian (https://obsidian.md).
+Back up your YouTube subscriptions, playlists, and Watch Later list into Markdown notes in your Obsidian vault. Because accounts get banned, but vaults don't.
 
-This project uses TypeScript to provide type checking and documentation.
-The repo depends on the latest plugin API (obsidian.d.ts) in TypeScript Definition format, which contains TSDoc comments describing what it does.
+Lifeline is a **desktop-only** Obsidian plugin that periodically exports:
 
-This sample plugin demonstrates some of the basic functionality the plugin API can do.
+- **Channels.md**: every channel you're subscribed to, as queryable fields
+- **Playlists/\*.md**: one note per playlist you choose to track
+- **Watch Later.md**: a dedicated note for your watch-later substitute playlist
+- **sync-log.md** (in the plugin folder): an append-only record of every sync run
 
-- Adds a ribbon icon, which shows a Notice when clicked.
-- Adds a command "Open modal (simple)" which opens a Modal.
-- Adds a plugin setting tab to the settings page.
-- Registers a global click event and outputs a Notice on click.
-- Registers a global interval which logs 'setInterval' to the console.
+All output is plain Markdown inside your vault. No proprietary formats, no databases. Your backup stays readable and searchable forever, and every entry is a Dataview-queryable record.
 
-## First time developing plugins?
+## Why
 
-Quick starting guide for new plugin devs:
+YouTube accounts get terminated, playlists get emptied, and videos disappear without notice. Your Obsidian vault is local, version-controlled, and under your control. Lifeline keeps a durable record of what you watched and organized, as plain text, in your vault.
 
-- Check if [someone already developed a plugin for what you want](https://obsidian.md/plugins)! There might be an existing plugin similar enough that you can partner up with.
-- Make a copy of this repo as a template with the "Use this template" button (login to GitHub if you don't see it).
-- Clone your repo to a local development folder. For convenience, you can place this folder in your `.obsidian/plugins/your-plugin-name` folder.
-- Install NodeJS, then run `npm i` in the command line under your repo folder.
-- Run `npm run dev` to compile your plugin from `src/main.ts` to `main.js`.
-- Make changes to `src/main.ts` (or create new `.ts` files). Those changes should be automatically compiled into `main.js`.
-- Reload Obsidian to load the new version of your plugin.
-- Enable plugin in settings window.
-- For updates to the Obsidian API run `npm update` in the command line under your repo folder.
+## Install
 
-## Releasing new releases
+### Option A: BRAT (recommended)
 
-- Update your `manifest.json` with your new version number, such as `1.0.1`, and the minimum Obsidian version required for your latest release.
-- Update your `versions.json` file with `"new-plugin-version": "minimum-obsidian-version"` so older versions of Obsidian can download an older version of your plugin that's compatible.
-- Create new GitHub release using your new version number as the "Tag version". Use the exact version number, don't include a prefix `v`. See here for an example: https://github.com/obsidianmd/obsidian-sample-plugin/releases
-- Upload the files `manifest.json`, `main.js`, `styles.css` as binary attachments. Note: The manifest.json file must be in two places, first the root path of your repository and also in the release.
-- Publish the release.
+1. Install [BRAT](https://github.com/TfTHacker/obsidian-brat) from the community plugins browser.
+2. Open **Settings → BRAT → Add beta plugin** and enter `Aaqil101/obsidian-lifeline`.
+3. Enable **Lifeline** under **Settings → Community plugins**.
 
-> You can simplify the version bump process by running `npm version patch`, `npm version minor` or `npm version major` after updating `minAppVersion` manually in `manifest.json`.
-> The command will bump version in `manifest.json` and `package.json`, and add the entry for the new version to `versions.json`
+### Option B: Manual
 
-## Adding your plugin to the community plugin list
+1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/Aaqil101/obsidian-lifeline/releases/latest).
+2. Copy them into `<YourVault>/.obsidian/plugins/lifeline/`.
+3. Reload Obsidian and enable **Lifeline** under **Settings → Community plugins**.
 
-- Check the [plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines).
-- Publish an initial version.
-- Make sure you have a `README.md` file in the root of your repo.
-- Make a pull request at https://github.com/obsidianmd/obsidian-releases to add your plugin.
+## Google Cloud setup
 
-## How to use
+Lifeline uses the YouTube Data API v3 with your own OAuth credentials. This keeps your quota and your data under your control.
 
-- Clone this repo.
-- Make sure your NodeJS is at least v18 (`node --version`).
-- `npm i` to install dependencies.
-- `npm run dev` to start compilation in watch mode.
+1. Go to [Google Cloud Console](https://console.cloud.google.com/) and create a new project (any name, for example "Lifeline").
+2. Enable the API:
+   - **APIs & Services → Library** → search for **YouTube Data API v3** → **Enable**.
+3. Configure the consent screen:
+   - **APIs & Services → OAuth consent screen**.
+   - User type: **External**. Fill in the app name; you can leave the optional fields blank.
+   - Add yourself under **Test users**.
+   - **Important:** while the app is in *Testing* mode, Google **expires refresh tokens after 7 days**. To avoid re-authenticating every week, click **Publish app** on the consent screen. For personal use this is fine; you can leave the app unverified, and Google may show you an unverified-app warning once during authorization.
+4. Create credentials:
+   - **APIs & Services → Credentials → Create credentials → OAuth client ID**.
+   - Application type: **Desktop app** (not "Web application").
+   - Copy the **Client ID** and **Client secret**.
 
-## Manually installing the plugin
+## Connect Obsidian
 
-- Copy over `main.js`, `styles.css`, `manifest.json` to your vault `VaultFolder/.obsidian/plugins/your-plugin-id/`.
+1. Open **Settings → Lifeline**.
+2. Next to **OAuth client ID**, create a new secret (or select an existing one) and store the copied client ID as its value.
+3. Do the same for **OAuth client secret**. Both values are kept in your system's keychain via Obsidian's native secret storage and are never written to disk inside your vault. `data.json` only remembers the secret names and your preferences.
+4. Select **Authenticate with Google** and approve access (scope: read-only YouTube access).
+5. Pick your **output folder** (defaults to `95 - Notes/YouTube`).
+6. Optionally choose a **watch-later playlist**, and open **Playlists to track** (chevron row) to uncheck any playlists you don't want backed up (everything is tracked by default on first sync). The list refresh icon lives on that sub-page.
+7. Optionally open **Dashboard** (chevron row) and turn on **Dashboard note** to get a `Dashboard.md` home note. Lifeline checks that the community **Dataview** plugin is enabled first; the live sections also degrade gracefully if Dataview is later disabled.
+8. Select **Sync now**, or use the ribbon icon, or run the command **Lifeline: Sync now**.
 
-## Improve code quality with eslint
+## What gets written
 
-- [ESLint](https://eslint.org/) is a tool that analyzes your code to quickly find problems. You can run ESLint against your plugin to find common bugs and ways to improve your code.
-- This project already has eslint preconfigured, you can invoke a check by running`npm run lint`
-- Together with a custom eslint [plugin](https://github.com/obsidianmd/eslint-plugin) for Obsidan specific code guidelines.
-- A GitHub action is preconfigured to automatically lint every commit on all branches.
+```
+95 - Notes/YouTube/
+├── Channels.md          # one field-list entry per channel
+├── Dashboard.md         # opt-in home note: static summary + live DataviewJS sections
+├── Watch Later.md       # your watch-later substitute playlist
+└── Playlists/
+    ├── Favorites.md
+    └── Watched later.md
 
-## Funding URL
-
-You can include funding URLs where people who use your plugin can financially support it.
-
-The simple way is to set the `fundingUrl` field to your link in your `manifest.json` file:
-
-```json
-{
-	"fundingUrl": "https://buymeacoffee.com"
-}
+.obsidian/plugins/lifeline/
+└── sync-log.md          # one line per sync run (opened via the status bar)
 ```
 
-If you have multiple URLs, you can also do:
+### Playlist entries
 
-```json
-{
-	"fundingUrl": {
-		"Buy Me a Coffee": "https://buymeacoffee.com",
-		"GitHub Sponsor": "https://github.com/sponsors",
-		"Patreon": "https://www.patreon.com/"
-	}
-}
+Each video is a single list item with Dataview inline fields:
+
+```markdown
+- [title:: [Video Title](https://www.youtube.com/watch?v=abc123)] [channel:: [Blender Guru](https://www.youtube.com/channel/UCxyz)] [date:: [[2026-01-05]]]
 ```
 
-## API Documentation
+- The date links your daily note (`[[YYYY-MM-DD]]`).
+- Videos removed from a playlist keep their entry with `[status:: removed from playlist]`; private or deleted videos get `[status:: unavailable]`. Nothing is ever silently dropped; that is the point of a backup.
+- Channels use the same pattern, with statistics when enabled: `[channel:: …] [id:: …] [subscribed_on:: …] [first_seen:: …] [last_seen:: …] [status:: …] [handle:: @x] [subscribers:: N] [videos:: N] [views:: N] [country:: AU]`.
+- Every channel field except the link itself is a checkbox under **Channels.md fields → Manage** (Settings → Lifeline → Notes). Subscribers, Videos, Views, and Country cost 1 quota unit per 50 channels per sync while any of them is enabled.
 
-See https://docs.obsidian.md
+### Dashboard note
+
+**Dashboard.md** (opt-in, off by default) is a home note with two halves:
+
+- A **static header** written from plugin state (no Dataview needed): last sync time and status, channel/playlist/video counts, quick links, and a playlist overview table.
+- **Live DataviewJS sections** that query the synced notes on render: recently added videos, top channels by subscribers, and videos that need attention (unavailable/removed). Each section has a toggle under **Dashboard** (Settings → Lifeline → Notes).
+
+Turning the toggle on requires the community [Dataview](https://github.com/blacksmithgu/obsidian-dataview) plugin; Lifeline checks and tells you to install it if it's missing. The note refreshes after every sync, and the **Create dashboard note** command (or the refresh icon on the Dashboard sub-page) rewrites it on demand. Zero API quota cost; if Dataview is disabled later, sync keeps the static header and replaces the live sections with a one-line hint.
+
+## Dataview recipes
+
+Query commands run in the order written (`FROM`, then `FLATTEN`, then `WHERE`), so flatten `file.lists` before filtering:
+
+Every video across playlists and watch later:
+
+```dataview
+TABLE WITHOUT ID v.title AS Video, v.channel AS Channel, v.date AS Added, v.status AS Status
+FROM "95 - Notes/YouTube"
+FLATTEN file.lists AS v
+WHERE v.title
+SORT v.date DESC
+```
+
+All subscriptions, with status (the `WHERE` clause uses the ID field, so the **Channel ID** toggle must stay on):
+
+```dataview
+TABLE WITHOUT ID v.channel AS Channel, v.subscribed_on AS "Subscribed on", v.first_seen AS "First seen", v.status AS Status
+FROM "95 - Notes/YouTube/Channels.md"
+FLATTEN file.lists AS v
+WHERE v.id
+```
+
+Biggest channels, by subscribers (needs at least Subscribers and Views enabled in settings):
+
+```dataview
+TABLE WITHOUT ID v.channel AS Channel, v.subscribers AS Subscribers, v.views AS "Total views"
+FROM "95 - Notes/YouTube/Channels.md"
+FLATTEN file.lists AS v
+WHERE v.subscribers
+SORT v.subscribers DESC
+```
+
+Watch later only:
+
+```dataview
+LIST WITHOUT ID v.title
+FROM "95 - Notes/YouTube/Watch Later.md"
+FLATTEN file.lists AS v
+WHERE v.title
+```
+
+## Syncing
+
+- **Manual:** command palette → **Lifeline: Sync now**, the ribbon refresh icon, or **Sync now** in settings.
+- **Automatic:** on Obsidian startup, Lifeline syncs once if the last successful sync is older than the configured interval (default: 20 hours). This is **not a background scheduler**; nothing syncs while Obsidian is closed.
+- The **status bar** shows a check/warn/cross icon plus the time of the last sync. Select it to open the sync log in a modal; hover for a summary (channels, playlists, videos, quota units, error kinds).
+- Every run appends a line to `sync-log.md`, including failures, so you always know the state of your backup.
+
+## Security & privacy
+
+- **Secrets live in your system keychain.** The OAuth client ID, client secret, and refresh token are stored with Obsidian's native `SecretStorage` API (Obsidian 1.11.4+), which uses the OS credential store (for example Windows Credential Manager or macOS Keychain). They are **never** written to `data.json`, `state.json`, or any file in your vault. Those files hold only secret names, preferences, and sync state.
+- **What leaves your machine:** OAuth calls to `accounts.google.com` and `oauth2.googleapis.com`, and YouTube Data API calls to `googleapis.com/youtube/v3` using the `youtube.readonly` scope. That is all.
+- **No telemetry, no third-party services, no remote code.** Lifeline does exactly one thing: fetch your YouTube data and write Markdown notes.
+- **Revoking access:** remove Lifeline's permission at [myaccount.google.com/permissions](https://myaccount.google.com/permissions), and delete the stored secrets from Obsidian's secret storage if desired. On a new machine you'll need to authenticate again (the keychain is per-machine).
+
+## Limitations
+
+- **Desktop only.** The OAuth flow uses a loopback redirect (`127.0.0.1`), so mobile isn't supported.
+- **YouTube's system "Watch Later" list is not accessible via the API.** Pick your own substitute playlist in settings; Lifeline writes it to `Watch Later.md`.
+- **Quota:** the YouTube API allows about 10,000 units/day by default; a full sync costs roughly 2 units, plus 1 per tracked playlist, plus 1 per 50 subscribed channels while statistics fields are enabled. Lifeline counts usage and warns at a configurable soft limit.
+- **One Google account per vault.**
+- **No scheduler:** sync runs at startup (if due) or on demand.
+
+## Development
+
+```bash
+npm install
+npm run dev      # esbuild watch mode
+npm run build    # type-check + production bundle
+npm run lint     # eslint (obsidianmd plugin rules)
+npm run deploy   # build, then copy artifacts into the real vault (local convenience)
+```
+
+Source layout: `src/main.ts` (lifecycle only) delegates to `auth.ts` (OAuth loopback), `youtubeApi.ts` (quota-aware client), `sync.ts` (orchestration + state diffing), `markdown.ts` (renderers), `dashboard.ts` (Dashboard.md renderer + Dataview capability check), and `settings.ts` (settings tab). Sync state persists in `state.json` next to `data.json`; the sync log lives beside them in the plugin folder. Neither holds secrets.
+
+Progress is tracked in [GitHub issues](https://github.com/Aaqil101/obsidian-lifeline/issues): open issues are the roadmap, closed issues are what shipped.
+
+A convenient dev loop is the [Hot-Reload](https://github.com/pjeby/hot-reload) community plugin pointed at the plugin folder while `npm run dev` is running.
+
+## License
+
+[0-BSD](LICENSE)
