@@ -18,5 +18,9 @@ main.js
 # obsidian
 data.json
 
+# Lifeline runtime files (written here because the test vault links to this repo)
+state.json
+sync-log.md
+
 # Exclude macOS Finder (System Explorer) View States
 .DS_Store
