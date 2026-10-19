@@ -1,14 +1,15 @@
 {
-	"name": "obsidian-sample-plugin",
-	"version": "1.0.0",
-	"description": "This is a sample plugin for Obsidian (https://obsidian.md)",
+	"name": "obsidian-lifeline",
+	"version": "0.1.0",
+	"description": "Back up your YouTube subscriptions, playlists, and Watch Later list into Markdown notes in your Obsidian vault.",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
-		"lint": "eslint ."
+		"lint": "eslint .",
+		"deploy": "npm run build && node deploy.mjs"
 	},
 	"keywords": [],
 	"license": "0-BSD",

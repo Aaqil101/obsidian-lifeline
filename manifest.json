@@ -1,11 +1,10 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
-	"version": "1.0.0",
-	"minAppVersion": "1.0.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
-	"isDesktopOnly": false
+	"id": "lifeline",
+	"name": "Lifeline",
+	"version": "0.1.0",
+	"minAppVersion": "1.11.4",
+	"description": "Back up your YouTube subscriptions, playlists, and Watch Later list into Markdown notes in your vault.",
+	"author": "Aaqil",
+	"authorUrl": "https://github.com/Aaqil101",
+	"isDesktopOnly": true
 }

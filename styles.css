@@ -1,8 +1,35 @@
-/*
+/* Lifeline relies on Obsidian's native settings and status bar styling.
+   Only the clickable status bar item gets a small affordance. */
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.lifeline-status-bar {
+	cursor: pointer;
+}
 
-If your plugin does not need CSS, delete this file.
+.lifeline-sync-log {
+	max-height: 70vh;
+	overflow: auto;
+	white-space: pre-wrap;
+	word-break: break-word;
+	font-size: var(--font-ui-smaller);
+}
 
-*/
+.lifeline-subpage-back {
+	color: var(--text-muted);
+	text-decoration: none;
+}
+
+.lifeline-subpage-back:hover {
+	color: var(--text-normal);
+}
+
+.lifeline-nav-row {
+	cursor: pointer;
+}
+
+/* The card look comes from Obsidian's native `.setting-group` /
+   `.setting-items` classes (1.14+); no custom card styles here. */
+.lifeline-settings-note {
+	margin: 0;
+	padding: var(--setting-items-padding-y, 16px) var(--setting-items-padding-x, 16px);
+	color: var(--text-muted);
+}
