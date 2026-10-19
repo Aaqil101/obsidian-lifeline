@@ -31,7 +31,7 @@ YouTube accounts get terminated, playlists get emptied, and videos disappear wit
 
 ## Google Cloud setup
 
-Lifeline uses the YouTube Data API v3 with your own OAuth credentials. This keeps your quota and your data under your control. Google now calls this area the **Google Auth Platform**; older guides (and some console screenshots) call it the **OAuth consent screen** and **Credentials** pages — same setup, renamed menus.
+Lifeline uses the YouTube Data API v3 with your own OAuth credentials. This keeps your quota and your data under your control. Google now calls this area the **Google Auth Platform**; older guides (and some console screenshots) call it the **OAuth consent screen** and **Credentials** pages, same setup, renamed menus.
 
 1. Go to the [Google Cloud Console](https://console.cloud.google.com/) and create a new project (any name, for example "Lifeline").
 2. Enable the API: open the [YouTube Data API v3 library page](https://console.cloud.google.com/apis/library/youtube.googleapis.com) and select **Enable**.
@@ -46,7 +46,7 @@ Lifeline uses the YouTube Data API v3 with your own OAuth credentials. This keep
    - Select **Create**, then immediately copy the **Client ID** and **Client secret** from the popup.
    - **The client secret is shown only once.** Google stores it hashed, so afterwards only the last 4 characters stay visible. If you lose it, select your client on the **Clients** page and use **Add secret** to mint a replacement.
 
-If authorization later fails with a `deleted_client` error, Google has auto-deleted your client after six months of inactivity ([details](https://support.google.com/cloud/answer/6158849#unused-client-deletion)) — create a new client and update the stored secret.
+If authorization later fails with a `deleted_client` error, Google has auto-deleted your client after six months of inactivity ([details](https://support.google.com/cloud/answer/6158849#unused-client-deletion)) - create a new client and update the stored secret.
 
 ## Connect Obsidian
 
@@ -55,7 +55,7 @@ If authorization later fails with a `deleted_client` error, Google has auto-dele
 3. Do the same for **OAuth client secret**. Both values are kept in your system's keychain via Obsidian's native secret storage and are never written to disk inside your vault. `data.json` only remembers the secret names and your preferences.
 4. Select **Authenticate with Google** and approve access (scope: read-only YouTube access).
 5. Pick your **output folder** (defaults to `95 - Notes/YouTube`).
-6. Optionally choose a **watch-later playlist**, and open **Playlists to track** (chevron row) to uncheck any playlists you don't want backed up (everything is tracked by default on first sync). The list refresh icon lives on that sub-page.
+6. Optionally choose a **watch-later playlist**, and open **Playlists to track** (chevron row) to uncheck any playlists you don't want backed up (everything is tracked by default on first sync; playlists you saved from other channels are included and labeled **(saved)**). The list refresh icon lives on that sub-page.
 7. Optionally open **Dashboard** (chevron row) and turn on **Dashboard note** to get a `Dashboard.md` home note. Lifeline checks that the community **Dataview** plugin is enabled first; the live sections also degrade gracefully if Dataview is later disabled.
 8. Select **Sync now**, or use the ribbon icon, or run the command **Lifeline: Sync now**.
 
@@ -83,6 +83,7 @@ Each video is a single list item with Dataview inline fields:
 ```
 
 - The date links your daily note (`[[YYYY-MM-DD]]`).
+- Playlist notes carry `saved: true` in their frontmatter when the playlist was saved from another channel rather than created by you, so `WHERE saved` picks them out in Dataview.
 - Videos removed from a playlist keep their entry with `[status:: removed from playlist]`; private or deleted videos get `[status:: unavailable]`. Nothing is ever silently dropped; that is the point of a backup.
 - Channels use the same pattern, with statistics when enabled: `[channel:: …] [id:: …] [subscribed_on:: …] [first_seen:: …] [last_seen:: …] [status:: …] [handle:: @x] [subscribers:: N] [videos:: N] [views:: N] [country:: AU]`.
 - Every channel field except the link itself is a checkbox under **Channels.md fields → Manage** (Settings → Lifeline → Notes). Subscribers, Videos, Views, and Country cost 1 quota unit per 50 channels per sync while any of them is enabled.
