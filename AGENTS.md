@@ -6,6 +6,33 @@
 - Entry point: `src/main.ts` compiled to `main.js` and loaded by Obsidian.
 - Required release artifacts: `main.js`, `manifest.json`, and optional `styles.css`.
 
+## What this plugin is (Lifeline)
+
+- Backs up YouTube subscriptions, playlists, and a watch-later substitute into Markdown notes (default folder `95 - Notes/YouTube/`): `Channels.md`, `Playlists/<name>.md`, `Watch Later.md`, and an opt-in `Dashboard.md` home note (static summary from state + live DataviewJS sections; gated on the community Dataview plugin). The sync log (`sync-log.md`) lives in the plugin folder.
+- Desktop-only (`isDesktopOnly: true`, `minAppVersion: 1.11.4` for the native SecretStorage API). No mobile, no telemetry, no video downloads.
+
+### Architecture (keep `main.ts` lifecycle-only)
+
+- `src/main.ts`: lifecycle, commands, ribbon, status bar, `state.json`/`sync-log.md` persistence, startup auto-sync check (NOT a background scheduler), Dataview-gated `createDashboard()` write-and-open helper.
+- `src/auth.ts`: Google OAuth 2.0 installed-app flow with a loopback HTTP listener on `127.0.0.1`. Client ID, client secret, and refresh token live in `app.secretStorage` (OS keychain); **never** in `data.json`/`state.json`, which store only the secret *names*.
+- `src/youtubeApi.ts`: YouTube Data API v3 client: pagination, quota accounting, 401→refresh+retry once, exponential backoff on 403/429/5xx, batched channel statistics (50 ids per quota unit).
+- `src/sync.ts`: orchestration: per-resource error isolation (auth/quota/network/api/io; one failure never aborts the run), state diffing, vault writes (including the opt-in `Dashboard.md`), append-only sync log in the plugin folder.
+- `src/markdown.ts`: pure Markdown renderers (Dataview inline-field entries, per-field channel rendering) + output path/file-name helpers.
+- `src/dashboard.ts`: `Dashboard.md` renderer (pure: static header from state + opt-in DataviewJS section blocks) + `isDataviewEnabled()` capability check (narrow structural probe of `app.plugins`, no `any`).
+- `src/ui/syncLogModal.ts`: read-only modal viewer for `sync-log.md` (the plugin folder isn't vault-indexed, so the log can't open as a note).
+- `src/settings.ts`: `LifelineSettings`, defaults, settings tab (two SecretComponents, Channels.md fields sub-page with reset, playlist sub-page with refresh, Dashboard sub-page with Dataview gate + refresh, watch-later dropdown).
+- `src/types.ts` / `src/json.ts`: shared types + `SyncError`; type-safe JSON narrowing helpers (no `any`).
+
+### Invariants
+
+- Never persist secrets anywhere in the vault; `state.json` (plugin folder) holds sync state only.
+- Never abort a whole sync because one fetch or write failed; record per-resource errors and continue.
+- Keep native `fetch` for API calls; state sentinel `trackedPlaylists === null` means "track everything on first fetch".
+- Notes stay Dataview-queryable: one bullet per video or channel with bracketed inline fields (`[title:: …] [date:: …]`), rendered in `src/markdown.ts`.
+- Releases: bump `manifest.json` + `versions.json`; GitHub release tag = version (no `v` prefix); attach `main.js`, `manifest.json`, `styles.css`.
+- `npm run deploy` builds and copies artifacts into the real vault (local convenience; hardcoded path in `deploy.mjs`).
+
+
 ## Environment & tooling
 
 - Node.js: use current LTS (Node 18+ recommended).
@@ -43,21 +70,20 @@ npm run build
 
 - **Organize code into multiple files**: Split functionality across separate modules rather than putting everything in `main.ts`.
 - Source lives in `src/`. Keep `main.ts` small and focused on plugin lifecycle (loading, unloading, registering commands).
-- **Example file structure**:
+- **Current file structure**:
     ```
     src/
-      main.ts           # Plugin entry point, lifecycle management
-      settings.ts       # Settings interface and defaults
-      commands/         # Command implementations
-        command1.ts
-        command2.ts
-      ui/              # UI components, modals, views
-        modal.ts
-        view.ts
-      utils/           # Utility functions, helpers
-        helpers.ts
-        constants.ts
-      types.ts         # TypeScript interfaces and types
+      main.ts               # Plugin entry point, lifecycle only
+      auth.ts               # Google OAuth 2.0 loopback flow + keychain secrets
+      youtubeApi.ts         # Quota-aware YouTube Data API v3 client
+      sync.ts               # Sync orchestration, state diffing, vault writes
+      markdown.ts           # Pure Markdown renderers + output path helpers
+      dashboard.ts          # Dashboard.md renderer + Dataview capability check
+      settings.ts           # Settings tab, defaults, sub-pages
+      types.ts              # Shared types + SyncError
+      json.ts               # Type-safe JSON narrowing helpers (no `any`)
+      ui/
+        syncLogModal.ts     # Read-only viewer for sync-log.md
     ```
 - **Do not commit build artifacts**: Never commit `node_modules/`, `main.js`, or other generated files to version control.
 - Keep the plugin small. Avoid large dependencies. Prefer browser-compatible packages.
@@ -136,6 +162,12 @@ Follow Obsidian's **Developer Policies** and **Plugin Guidelines**. In particula
 - Bundle everything into `main.js` (no unbundled runtime deps).
 - Avoid Node/Electron APIs if you want mobile compatibility; set `isDesktopOnly` accordingly.
 - Prefer `async/await` over promise chains; handle errors gracefully.
+
+## Commits
+
+- Commit only when explicitly asked, then one commit per file or logical change — don't bundle unrelated edits.
+- Message style: a short imperative summary line (sentence case), followed by a body of `- ` bullet descriptions of what changed. Match the style of existing examples in `git log` (e.g. `Update Google Cloud setup steps for the new Google Auth Platform console`).
+- Check `git status`/`git diff` before staging; stage files individually rather than `git add -A`.
 
 ## Mobile
 
