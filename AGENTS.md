@@ -15,12 +15,16 @@
 
 - `src/main.ts`: lifecycle, commands, ribbon, status bar, `state.json`/`sync-log.md` persistence, startup auto-sync check (NOT a background scheduler), Dataview-gated `createDashboard()` write-and-open helper.
 - `src/auth.ts`: Google OAuth 2.0 installed-app flow with a loopback HTTP listener on `127.0.0.1`. Client ID, client secret, and refresh token live in `app.secretStorage` (OS keychain); **never** in `data.json`/`state.json`, which store only the secret *names*.
-- `src/youtubeApi.ts`: YouTube Data API v3 client: pagination, quota accounting, 401→refresh+retry once, exponential backoff on 403/429/5xx, batched channel statistics (50 ids per quota unit).
+- `src/youtubeApi.ts`: YouTube Data API v3 client: pagination, quota accounting, 401→refresh+retry once, exponential backoff on 403/429/5xx, batched channel statistics and by-ID playlist metadata (50 ids per quota unit; the latter titles imported saved-playlist IDs, which `mine=true` never lists).
 - `src/sync.ts`: orchestration: per-resource error isolation (auth/quota/network/api/io; one failure never aborts the run), state diffing, vault writes (including the opt-in `Dashboard.md`), append-only sync log in the plugin folder.
 - `src/markdown.ts`: pure Markdown renderers (Dataview inline-field entries, per-field channel rendering) + output path/file-name helpers.
 - `src/dashboard.ts`: `Dashboard.md` renderer (pure: static header from state + opt-in DataviewJS section blocks) + `isDataviewEnabled()` capability check (narrow structural probe of `app.plugins`, no `any`).
+- `src/collector.ts`: shared saved-playlist collector script source (Mode 1 console paste + Mode 2 `executeJavaScript`); DOM-only reads.
+- `src/playlistIds.ts`: lenient saved-ID parsing (JSON array / one-per-line / mixed), shape warnings (keep odd IDs), and the `importedPlaylistIds` set helpers for `data.json`.
+- `src/webviewCompat.ts`: `<webview>` availability probe (deprecated Electron tag → feature-detect forever) + finder for an open **Web viewer** core-plugin tab on the playlists page.
 - `src/ui/syncLogModal.ts`: read-only modal viewer for `sync-log.md` (the plugin folder isn't vault-indexed, so the log can't open as a note).
-- `src/settings.ts`: `LifelineSettings`, defaults, settings tab (two SecretComponents, Channels.md fields sub-page with reset, playlist sub-page with refresh, Dashboard sub-page with Dataview gate + refresh, watch-later dropdown).
+- `src/ui/playlistWebviewModal.ts`: Mode 2 (experimental, desktop-only) collector modal: prefers an open Web viewer tab (user's own sign-in, never navigated), else mounts its own `persist:yt-playlists` webview; sign-in wall → Mode 1 pointer, never spoofed/bypassed; falls back to Mode 1 when no webview exists.
+- `src/settings.ts`: `LifelineSettings`, defaults, settings tab (two SecretComponents, Channels.md fields sub-page with reset, playlist sub-page with refresh, Dashboard sub-page with Dataview gate + refresh, watch-later dropdown, saved-playlist-ID collector sub-page with Mode 1 steps/copy + textarea + Mode 2 availability pre-check).
 - `src/types.ts` / `src/json.ts`: shared types + `SyncError`; type-safe JSON narrowing helpers (no `any`).
 
 ### Invariants
@@ -79,11 +83,15 @@ npm run build
       sync.ts               # Sync orchestration, state diffing, vault writes
       markdown.ts           # Pure Markdown renderers + output path helpers
       dashboard.ts          # Dashboard.md renderer + Dataview capability check
+      collector.ts          # Shared saved-playlist collector script source
+      playlistIds.ts        # Lenient saved-ID parsing + imported-ID helpers
+      webviewCompat.ts      # <webview> probe + open Web viewer tab finder
       settings.ts           # Settings tab, defaults, sub-pages
       types.ts              # Shared types + SyncError
       json.ts               # Type-safe JSON narrowing helpers (no `any`)
       ui/
         syncLogModal.ts     # Read-only viewer for sync-log.md
+        playlistWebviewModal.ts  # Mode 2 experimental collector modal
     ```
 - **Do not commit build artifacts**: Never commit `node_modules/`, `main.js`, or other generated files to version control.
 - Keep the plugin small. Avoid large dependencies. Prefer browser-compatible packages.
@@ -140,6 +148,7 @@ Follow Obsidian's **Developer Policies** and **Plugin Guidelines**. In particula
 
 ## UX & copy guidelines (for UI text, commands, settings)
 
+- **Never use em dashes (—)** in code comments, UI strings, docs, or commit messages; use commas, colons, semicolons, parentheses, or separate sentences instead.
 - Prefer sentence case for headings, buttons, and titles.
 - Use clear, action-oriented imperatives in step-by-step copy.
 - Use **bold** to indicate literal UI labels. Prefer "select" for interactions.
@@ -165,7 +174,7 @@ Follow Obsidian's **Developer Policies** and **Plugin Guidelines**. In particula
 
 ## Commits
 
-- Commit only when explicitly asked, then one commit per file or logical change — don't bundle unrelated edits.
+- Commit only when explicitly asked, then one commit per file or logical change; don't bundle unrelated edits.
 - Message style: a short imperative summary line (sentence case), followed by a body of `- ` bullet descriptions of what changed. Match the style of existing examples in `git log` (e.g. `Update Google Cloud setup steps for the new Google Auth Platform console`).
 - Check `git status`/`git diff` before staging; stage files individually rather than `git add -A`.
 
