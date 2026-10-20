@@ -55,9 +55,18 @@ If authorization later fails with a `deleted_client` error, Google has auto-dele
 3. Do the same for **OAuth client secret**. Both values are kept in your system's keychain via Obsidian's native secret storage and are never written to disk inside your vault. `data.json` only remembers the secret names and your preferences.
 4. Select **Authenticate with Google** and approve access (scope: read-only YouTube access).
 5. Pick your **output folder** (defaults to `95 - Notes/YouTube`).
-6. Optionally choose a **watch-later playlist**, and open **Playlists to track** (chevron row) to uncheck any playlists you don't want backed up (everything is tracked by default on first sync; playlists you saved from other channels are included and labeled **(saved)**). The list refresh icon lives on that sub-page.
+6. Optionally choose a **watch-later playlist**, and open **Playlists to track** (chevron row) to uncheck any playlists you don't want backed up (everything is tracked by default on first sync; playlists you saved from other channels are included and labeled **(saved)**). The list refresh icon lives on that sub-page. For playlists you *saved* that the API can't enumerate, see **Saved playlists** below.
 7. Optionally open **Dashboard** (chevron row) and turn on **Dashboard note** to get a `Dashboard.md` home note. Lifeline checks that the community **Dataview** plugin is enabled first; the live sections also degrade gracefully if Dataview is later disabled.
 8. Select **Sync now**, or use the ribbon icon, or run the command **Lifeline: Sync now**.
+
+## Saved playlists
+
+YouTube's API returns the playlists you *created*, but not the ones you *saved* from other channels (subscriptions.list includes only created lists, and there is no endpoint that lists a user's saved playlists). To back those up too, Lifeline collects their IDs from the web page itself: two ways, both feeding the same box in **Settings → Lifeline → Get saved playlist IDs**:
+
+1. **Console steps (default, works everywhere).** The settings page has numbered steps for opening `youtube.com/feed/playlists` with DevTools and a **Copy collector script** button. Paste the script into the console; it scrolls the page, collects every saved playlist ID (skipping Watch Later, Liked videos, and radio/mix links), and copies a JSON array. Paste that array back into the settings box. Plain lists and mixed text work too, not just JSON. IDs are then stored in `data.json` and synced like any other tracked playlist.
+2. **In-app browser (experimental, desktop-only).** **Settings → Lifeline → Get saved playlist IDs → Collect in-app (experimental)** opens the playlists page inside Obsidian. If you already have that page open in the core **Web viewer** plugin, Lifeline collects from that tab using your existing sign-in; otherwise it opens a sandboxed window of its own. If Google shows a sign-in page, it says so and points you back to the console steps; the plugin never handles your Google login, never reads cookies, and only runs the collector script in the page. The settings row shows whether embedded browsing is available in your Obsidian build (it's a deprecated Electron feature, so availability varies).
+
+Whichever route you use, paste the result into the settings box and select **Add to tracked playlists**. Imported IDs appear on the same page and can be removed there; the plugin never sees your Google credentials in any of these flows.
 
 ## What gets written
 
@@ -157,7 +166,7 @@ WHERE v.title
 
 - **Desktop only.** The OAuth flow uses a loopback redirect (`127.0.0.1`), so mobile isn't supported.
 - **YouTube's system "Watch Later" list is not accessible via the API.** Pick your own substitute playlist in settings; Lifeline writes it to `Watch Later.md`.
-- **Quota:** the YouTube API allows about 10,000 units/day by default; a full sync costs roughly 2 units, plus 1 per tracked playlist, plus 1 per 50 subscribed channels while statistics fields are enabled. Lifeline counts usage and warns at a configurable soft limit.
+- **Quota:** the YouTube API allows about 10,000 units/day by default; a full sync costs roughly 2 units, plus 1 per tracked playlist, plus 1 per 50 subscribed channels while statistics fields are enabled, plus 1 per 50 imported playlist IDs. Lifeline counts usage and warns at a configurable soft limit.
 - **One Google account per vault.**
 - **No scheduler:** sync runs at startup (if due) or on demand.
 
@@ -171,7 +180,7 @@ npm run lint     # eslint (obsidianmd plugin rules)
 npm run deploy   # build, then copy artifacts into the real vault (local convenience)
 ```
 
-Source layout: `src/main.ts` (lifecycle only) delegates to `auth.ts` (OAuth loopback), `youtubeApi.ts` (quota-aware client), `sync.ts` (orchestration + state diffing), `markdown.ts` (renderers), `dashboard.ts` (Dashboard.md renderer + Dataview capability check), and `settings.ts` (settings tab). Sync state persists in `state.json` next to `data.json`; the sync log lives beside them in the plugin folder. Neither holds secrets.
+Source layout: `src/main.ts` (lifecycle only) delegates to `auth.ts` (OAuth loopback), `youtubeApi.ts` (quota-aware client), `sync.ts` (orchestration + state diffing), `markdown.ts` (renderers), `dashboard.ts` (Dashboard.md renderer + Dataview capability check), `collector.ts`/`playlistIds.ts`/`webviewCompat.ts` (saved-playlist ID collection), and `settings.ts` (settings tab). Sync state persists in `state.json` next to `data.json`; the sync log lives beside them in the plugin folder. Neither holds secrets.
 
 Progress is tracked in [GitHub issues](https://github.com/Aaqil101/obsidian-lifeline/issues): open issues are the roadmap, closed issues are what shipped.
 

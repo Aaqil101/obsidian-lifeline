@@ -16,6 +16,8 @@ const API_BASE = 'https://www.googleapis.com/youtube/v3';
 const MAX_PAGES = 500;
 const MAX_RETRIES = 2;
 const STAT_CHUNK_SIZE = 50;
+/** playlists.list accepts up to 50 ids per id= call (1 quota unit per call). */
+const ID_BATCH_SIZE = 50;
 
 /** Anything the plugin calls to authenticate a request. */
 export interface ApiAuth {
@@ -129,6 +131,7 @@ export async function listSubscriptions(
 	const savedPlaylists: PlaylistSummary[] = [];
 	const seen = new Set<string>();
 	const seenPlaylists = new Set<string>();
+
 	for (const raw of rawItems) {
 		const item = asRecord(raw);
 		const snippet = asRecord(item?.snippet);
@@ -255,12 +258,63 @@ export async function listOwnedPlaylists(
 	return playlists;
 }
 
-/** Entries of one playlist (playlistItems.list) with snippet + status parts. */
+/**
+ * Metadata for explicit playlist ids (playlists.list, id=…): the only way to
+ * title ids collected from youtube.com/feed/playlists: `mine=true` never
+ * lists saved playlists, but `id=` resolves any playlist the account can see.
+ * Batches 50 ids per call (1 quota unit per call). Ids YouTube doesn't return
+ * (deleted, private, mistyped) are simply absent from the result; callers keep
+ * their existing fallback titles for those.
+ */
+export async function listPlaylistsByIds(
+	ids: string[],
+	auth: ApiAuth,
+	quota: QuotaTracker,
+): Promise<PlaylistSummary[]> {
+	const playlists: PlaylistSummary[] = [];
+	const seen = new Set<string>();
+	for (let start = 0; start < ids.length; start += ID_BATCH_SIZE) {
+		const batch = ids.slice(start, start + ID_BATCH_SIZE);
+		const json = await requestJson(
+			{
+				endpoint: 'playlists',
+				resource: 'playlist metadata',
+				quotaUnits: 1,
+				params: {
+					part: 'snippet',
+					id: batch.join(','),
+					maxResults: '50',
+				},
+			},
+			auth,
+			quota,
+		);
+		const record = asRecord(json) ?? {};
+		for (const raw of asArray(record.items) ?? []) {
+			const item = asRecord(raw);
+			const id = asString(item?.id);
+			if (!id || seen.has(id)) continue;
+			seen.add(id);
+			// Saved flag stays true: these ids are by definition absent from
+			// mine=true (that filter is what put them on the import path).
+			playlists.push({ id, title: asString(asRecord(item?.snippet)?.title) || id, saved: true });
+		}
+	}
+	return playlists;
+}
+
+/**
+ * Entries of one playlist (playlistItems.list) with snippet + status parts,
+ * plus the playlist's upstream title when the API echoes one
+ * (`snippet.playlistTitle`, undocumented and often empty; imported ids get
+ * their reliable title from listPlaylistsByIds, this is only a fallback).
+ * Title is '' for an empty playlist.
+ */
 export async function listPlaylistItems(
 	playlistId: string,
 	auth: ApiAuth,
 	quota: QuotaTracker,
-): Promise<PlaylistVideoItem[]> {
+): Promise<{ title: string; items: PlaylistVideoItem[] }> {
 	const rawItems = await collectPages(async (pageToken) => {
 		const json = await requestJson(
 			{
@@ -284,14 +338,18 @@ export async function listPlaylistItems(
 		};
 	});
 
+	let playlistTitle = '';
 	const items: PlaylistVideoItem[] = [];
 	for (const raw of rawItems) {
 		const item = asRecord(raw);
 		if (!item) continue;
-		const videoId = asString(asRecord(item.contentDetails)?.videoId);
-		if (!videoId) continue; // no identifiable video — nothing to track or link
-
 		const snippet = asRecord(item.snippet);
+		// Same value on every row; read it before row-level skips so
+		// placeholder rows still yield it.
+		if (!playlistTitle) playlistTitle = asString(snippet?.playlistTitle);
+		const videoId = asString(asRecord(item.contentDetails)?.videoId);
+		if (!videoId) continue; // no identifiable video: nothing to track or link
+
 		const title = asString(snippet?.title);
 		const privacy = asString(asRecord(item.status)?.privacyStatus);
 		const placeholder = title === 'Deleted video' || title === 'Private video';
@@ -305,7 +363,7 @@ export async function listPlaylistItems(
 			unavailable: privacy === 'private' || placeholder,
 		});
 	}
-	return items;
+	return { title: playlistTitle, items };
 }
 
 async function collectPages(
@@ -352,7 +410,7 @@ async function requestJson(spec: RequestSpec, auth: ApiAuth, quota: QuotaTracker
 			throw new SyncError(failure.kind, spec.resource, failure.message);
 		}
 	}
-	/* istanbul ignore next — loop always throws or returns */
+	/* istanbul ignore next: loop always throws or returns */
 	throw new SyncError(
 		failure?.kind ?? 'api',
 		spec.resource,
@@ -389,7 +447,7 @@ async function classifyFailure(res: Response): Promise<Failure> {
 			reason = first ? asString(first.reason) : '';
 		}
 	} catch {
-		// non-JSON error body — keep the HTTP status message
+		// non-JSON error body: keep the HTTP status message
 	}
 
 	if (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded' || reason === 'batchQuotaExceeded') {

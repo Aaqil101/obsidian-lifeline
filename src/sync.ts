@@ -24,6 +24,7 @@ import {
 import {
 	listChannelStatistics,
 	listOwnedPlaylists,
+	listPlaylistsByIds,
 	listPlaylistItems,
 	listSubscriptions,
 	QuotaTracker,
@@ -56,7 +57,7 @@ export function runSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 /**
  * Adopt a freshly fetched playlist catalog into settings: refresh titles,
  * remember every id ever seen, and track NEW playlists by default (backup
- * first — an id the user unchecked stays unchecked, because it is already
+ * first; an id the user unchecked stays unchecked, because it is already
  * known).
  */
 /**
@@ -85,7 +86,7 @@ export async function adoptCatalog(plugin: LifelinePlugin, playlists: PlaylistSu
 			tracked.add(playlist.id);
 			known.add(playlist.id);
 		} else if (!known.has(playlist.id)) {
-			// New playlist discovered after the first run — tracked by default.
+			// New playlist discovered after the first run; tracked by default.
 			known.add(playlist.id);
 			tracked.add(playlist.id);
 		}
@@ -144,9 +145,30 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 				: plugin.settings.playlistCatalog.filter((playlist) => playlist.saved);
 			playlists = mergeCatalog(await listOwnedPlaylists(plugin.auth, quota), saved);
 			playlistsOk = true;
-			await adoptCatalog(plugin, playlists);
 		} catch (err) {
 			errors.push(recordError(err, 'playlists'));
+		}
+
+		// Titles for imported ids: mine=true never lists saved playlists, but
+		// playlists.list?id= resolves any playlist the account can see: one
+		// quota unit per 50 ids. Isolated like every fetch: on failure the ids
+		// keep their previous titles and the rest of the run continues. Runs
+		// every sync so upstream renames of saved playlists are followed too.
+		const catalogIds = new Set(playlists.map((playlist) => playlist.id));
+		const unresolved = (plugin.settings.importedPlaylistIds ?? []).filter((id) => !catalogIds.has(id));
+		if (unresolved.length > 0) {
+			try {
+				playlists = mergeCatalog(playlists, await listPlaylistsByIds(unresolved, plugin.auth, quota));
+			} catch (err) {
+				errors.push(recordError(err, 'playlist metadata'));
+			}
+		}
+		if (playlistsOk) {
+			try {
+				await adoptCatalog(plugin, playlists);
+			} catch (err) {
+				errors.push(recordError(err, 'playlists'));
+			}
 		}
 
 		// --- channel state diff ------------------------------------------------
@@ -209,8 +231,8 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 
 		for (const target of targets) {
 			try {
-				const items = await listPlaylistItems(target.id, plugin.auth, quota);
-				applyPlaylistDiff(state, target.id, target.title, target.saved, items, today);
+				const { title: upstreamTitle, items } = await listPlaylistItems(target.id, plugin.auth, quota);
+				applyPlaylistDiff(state, target.id, upstreamTitle || target.title, target.saved, items, today);
 				playlistsSynced++;
 				videosFound += items.length;
 			} catch (err) {
@@ -299,6 +321,7 @@ function buildTargets(
 	const settings = plugin.settings;
 	const trackedIds = new Set(settings.trackedPlaylists ?? []);
 	if (settings.watchLaterPlaylistId) trackedIds.add(settings.watchLaterPlaylistId);
+	const importedIds = new Set(settings.importedPlaylistIds ?? []);
 
 	const catalog = new Map(playlists.map((playlist) => [playlist.id, playlist] as const));
 	const targets: Array<{ id: string; title: string; saved: boolean }> = [];
@@ -306,9 +329,19 @@ function buildTargets(
 		const fromCatalog = catalog.get(id);
 		if (fromCatalog) {
 			targets.push(fromCatalog);
-		} else if (!playlistsOk && plugin.state.playlists[id]) {
-			// Catalog fetch failed — fall back to state so items still sync.
-			const record = plugin.state.playlists[id];
+			continue;
+		}
+		const record = plugin.state.playlists[id];
+		if (importedIds.has(id)) {
+			// Collected from youtube.com/feed/playlists and not in the catalog:
+			// either the metadata lookup failed this run, or the playlist is
+			// gone upstream. Sync anyway so items still back up; state keeps a
+			// known title, else the raw id until the next successful lookup.
+			targets.push({ id, title: record?.title ?? id, saved: true });
+			continue;
+		}
+		if (!playlistsOk && record) {
+			// Catalog fetch failed: fall back to state so items still sync.
 			targets.push({ id, title: record.title, saved: record.saved === true });
 		}
 		// Catalog OK but id missing → playlist deleted upstream; skip quietly.
@@ -336,7 +369,7 @@ function applyPlaylistDiff(
 	} else {
 		record.title = title;
 		if (record.fileName !== desiredName && !fileNameTaken(state, playlistId, desiredName)) {
-			// Playlist was renamed upstream — follow the new name.
+			// Playlist was renamed upstream; follow the new name.
 			record.fileName = desiredName;
 		}
 	}
@@ -476,7 +509,7 @@ async function ensureFolder(vault: Vault, folder: string): Promise<void> {
 			try {
 				await vault.createFolder(current);
 			} catch {
-				// created concurrently — idempotent ensure, safe to ignore
+				// created concurrently; idempotent ensure, safe to ignore
 			}
 		}
 	}
@@ -486,7 +519,7 @@ async function writeNote(vault: Vault, path: string, content: string): Promise<v
 	const file = vault.getAbstractFileByPath(path);
 	if (file instanceof TFile) {
 		const current = await vault.cachedRead(file);
-		if (current === content) return; // unchanged — skip to avoid needless events
+		if (current === content) return; // unchanged: skip to avoid needless events
 		await vault.modify(file, content);
 		return;
 	}
@@ -498,7 +531,7 @@ async function writeNote(vault: Vault, path: string, content: string): Promise<v
 	try {
 		await vault.create(path, content);
 	} catch {
-		// lost a creation race — modify if the file now exists
+		// lost a creation race: modify if the file now exists
 		const raced = vault.getAbstractFileByPath(path);
 		if (raced instanceof TFile) await vault.modify(raced, content);
 		else throw new Error(`Could not create note: ${path}`);
@@ -520,7 +553,7 @@ async function appendSyncLog(plugin: LifelinePlugin, line: string): Promise<void
 }
 
 /**
- * Remove a superseded note after an upstream playlist rename — uses
+ * Remove a superseded note after an upstream playlist rename; uses
  * FileManager.trashFile so the user's trash preference is respected.
  */
 async function deleteNote(app: App, path: string): Promise<void> {

@@ -33,3 +33,83 @@
 	padding: var(--setting-items-padding-y, 16px) var(--setting-items-padding-x, 16px);
 	color: var(--text-muted);
 }
+
+/* Saved-playlist collector sub-page (Mode 1 steps, feedback, script). */
+.lifeline-settings-steps {
+	margin: 0;
+	padding: var(--setting-items-padding-y, 16px) var(--setting-items-padding-x, 16px) 0
+		calc(var(--setting-items-padding-x, 16px) + 20px);
+	color: var(--text-muted);
+}
+
+.lifeline-settings-steps li {
+	margin-bottom: 6px;
+}
+
+.lifeline-collect-script {
+	margin-top: 8px;
+	max-height: 200px;
+	overflow: auto;
+	white-space: pre-wrap;
+	word-break: break-word;
+	font-size: var(--font-ui-smaller);
+}
+
+.lifeline-collect-feedback p {
+	margin: 0;
+}
+
+.lifeline-collect-feedback p + p {
+	margin-top: 4px;
+}
+
+/* Mode 2: a wide, tall modal whose webview fills the remaining space. */
+.lifeline-collect-modal {
+	width: min(1100px, 94vw);
+	max-width: none;
+	height: min(760px, 88vh);
+	display: flex;
+	flex-direction: column;
+}
+
+.lifeline-collect-modal .modal-content {
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.lifeline-collect-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.lifeline-collect-status {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.lifeline-collect-hint {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 8px 12px;
+	border-radius: var(--radius-m);
+	background: var(--background-modifier-error, var(--background-secondary));
+}
+
+.lifeline-hidden {
+	display: none;
+}
+
+.lifeline-collect-webview {
+	flex: 1;
+	min-height: 0;
+	width: 100%;
+	border: none;
+	background: var(--background-primary);
+}

@@ -1,7 +1,8 @@
 /**
  * Settings: Google authentication (client ID + SecretComponent-backed client
- * secret), output locations, Channels.md fields and playlist checklist
- * sub-pages, watch-later substitute, and sync behaviour.
+ * secret), output locations, Channels.md fields, playlist checklist and
+ * saved-playlist ID collector sub-pages, watch-later substitute, and sync
+ * behaviour.
  *
  * Rows are grouped with Obsidian's native `.setting-group` /
  * `.setting-items` card structure, so the tab renders exactly like the
@@ -9,11 +10,30 @@
  *
  * No Google credential ever lands in data.json: the client ID, client
  * secret, and refresh token all live in the Obsidian keychain, and only
- * their *names* are persisted here.
+ * their *names* are persisted here. Collected playlist IDs live in
+ * data.json and nowhere else.
  */
-import { App, Notice, PluginSettingTab, SecretComponent, Setting, setIcon } from 'obsidian';
+import {
+	App,
+	Notice,
+	Platform,
+	PluginSettingTab,
+	SecretComponent,
+	Setting,
+	setIcon,
+	type ButtonComponent,
+} from 'obsidian';
+import { COLLECTOR_SOURCE } from './collector';
 import { DATAVIEW_REQUIRED_NOTICE, isDataviewEnabled } from './dashboard';
 import { DEFAULT_OUTPUT_FOLDER } from './markdown';
+import {
+	addImportedPlaylistIds,
+	describeParse,
+	parsePlaylistIds,
+	removeImportedPlaylistId,
+} from './playlistIds';
+import { PlaylistWebviewModal } from './ui/playlistWebviewModal';
+import { findOpenCollectorTab, isWebviewSupported } from './webviewCompat';
 import {
 	DEFAULT_CHANNELS_FIELDS,
 	DEFAULT_DASHBOARD_SECTIONS,
@@ -61,9 +81,11 @@ export interface LifelineSettings {
 	dashboardSections: DashboardSections;
 	/** null = never fetched → every playlist is tracked on first fetch. */
 	trackedPlaylists: string[] | null;
+	/** IDs collected from youtube.com/feed/playlists; the API never lists them. */
+	importedPlaylistIds: string[];
 	/** Every playlist id ever discovered (so user-unchecked ids stay unchecked). */
 	knownPlaylistIds: string[];
-	/** Last fetched playlists.list result — powers settings UI and dropdowns. */
+	/** Last fetched playlists.list result; powers settings UI and dropdowns. */
 	playlistCatalog: PlaylistSummary[];
 	/** Playlist written to Watch Later.md (YouTube's system list is API-inaccessible). */
 	watchLaterPlaylistId: string;
@@ -81,6 +103,7 @@ export const DEFAULT_SETTINGS: LifelineSettings = {
 	dashboardNote: false,
 	dashboardSections: { ...DEFAULT_DASHBOARD_SECTIONS },
 	trackedPlaylists: null,
+	importedPlaylistIds: [],
 	knownPlaylistIds: [],
 	playlistCatalog: [],
 	watchLaterPlaylistId: '',
@@ -91,7 +114,7 @@ export const DEFAULT_SETTINGS: LifelineSettings = {
 export class LifelineSettingTab extends PluginSettingTab {
 	plugin: LifelinePlugin;
 	/** Which in-settings sub-page is open (native Manage-page navigation). */
-	private subPage: 'none' | 'channels' | 'playlists' | 'dashboard' = 'none';
+	private subPage: 'none' | 'channels' | 'playlists' | 'dashboard' | 'collect' = 'none';
 
 	constructor(app: App, plugin: LifelinePlugin) {
 		super(app, plugin);
@@ -108,6 +131,10 @@ export class LifelineSettingTab extends PluginSettingTab {
 		}
 		if (this.subPage === 'playlists') {
 			this.renderPlaylistsPage(containerEl);
+			return;
+		}
+		if (this.subPage === 'collect') {
+			this.renderCollectIdsPage(containerEl);
 			return;
 		}
 		if (this.subPage === 'dashboard') {
@@ -143,7 +170,7 @@ export class LifelineSettingTab extends PluginSettingTab {
 		card: HTMLElement,
 		name: string,
 		desc: string,
-		target: 'channels' | 'playlists' | 'dashboard',
+		target: 'channels' | 'playlists' | 'dashboard' | 'collect',
 	): void {
 		const row = new Setting(card)
 			.setName(name)
@@ -297,6 +324,13 @@ export class LifelineSettingTab extends PluginSettingTab {
 				: `${trackedCount} of ${catalog.length} tracked. Uncheck the ones you don’t want backed up.`;
 		this.navRow(card, 'Playlists to track', desc, 'playlists');
 
+		this.navRow(
+			card,
+			'Get saved playlist IDs',
+			'Import IDs you collected from youtube.com/feed/playlists (saved playlists the API list never returns) so they get backed up too.',
+			'collect',
+		);
+
 		new Setting(card)
 			.setName('Watch later playlist')
 			.setDesc(
@@ -367,9 +401,176 @@ export class LifelineSettingTab extends PluginSettingTab {
 	}
 
 	/**
+	 * Saved-playlist ID collector sub-page. Mode 1 (default, every platform):
+	 * numbered DevTools steps, a copy button for the console collector, and a
+	 * lenient paste parser with an "N IDs parsed" count plus shape warnings.
+	 * Mode 2 (desktop-only, experimental): collect inside an embedded
+	 * webview. Imported IDs are persisted to data.json only.
+	 */
+	private renderCollectIdsPage(containerEl: HTMLElement): void {
+		const { settings } = this.plugin;
+		this.addBackCrumb(containerEl);
+
+		const stepsCard = this.group(containerEl, 'Get saved playlist IDs');
+		const steps = stepsCard.createEl('ol', { cls: 'lifeline-settings-steps' });
+		steps.createEl('li', { text: 'Open YouTube.com/feed/playlists in a browser and sign in.' });
+		steps.createEl('li', {
+			text: 'Open DevTools (F12) and select the Console tab. If Chrome warns about pasting, type allow pasting and press Enter first.',
+		});
+		steps.createEl('li', {
+			text: 'Paste the collector script and press Enter. It scrolls to the end of the page, then prints a JSON array of playlist IDs.',
+		});
+		const lastStep = steps.createEl('li');
+		lastStep.appendText('Copy the printed array, paste it below, then select ');
+		lastStep.createEl('b', { text: 'Add to tracked playlists' });
+		lastStep.appendText('. The script only reads the page; it never touches your cookies or account.');
+
+		new Setting(stepsCard)
+			.setName('Collector script')
+			.setDesc('Reads YouTube.com/feed/playlists: scrolls to the end, then collects every playlist ID it finds.')
+			.addButton((button) =>
+				button.setButtonText('Copy collector script').onClick(async () => {
+					try {
+						await navigator.clipboard.writeText(COLLECTOR_SOURCE);
+						new Notice('Collector script copied. Paste it in the YouTube console.');
+					} catch {
+						new Notice('Could not copy automatically. Expand the script below and copy it manually.', 8000);
+					}
+				}),
+			);
+
+		const disclosure = stepsCard.createEl('details', { cls: 'lifeline-settings-note' });
+		disclosure.createEl('summary', { text: 'Show the collector script' });
+		disclosure.createEl('pre', { cls: 'lifeline-collect-script', text: COLLECTOR_SOURCE });
+
+		let pasted = '';
+		let addButton: ButtonComponent | null = null;
+
+		new Setting(stepsCard)
+			.setName('Paste the copied array')
+			.setDesc(
+				'A JSON array, one ID per line, or a mix: quotes, commas, brackets, and playlist links are all accepted.',
+			)
+			.addTextArea((text) => {
+				text.setPlaceholder('Paste the array you copied from the console');
+				text.inputEl.rows = 6;
+				text.onChange((value) => {
+					pasted = value;
+					updateFeedback();
+				});
+			});
+
+		const feedback = stepsCard.createDiv({ cls: 'lifeline-settings-note lifeline-collect-feedback' });
+
+		const updateFeedback = (): void => {
+			feedback.empty();
+			const parse = parsePlaylistIds(pasted);
+			if (parse.ids.length === 0) {
+				addButton?.setDisabled(true);
+				if (pasted.trim()) feedback.createEl('p', { text: 'Nothing that looks like a playlist ID was found.' });
+				return;
+			}
+			addButton?.setDisabled(false);
+			const tracked = new Set(settings.trackedPlaylists ?? []);
+			const alreadyTracked = parse.ids.filter((id) => tracked.has(id)).length;
+			const { countLine, warningLine } = describeParse(parse, alreadyTracked);
+			feedback.createEl('p', { text: countLine });
+			if (warningLine) feedback.createEl('p', { text: warningLine });
+		};
+
+		new Setting(stepsCard)
+			.setName('Import')
+			.setDesc('Save the parsed IDs to data.json and start tracking them for backup.')
+			.addButton((button) => {
+				addButton = button;
+				button
+					.setButtonText('Add to tracked playlists')
+					.setCta()
+					.setDisabled(true)
+					.onClick(async () => {
+						const { ids } = parsePlaylistIds(pasted);
+						if (ids.length === 0) return;
+						const added = addImportedPlaylistIds(settings, ids);
+						await this.plugin.saveSettings();
+						new Notice(
+							added > 0
+								? `Added ${added} playlist ID${added === 1 ? '' : 's'}.`
+								: 'Those IDs are already tracked.',
+						);
+						this.display();
+					});
+			});
+		updateFeedback();
+
+		const importedCard = this.group(containerEl, 'Imported IDs');
+		const imported = settings.importedPlaylistIds ?? [];
+		if (imported.length === 0) {
+			importedCard.createEl('p', {
+				cls: 'lifeline-settings-note',
+				text: 'Nothing imported yet. Start with the steps above.',
+			});
+		}
+		const catalog = new Map(settings.playlistCatalog.map((playlist) => [playlist.id, playlist] as const));
+		for (const id of imported) {
+			const title = catalog.get(id)?.title ?? this.plugin.state.playlists[id]?.title ?? id;
+			const row = new Setting(importedCard).setName(title).addExtraButton((button) =>
+				button
+					.setIcon('trash')
+					.setTooltip('Stop tracking this playlist')
+					.onClick(async () => {
+						removeImportedPlaylistId(settings, id);
+						await this.plugin.saveSettings();
+						this.display();
+					}),
+			);
+			if (title !== id) row.setDesc(id);
+		}
+
+		// Mode 2: experimental, desktop-only, hidden entirely on mobile.
+		if (!Platform.isMobile) {
+			const webviewCard = this.group(containerEl, 'In-app browser');
+			// Embedded browsing varies by build (the <webview> tag is deprecated
+			// in Electron), so probe it right here instead of failing inside the
+			// modal. An open Web viewer tab counts as available even if the
+			// createElement probe were to fail: the modal can collect from it.
+			const webviewAvailable = isWebviewSupported() || findOpenCollectorTab() !== null;
+			new Setting(webviewCard)
+				.setName('Collect in-app (experimental)')
+				.setDesc(
+					'Opens YouTube.com/feed/playlists inside Obsidian so you can collect them with one click: it uses your open browser tab when one is already on that page (your existing sign-in), otherwise a sandboxed window of its own. If Google shows a sign-in page, close the view and use the console steps above; the plugin never handles your Google login.',
+				)
+				.addButton((button) => {
+					button.setButtonText('Open in-app browser').onClick(() => {
+						let addedWhileOpen = 0;
+						const modal = new PlaylistWebviewModal(
+							this.app,
+							async (ids) => {
+								const added = addImportedPlaylistIds(settings, ids);
+								await this.plugin.saveSettings();
+								addedWhileOpen += added;
+								return added;
+							},
+							() => {
+								if (addedWhileOpen > 0) this.display();
+							},
+						);
+						modal.open();
+					});
+					if (!webviewAvailable) button.setDisabled(true);
+				});
+			webviewCard.createEl('p', {
+				cls: 'lifeline-settings-note',
+				text: webviewAvailable
+					? 'Embedded browsing is available on this build.'
+					: 'Embedded browsing is not available on this build. Use the console steps above.',
+			});
+		}
+	}
+
+	/**
 	 * Dashboard sub-page: master toggle with the Dataview gate (revert +
 	 * Notice when Dataview is missing), section checklist, and a heading
-	 * refresh icon that writes + opens the note now. No reset button — the
+	 * refresh icon that writes + opens the note now. No reset button; the
 	 * section defaults are one all-on state, not worth a control.
 	 */
 	private renderDashboardPage(containerEl: HTMLElement): void {
