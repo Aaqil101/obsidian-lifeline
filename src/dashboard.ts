@@ -1,7 +1,7 @@
 /**
  * Dashboard note (Dashboard.md): an opt-in home note with a static summary
  * computed from sync state, plus live DataviewJS sections over the synced
- * notes. Pure rendering + one capability check (isDataviewEnabled) — no
+ * notes. Pure rendering + one capability check (isDataviewEnabled); no
  * vault I/O here; sync.ts owns the file writes (writeDashboardNote and the
  * writeOutputs path).
  *
@@ -67,7 +67,7 @@ function newestDate(record: PlaylistRecord): string {
 	for (const video of Object.values(record.videos)) {
 		if (video.dateAdded > newest) newest = video.dateAdded;
 	}
-	return newest || '—';
+	return newest || '-';
 }
 
 /** Wikilink target without the `.md` suffix. */
@@ -82,7 +82,7 @@ function dataviewBlock(code: string): string {
 
 /**
  * Static header (state-derived): frontmatter, last-sync status line, counts,
- * quick links, and the playlist overview table — then the opt-in live
+ * quick links, and the playlist overview table, then the opt-in live
  * sections, or a hint line when Dataview is unavailable.
  */
 export function renderDashboardNote(state: SyncState, ctx: DashboardContext): string {
@@ -152,7 +152,7 @@ export function renderDashboardNote(state: SyncState, ctx: DashboardContext): st
 	const liveWanted = sections.recent || sections.topChannels || sections.attention;
 	if (!dataviewReady) {
 		if (liveWanted) {
-			lines.push('*Dataview is disabled — live sections hidden. Enable the community Dataview plugin to restore them.*', '');
+			lines.push('*Dataview is disabled; live sections hidden. Enable the community Dataview plugin to restore them.*', '');
 		}
 	} else {
 		const source = JSON.stringify(`"${paths.folder}"`);
@@ -210,7 +210,7 @@ const top = rows.slice(0, 10);
 if (top.length === 0) {
   dv.paragraph("No subscriber counts found. Turn on Subscribers in Settings → Lifeline → Channels.md fields.");
 } else {
-  dv.table(["Channel", "Subscribers", "Videos"], top.map((l) => [l.channel, l.subscribers, l.videos ?? "—"]));
+  dv.table(["Channel", "Subscribers", "Videos"], top.map((l) => [l.channel, l.subscribers, l.videos ?? "-"]));
 }`;
 }
 

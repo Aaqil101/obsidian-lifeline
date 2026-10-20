@@ -2,7 +2,7 @@
  * Google OAuth 2.0 "installed app" flow with a local loopback redirect.
  *
  * DESKTOP-ONLY: the flow starts a tiny HTTP listener on 127.0.0.1 to catch the
- * redirect, which only works in the desktop (Electron) app — this is why
+ * redirect, which only works in the desktop (Electron) app: this is why
  * manifest.json sets isDesktopOnly.
  *
  * Secret storage: the refresh token (and the client secret value) live in

@@ -1,6 +1,6 @@
 /**
  * Small, type-safe helpers for reading unknown JSON returned by the YouTube
- * and Google OAuth endpoints. No `any` — everything narrows from `unknown`.
+ * and Google OAuth endpoints. No `any`: everything narrows from `unknown`.
  */
 
 export function asRecord(value: unknown): Record<string, unknown> | null {

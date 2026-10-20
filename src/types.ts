@@ -34,7 +34,7 @@ export interface SyncErrorRecord {
 	message: string;
 }
 
-/** ✓ ok — nothing failed. ⚠ warn — partial success or soft-limit hit. ✗ error — nothing usable. */
+/** ✓ ok: nothing failed. ⚠ warn: partial success or soft-limit hit. ✗ error: nothing usable. */
 export type SyncStatus = 'ok' | 'warn' | 'error';
 
 export interface SyncRunResult {
@@ -48,7 +48,7 @@ export interface SyncRunResult {
 	errors: SyncErrorRecord[];
 }
 
-/** Persisted in state.json — powers the status bar and sync-log summary. */
+/** Persisted in state.json; powers the status bar and sync-log summary. */
 export interface LastSyncInfo {
 	at: number;
 	status: SyncStatus;
@@ -128,7 +128,7 @@ export interface VideoRecord {
 	position: number;
 	/** Kept in state but no longer present in the live playlist. */
 	removed: boolean;
-	/** Private or deleted at fetch time — kept deliberately, never dropped. */
+	/** Private or deleted at fetch time; kept deliberately, never dropped. */
 	unavailable: boolean;
 }
 
@@ -159,7 +159,7 @@ export function createDefaultState(): SyncState {
 	};
 }
 
-/** A playlist as returned by playlists.list/subscriptions.list — also persisted as the settings catalog. */
+/** A playlist as returned by playlists.list/subscriptions.list; also persisted as the settings catalog. */
 export interface PlaylistSummary {
 	id: string;
 	title: string;

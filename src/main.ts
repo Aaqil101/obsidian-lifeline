@@ -1,5 +1,5 @@
 /**
- * Lifeline — plugin entry point. Lifecycle only: load settings/state, wire
+ * Lifeline plugin entry point. Lifecycle only: load settings/state, wire
  * commands, ribbon, status bar, and the load-time auto-sync check. All feature
  * logic lives in the other modules (auth, youtubeApi, markdown, sync).
  */
@@ -87,8 +87,8 @@ export default class LifelinePlugin extends Plugin {
 	/** Fetch the playlist catalog (owned + saved) and adopt it into settings. */
 	async fetchPlaylistCatalog(): Promise<void> {
 		const quota = new QuotaTracker(this.settings.quotaSoftLimit);
-		// Saved playlists ride on subscriptions.list — the same call that feeds
-		// Channels.md — so the refresh gains them for one extra quota unit.
+		// Saved playlists ride on subscriptions.list, the same call that feeds
+		// Channels.md, so the refresh gains them for one extra quota unit.
 		const [owned, { savedPlaylists }] = await Promise.all([
 			listOwnedPlaylists(this.auth, quota),
 			listSubscriptions(this.auth, quota),
@@ -160,7 +160,7 @@ export default class LifelinePlugin extends Plugin {
 	}
 
 	/**
-	 * Startup auto-sync check. IMPORTANT: this is NOT a background scheduler —
+	 * Startup auto-sync check. IMPORTANT: this is NOT a background scheduler;
 	 * it fires once per Obsidian launch (after a short delay) and only when the
 	 * last successful sync is older than the configured interval. Nothing ever
 	 * syncs while Obsidian is closed; manual syncs (command/ribbon) fill the gap.
