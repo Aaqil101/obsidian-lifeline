@@ -36,7 +36,7 @@ import {
 	parsePlaylistIds,
 	removeImportedPlaylistId,
 } from './playlistIds';
-import { writeTablesScript } from './sync';
+import { writeNoteViewsScript } from './sync';
 import {
 	findWebViewerTab,
 	isGoogleSignInUrl,
@@ -50,6 +50,7 @@ import {
 	DEFAULT_DASHBOARD_SECTIONS,
 	type ChannelsFieldSettings,
 	type DashboardSections,
+	type ImageMode,
 	type PlaylistSummary,
 } from './types';
 import type LifelinePlugin from './main';
@@ -77,6 +78,13 @@ const DASHBOARD_ROWS: Array<{ key: keyof DashboardSections; name: string }> = [
 	{ key: 'attention', name: 'Needs attention card' },
 ];
 
+/** Layout for the opt-in note views (settings dropdown). `mixed` picks the
+ *  layout per note: chips for Channels.md, cards for playlist notes. */
+export type NoteLayout = 'table' | 'mixed' | 'cards' | 'chips';
+
+/** Default note layout: chips in Channels.md, cards in playlists. */
+export const DEFAULT_NOTE_LAYOUT: NoteLayout = 'mixed';
+
 export interface LifelineSettings {
 	/** Keychain *name* of the secret holding the OAuth client ID. */
 	clientIdName: string;
@@ -95,10 +103,20 @@ export interface LifelineSettings {
 	/** Folder the script was last written to (null = never); lets a folder
 	 *  change trash the stale copy. Internal bookkeeping, not user-facing. */
 	dashboardScriptsFolderWritten: string | null;
-	/** Opt-in DataviewJS tables above the entries in Channels.md, every
+	/** Opt-in DataviewJS views above the entries in Channels.md, every
 	 *  playlist note, and Watch Later.md (requires the community Dataview
-	 *  plugin). Draws from the generated lifeline-tables.js script. */
-	noteTables: boolean;
+	 *  plugin). Draws from the generated lifeline-noteviews.js script. */
+	noteViews: boolean;
+	/** How those views render. `mixed` = chips for Channels.md, cards for
+	 *  playlist notes; the other three apply one layout everywhere.
+	 *  Ignored while `noteViews` is off. */
+	noteLayout: NoteLayout;
+	/** Avatar at the end of every Channels.md bullet. Not gated on the views
+	 *  toggle: images live in the bullets, so they need no Dataview. */
+	channelAvatars: ImageMode;
+	/** Thumbnail at the end of every playlist and Watch Later bullet. Not
+	 *  gated on the views toggle either. */
+	videoThumbnails: ImageMode;
 	/** null = never fetched → every playlist is tracked on first fetch. */
 	trackedPlaylists: string[] | null;
 	/** IDs collected from youtube.com/feed/playlists; the API never lists them. */
@@ -124,7 +142,10 @@ export const DEFAULT_SETTINGS: LifelineSettings = {
 	dashboardSections: { ...DEFAULT_DASHBOARD_SECTIONS },
 	dashboardScriptsFolder: DEFAULT_SCRIPTS_FOLDER,
 	dashboardScriptsFolderWritten: null,
-	noteTables: false,
+	noteViews: false,
+	noteLayout: DEFAULT_NOTE_LAYOUT,
+	channelAvatars: 'off',
+	videoThumbnails: 'off',
 	trackedPlaylists: null,
 	importedPlaylistIds: [],
 	knownPlaylistIds: [],
@@ -291,34 +312,73 @@ export class LifelineSettingTab extends PluginSettingTab {
 				}),
 			);
 
-		// Opt-in DataviewJS tables. Same Dataview gate as the dashboard toggle:
+		// Image pickers. Deliberately NOT gated on the views toggle: images
+		// live in the bullets, so they work with Dataview absent and with
+		// views off. Default off, which is also the byte-identical path.
+		this.imageModeSetting(
+			card,
+			'Channel avatars',
+			'Add an avatar to each channel bullet in Channels.md. Link loads it from Google each time a note opens; Download fetches it once during sync into the thumbnails folder, so notes render offline. Off by default; notes update on the next sync.',
+			'channelAvatars',
+		);
+
+		this.imageModeSetting(
+			card,
+			'Video thumbnails',
+			'Add a thumbnail to each bullet in playlist notes and Watch Later.md. Link loads it from Google each time a note opens; Download fetches it once during sync into the thumbnails folder, so notes render offline. Off by default; notes update on the next sync.',
+			'videoThumbnails',
+		);
+
+		// Opt-in DataviewJS views. Same Dataview gate as the dashboard toggle:
 		// revert + Notice when the community plugin is missing. Toggling on
-		// writes lifeline-tables.js immediately so the next sync's baked
+		// writes lifeline-noteviews.js immediately so the next sync's baked
 		// dv.view() calls resolve; toggling off needs nothing (the next sync
 		// rewrites the notes without the block).
 		new Setting(card)
-			.setName('Dataview tables in notes')
+			.setName('Views in notes')
 			.setDesc(
-				'Draw a live DataviewJS table above the entries in Channels.md, every playlist note, and Watch Later.md. Columns follow your Channels.md field choices. Notes pick it up on the next sync. Requires the community Dataview plugin.',
+				'Draw a live DataviewJS view above the entries in Channels.md, every playlist note, and Watch Later.md. Columns follow your Channels.md field choices. Notes pick it up on the next sync. Requires the community Dataview plugin.',
 			)
 			.addToggle((toggle) =>
-				toggle.setValue(settings.noteTables).onChange(async (on) => {
+				toggle.setValue(settings.noteViews).onChange(async (on) => {
 					if (on && !isDataviewEnabled(this.app)) {
 						new Notice(DATAVIEW_REQUIRED_NOTICE, 20000);
 						toggle.setValue(false);
 						return;
 					}
-					settings.noteTables = on;
+					settings.noteViews = on;
 					await this.plugin.saveSettings();
 					if (on) {
 						try {
-							await writeTablesScript(this.plugin);
+							await writeNoteViewsScript(this.plugin);
 						} catch (err) {
-							console.error('Lifeline: could not write the note-tables script', err);
-							new Notice('Could not write the note-tables script.');
+							console.error('Lifeline: could not write the note-views script', err);
+							new Notice('Could not write the note-views script.');
 						}
 					}
 				}),
+			);
+
+		// Layout picker. Described as inactive rather than disabled while the
+		// toggle is off, so the choice survives turning views off and back on.
+		new Setting(card)
+			.setName('View layout')
+			.setDesc(
+				'How the view renders above the entries. Mixed draws chips in Channels.md and cards in playlist notes; the other options use one layout everywhere. Only applies while Views in notes is on.',
+			)
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOption('mixed', 'Mixed (recommended)')
+					.addOption('chips', 'Chips')
+					.addOption('cards', 'Cards')
+					.addOption('table', 'Table')
+					.setValue(settings.noteLayout)
+					.onChange(async (value) => {
+						settings.noteLayout = (['table', 'mixed', 'cards', 'chips'].includes(value)
+							? value
+							: DEFAULT_NOTE_LAYOUT) as NoteLayout;
+						await this.plugin.saveSettings();
+					}),
 			);
 
 		this.navRow(
@@ -336,6 +396,33 @@ export class LifelineSettingTab extends PluginSettingTab {
 				: 'Off. Create a home note with sync stats and live DataviewJS sections (requires the community Dataview plugin).',
 			'dashboard',
 		);
+	}
+
+	/**
+	 * One three-mode image picker. Off / remote link / vault copy, shared by
+	 * both image settings so the wording and the fallback logic stay in step.
+	 */
+	private imageModeSetting(
+		card: HTMLElement,
+		name: string,
+		desc: string,
+		key: 'channelAvatars' | 'videoThumbnails',
+	): void {
+		const { settings } = this.plugin;
+		new Setting(card)
+			.setName(name)
+			.setDesc(desc)
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOption('off', 'Off')
+					.addOption('link', 'Link to YouTube')
+					.addOption('download', 'Download into the vault')
+					.setValue(settings[key])
+					.onChange(async (value) => {
+						settings[key] = (['off', 'link', 'download'].includes(value) ? value : 'off') as ImageMode;
+						await this.plugin.saveSettings();
+					}),
+			);
 	}
 
 	private renderChannelsFieldsPage(containerEl: HTMLElement): void {

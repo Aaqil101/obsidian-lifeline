@@ -61,6 +61,12 @@ export interface ChannelStatistics {
 	views: number | null;
 	/** ISO 3166-1 alpha-2 code; '' when unset. */
 	country: string;
+	/**
+	 * Channel avatar URL, taken from the same snippet the handle comes from
+	 * (`part=snippet` is already requested, so this costs no extra quota).
+	 * '' when the channel carries no thumbnail.
+	 */
+	avatar: string;
 }
 
 export interface PlaylistVideoItem {
@@ -198,10 +204,11 @@ export async function listChannelStatistics(
 				const id = asString(item?.id);
 				if (!id) continue;
 				const statistics = asRecord(item?.statistics);
+				const snippet = asRecord(item?.snippet);
 				const brandingChannel = asRecord(asRecord(item?.brandingSettings)?.channel);
 				stats.push({
 					id,
-					handle: normalizeHandle(asString(asRecord(item?.snippet)?.customUrl)),
+					handle: normalizeHandle(asString(snippet?.customUrl)),
 					subscribers:
 						statistics?.hiddenSubscriberCount === true
 							? null
@@ -209,6 +216,7 @@ export async function listChannelStatistics(
 					videos: toCount(asString(statistics?.videoCount)),
 					views: toCount(asString(statistics?.viewCount)),
 					country: asString(brandingChannel?.country),
+					avatar: pickThumbnail(asRecord(snippet?.thumbnails)),
 				});
 			}
 		} catch (err) {
@@ -519,4 +527,20 @@ function normalizeHandle(customUrl: string): string {
 function toCount(value: string): number | null {
 	const parsed = Number(value);
 	return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+/**
+ * Best avatar URL out of a `snippet.thumbnails` object. The keys the API
+ * populates vary per channel (`default`, `medium`, `high`, `maxres`), so try
+ * them in size order rather than assuming one exists. 240px (`medium`) suits
+ * both the chip and card sizes the views draw, so it wins over the 800px
+ * `high`; '' means no thumbnail at all.
+ */
+function pickThumbnail(thumbnails: Record<string, unknown> | null): string {
+	if (!thumbnails) return '';
+	for (const key of ['medium', 'default', 'high', 'maxres']) {
+		const url = asString(asRecord(thumbnails[key])?.url);
+		if (url) return url;
+	}
+	return '';
 }

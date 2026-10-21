@@ -25,6 +25,15 @@ export default class LifelinePlugin extends Plugin {
 
 	async onload(): Promise<void> {
 		const loaded = (await this.loadData()) as Partial<LifelineSettings> | null;
+		// Pre-rename key: "noteTables" became "noteViews" when the feature grew
+		// layouts. Copy it across so an existing opt-in survives, then drop the
+		// stale key so it does not round-trip back into data.json.
+		const legacy = loaded as { noteTables?: boolean } | null;
+		const hadLegacyTables = legacy?.noteTables !== undefined;
+		if (hadLegacyTables && legacy && loaded && loaded.noteViews === undefined) {
+			loaded.noteViews = legacy.noteTables;
+		}
+		if (legacy) delete legacy.noteTables;
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
 		// Per-key merge so field toggles added later still get their defaults.
 		this.settings.channelsFields = {
@@ -35,6 +44,11 @@ export default class LifelinePlugin extends Plugin {
 			...DEFAULT_SETTINGS.dashboardSections,
 			...(loaded?.dashboardSections ?? {}),
 		};
+		// Persist the rename once, and only when a legacy key was actually
+		// found. Startup stays read-only on every other load, and the stale
+		// noteTables key is purged from data.json instead of waiting for some
+		// later settings change to happen to write it out.
+		if (hadLegacyTables) await this.saveSettings();
 		this.state = await this.loadState();
 		this.auth = new AuthManager(this);
 

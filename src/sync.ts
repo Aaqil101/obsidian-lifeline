@@ -17,17 +17,21 @@ import {
 	renderDashboardScript,
 } from './dashboardScript';
 import {
+	channelImageBase,
 	dataviewBlock,
 	formatDate,
 	outputPaths,
 	renderChannelsNote,
 	renderPlaylistNote,
 	sanitizeFileName,
+	videoImageBase,
+	videoThumbnailUrl,
 	viewCall,
+	type BulletImages,
 	type OutputPaths,
 } from './markdown';
 import { appendSyncLogRun } from './syncLog';
-import { renderTablesScript, tablesScriptPath, tablesViewName } from './tablesScript';
+import { noteViewsScriptPath, noteViewsViewName, renderNoteViewsScript } from './noteViewsScript';
 import {
 	listChannelStatistics,
 	listOwnedPlaylists,
@@ -40,6 +44,7 @@ import {
 } from './youtubeApi';
 import {
 	asSyncError,
+	SyncError,
 	type PlaylistRecord,
 	type PlaylistSummary,
 	type SyncErrorRecord,
@@ -217,7 +222,14 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 
 		// --- channel statistics (only when a paid field toggle is on) ----------
 		const fields = plugin.settings.channelsFields;
-		const statsWanted = fields.subscribers || fields.videos || fields.views || fields.country;
+		const statsWanted =
+			fields.subscribers ||
+			fields.videos ||
+			fields.views ||
+			fields.country ||
+			// Avatars arrive on this same part=snippet response, so wanting one
+			// is the only reason to keep the call; it adds no request of its own.
+			plugin.settings.channelAvatars !== 'off';
 		if (channelsOk && statsWanted) {
 			const { stats, syncErrors } = await listChannelStatistics(
 				plugin.auth,
@@ -235,6 +247,7 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 				if (stat.videos !== null) record.videoCount = stat.videos;
 				if (stat.views !== null) record.viewCount = stat.views;
 				record.country = stat.country || record.country;
+				record.avatar = stat.avatar || record.avatar;
 			}
 		}
 
@@ -443,24 +456,33 @@ function uniqueFileName(state: SyncState, playlistId: string, base: string): str
 async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<void> {
 	const vault = plugin.app.vault;
 
-	// Dataview note tables (opt-in): write the script first so the dv.view()
+	// Note views (opt-in): write the script first so the dv.view()
 	// calls baked into the notes always resolve. Written regardless of
 	// Dataview state (a degraded note simply omits the block), matching the
 	// dashboard script precedent.
-	if (plugin.settings.noteTables) {
+	if (plugin.settings.noteViews) {
 		try {
-			await writeTablesScript(plugin);
+			await writeNoteViewsScript(plugin);
 		} catch (err) {
-			ctx.errors.push(recordError(err, tablesScriptPath(plugin.settings.dashboardScriptsFolder)));
+			ctx.errors.push(recordError(err, noteViewsScriptPath(plugin.settings.dashboardScriptsFolder)));
 		}
 	}
 	// The block itself is only baked in when Dataview is actually enabled.
-	const tablesReady = plugin.settings.noteTables && isDataviewEnabled(plugin.app);
-	const viewName = tablesViewName(plugin.settings.dashboardScriptsFolder);
-	const channelsTable = tablesReady
-		? dataviewBlock(viewCall(viewName, { section: 'channels', fields: plugin.settings.channelsFields }))
+	const viewsReady = plugin.settings.noteViews && isDataviewEnabled(plugin.app);
+	const viewName = noteViewsViewName(plugin.settings.dashboardScriptsFolder);
+	const layout = plugin.settings.noteLayout;
+	const channelsView = viewsReady
+		? dataviewBlock(viewCall(viewName, { section: 'channels', layout, fields: plugin.settings.channelsFields }))
 		: undefined;
-	const playlistTable = tablesReady ? dataviewBlock(viewCall(viewName, { section: 'playlist' })) : undefined;
+	const playlistView = viewsReady ? dataviewBlock(viewCall(viewName, { section: 'playlist', layout })) : undefined;
+
+	// Thumbnails first, and only when a download setting is on: a bullet
+	// embeds the local copy only once it exists on disk, so every download
+	// has to finish before any note is rendered. Runs regardless of the views
+	// toggle, since images live in the bullets rather than the view.
+	const available = await collectThumbnails(plugin, ctx);
+	const channelImages: BulletImages = { mode: plugin.settings.channelAvatars, available };
+	const videoImages: BulletImages = { mode: plugin.settings.videoThumbnails, available };
 
 	// Channels.md: only write when the fetch succeeded or we have known channels.
 	if (ctx.channelsOk || Object.keys(ctx.state.channels).length > 0) {
@@ -468,7 +490,13 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 			await writeNote(
 				vault,
 				ctx.paths.channels,
-				renderChannelsNote(ctx.state, ctx.now, plugin.settings.channelsFields, channelsTable),
+				renderChannelsNote(
+					ctx.state,
+					ctx.now,
+					plugin.settings.channelsFields,
+					channelsView,
+					channelImages,
+				),
 			);
 		} catch (err) {
 			ctx.errors.push(recordError(err, ctx.paths.channels));
@@ -482,14 +510,14 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 				await writeNote(
 					vault,
 					ctx.paths.watchLater,
-					renderPlaylistNote(playlistId, record.title, record, ctx.now, playlistTable),
+					renderPlaylistNote(playlistId, record.title, record, ctx.now, playlistView, videoImages),
 				);
 			} else {
 				const path = `${ctx.paths.playlistsFolder}/${record.fileName}.md`;
 				await writeNote(
 					vault,
 					path,
-					renderPlaylistNote(playlistId, record.title, record, ctx.now, playlistTable),
+					renderPlaylistNote(playlistId, record.title, record, ctx.now, playlistView, videoImages),
 				);
 				const previous = ctx.previousFiles.get(playlistId);
 				if (previous && previous !== record.fileName) {
@@ -499,6 +527,15 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 		} catch (err) {
 			ctx.errors.push(recordError(err, `note ${record.title}`));
 		}
+	}
+
+	// Legacy note-tables script: only once every note above has been rewritten
+	// without its dv.view() call, so no note can be left pointing at a file
+	// this deletes. Best effort, never fails the run.
+	try {
+		await deleteLegacyTablesScript(plugin);
+	} catch {
+		// a stale copy is harmless; the next sync retries it
 	}
 
 	// Dashboard (opt-in): last so its header reflects every write above.
@@ -531,9 +568,10 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 /**
  * Write one generated view script into the configured scripts folder and
  * record which folder it landed in. Both generated scripts (the dashboard
- * script and the note-tables script) share the same folder setting and the
+ * script and the note-views script) share the same folder setting and the
  * same bookkeeping key, so whichever one notices a folder change trashes the
- * copies of BOTH scripts left in the old folder. Written regardless of
+ * copies of BOTH scripts left in the old folder, along with the legacy
+ * lifeline-tables.js from before the rename. Written regardless of
  * Dataview state: a degraded note simply does not reference it, and the
  * script is ready when Dataview comes back.
  */
@@ -551,8 +589,24 @@ async function writeGeneratedScript(
 		if (previous) {
 			const oldFolder = normalizeScriptsFolder(previous);
 			await deleteNote(plugin.app, dashboardScriptPath(oldFolder));
-			await deleteNote(plugin.app, tablesScriptPath(oldFolder));
+			await deleteNote(plugin.app, noteViewsScriptPath(oldFolder));
+			await deleteNote(plugin.app, `${oldFolder}/lifeline-tables.js`);
 		}
+	}
+}
+
+/**
+ * Remove the lifeline-tables.js left over from before the layout rename.
+ * Called after the notes are rewritten, so nothing that still points at the
+ * old view name can be left holding a deleted script. Best effort: a missing
+ * file is a no-op and a failure never fails the sync.
+ */
+async function deleteLegacyTablesScript(plugin: LifelinePlugin): Promise<void> {
+	const folder = normalizeScriptsFolder(plugin.settings.dashboardScriptsFolder);
+	await deleteNote(plugin.app, `${folder}/lifeline-tables.js`);
+	const previous = plugin.settings.dashboardScriptsFolderWritten;
+	if (previous && previous !== folder) {
+		await deleteNote(plugin.app, `${normalizeScriptsFolder(previous)}/lifeline-tables.js`);
 	}
 }
 
@@ -567,12 +621,12 @@ async function writeDashboardScript(plugin: LifelinePlugin): Promise<void> {
 }
 
 /**
- * Write the generated note-tables script (lifeline-tables.js). Exported so
+ * Write the generated note-views script (lifeline-noteviews.js). Exported so
  * the settings toggle-on can write it immediately, before the next sync
  * bakes the dv.view() calls into the notes.
  */
-export async function writeTablesScript(plugin: LifelinePlugin): Promise<void> {
-	await writeGeneratedScript(plugin, tablesScriptPath, renderTablesScript());
+export async function writeNoteViewsScript(plugin: LifelinePlugin): Promise<void> {
+	await writeGeneratedScript(plugin, noteViewsScriptPath, renderNoteViewsScript());
 }
 
 /**
@@ -599,6 +653,206 @@ export async function writeDashboardNote(plugin: LifelinePlugin): Promise<string
 	});
 	await writeNote(plugin.app.vault, paths.dashboard, content);
 	return paths.dashboard;
+}
+
+// ---------------------------------------------------------------------------
+// Thumbnails (opt-in "Download into the vault" mode)
+// ---------------------------------------------------------------------------
+
+/** Parallel image fetches. Deliberately low: these race with the note writes
+ *  the user is waiting on, and a bulk first sync can ask for thousands. */
+const THUMBNAIL_CONCURRENCY = 5;
+
+/** Per-image budget, so one stalled host cannot hold a worker slot forever. */
+const THUMBNAIL_TIMEOUT_MS = 15_000;
+
+/**
+ * Bail out of the download phase after this many *network* failures in a row.
+ * Offline, one 15s timeout per slot would otherwise stall a sync for minutes
+ * before writing a single note. Stopping early records one error and lets the
+ * run finish; HTTP rejections and malformed payloads do not count, because
+ * they return immediately and are usually one bad image, not a dead link.
+ */
+const THUMBNAIL_NETWORK_BAIL = 5;
+
+/** Returned when no download is owed, so callers need no special case. */
+const NO_THUMBNAILS: ReadonlySet<string> = new Set<string>();
+
+/**
+ * True only for genuine image bytes, judged by signature rather than by a
+ * status code or content-type header. A bad YouTube image URL answers with an
+ * HTML error page, and saving that as `.jpg` would leave a permanently broken
+ * file behind, which download mode would then skip forever.
+ */
+function looksLikeImage(bytes: Uint8Array): boolean {
+	if (bytes.length < 4) return false;
+	if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return true; // JPEG
+	if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return true; // PNG
+	if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) return true; // GIF8
+	if (bytes.length < 12) return false;
+	return (
+		bytes[0] === 0x52 && // "RIFF"
+		bytes[1] === 0x49 &&
+		bytes[2] === 0x46 &&
+		bytes[3] === 0x46 &&
+		bytes[8] === 0x57 && // "WEBP"
+		bytes[9] === 0x45 &&
+		bytes[10] === 0x42 &&
+		bytes[11] === 0x50
+	);
+}
+
+/** Discriminated so `ok` narrows `data` and `reason` without a cast. */
+type FetchOutcome =
+	| { ok: true; data: ArrayBuffer }
+	| { ok: false; reason: 'http' | 'invalid' | 'network' };
+
+/**
+ * Fetch one image under an abort timeout. Returns the bytes when they are
+ * real image data, otherwise why it failed, so the caller can tally every
+ * miss into a single sync-log line instead of one line per file.
+ */
+async function fetchImage(url: string): Promise<FetchOutcome> {
+	const controller = new AbortController();
+	// window.* so a timer created here belongs to the active window: Obsidian
+	// popouts would otherwise clear a timer they never created.
+	const timer = window.setTimeout(() => controller.abort(), THUMBNAIL_TIMEOUT_MS);
+	try {
+		// Native fetch, not requestUrl: requestUrl accepts no AbortSignal, so it
+		// cannot honour the timeout above and a stalled host would hold a worker
+		// slot indefinitely. The CORS concern behind the fetch lint rule does not
+		// apply to these image hosts: both yt3.ggpht.com and i.ytimg.com were
+		// verified to respond with `access-control-allow-origin: *`.
+		const res = await fetch(url, { signal: controller.signal });
+		if (!res.ok) return { ok: false, reason: 'http' };
+		const data = await res.arrayBuffer();
+		if (!looksLikeImage(new Uint8Array(data))) return { ok: false, reason: 'invalid' };
+		return { ok: true, data };
+	} catch {
+		// Aborted, DNS failure, or reset: indistinguishable here, all "network".
+		return { ok: false, reason: 'network' };
+	} finally {
+		window.clearTimeout(timer);
+	}
+}
+
+/**
+ * Download every thumbnail this run's notes will embed, before any note is
+ * written, and return the file base names now present in the thumbnails
+ * folder.
+ *
+ * Costs nothing when both image settings are off (the default). Existing
+ * files are never re-fetched: the folder is listed once instead of checking
+ * file by file. Nothing here ever throws: an image that cannot be fetched
+ * leaves that one bullet on its remote URL or with no image, and the run
+ * still writes every note.
+ */
+async function collectThumbnails(plugin: LifelinePlugin, ctx: WriteContext): Promise<ReadonlySet<string>> {
+	const { channelAvatars, videoThumbnails } = plugin.settings;
+	if (channelAvatars !== 'download' && videoThumbnails !== 'download') return NO_THUMBNAILS;
+
+	const folder = ctx.paths.thumbnails;
+	const adapter = plugin.app.vault.adapter;
+
+	const present = new Set<string>();
+	try {
+		const { files } = await adapter.list(folder);
+		for (const path of files) {
+			if (!path.toLowerCase().endsWith('.jpg')) continue;
+			present.add(path.slice(path.lastIndexOf('/') + 1, -4));
+		}
+	} catch {
+		// Folder absent or unreadable: an empty set means "fetch them all".
+	}
+
+	const jobs: Array<{ base: string; url: string }> = [];
+	const queued = new Set<string>();
+	const queue = (base: string, url: string): void => {
+		if (!url || present.has(base) || queued.has(base)) return;
+		queued.add(base);
+		jobs.push({ base, url });
+	};
+
+	if (channelAvatars === 'download') {
+		for (const [id, channel] of Object.entries(ctx.state.channels)) {
+			queue(channelImageBase(id), channel.avatar ?? '');
+		}
+	}
+	if (videoThumbnails === 'download') {
+		for (const [playlistId, record] of Object.entries(ctx.state.playlists)) {
+			if (!ctx.trackedIds.has(playlistId)) continue;
+			for (const [videoId, video] of Object.entries(record.videos)) {
+				// The same set the bullets come from: never fetch for a hidden entry.
+				if (video.removed || video.unavailable) continue;
+				queue(videoImageBase(videoId), videoThumbnailUrl(videoId));
+			}
+		}
+	}
+	if (jobs.length === 0) return present;
+
+	await ensureFolder(plugin.app.vault, folder);
+
+	let attempted = 0;
+	let http = 0;
+	let invalid = 0;
+	let network = 0;
+	let consecutiveNetwork = 0;
+	let bailed = false;
+
+	let next = 0;
+	const worker = async (): Promise<void> => {
+		while (!bailed && next < jobs.length) {
+			const job = jobs[next++];
+			if (!job) break;
+			attempted++;
+			const outcome = await fetchImage(job.url);
+			if (outcome.ok) {
+				consecutiveNetwork = 0;
+				try {
+					await adapter.writeBinary(`${folder}/${job.base}.jpg`, outcome.data);
+					present.add(job.base);
+				} catch {
+					// One unwritable file is still one file: the bullet falls back
+					// to a link and the run carries on.
+					invalid++;
+				}
+				continue;
+			}
+			if (outcome.reason === 'network') {
+				network++;
+				consecutiveNetwork++;
+				if (consecutiveNetwork >= THUMBNAIL_NETWORK_BAIL) bailed = true;
+			} else if (outcome.reason === 'http') {
+				http++;
+			} else {
+				invalid++;
+			}
+		}
+	};
+
+	await Promise.all(
+		Array.from({ length: Math.min(THUMBNAIL_CONCURRENCY, jobs.length) }, () => worker()),
+	);
+
+	const failed = http + invalid + network;
+	if (failed > 0) {
+		// One record for the whole run: per-file lines would bury the log.
+		const detail = bailed
+			? `; ${jobs.length - attempted} skipped after ${THUMBNAIL_NETWORK_BAIL} consecutive network failures`
+			: '';
+		ctx.errors.push(
+			recordError(
+				new SyncError(
+					network > 0 ? 'network' : 'api',
+					'thumbnails',
+					`${failed} of ${attempted} thumbnail downloads failed${detail}`,
+				),
+				'thumbnails',
+			),
+		);
+	}
+
+	return present;
 }
 
 async function ensureFolder(vault: Vault, folder: string): Promise<void> {
