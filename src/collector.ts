@@ -4,9 +4,9 @@
  * One source string serves both entry points:
  *  - Mode 1 (default): the user pastes it into the DevTools console on
  *    youtube.com/feed/playlists; it logs the JSON array and tries `copy()`.
- *  - Mode 2 (experimental): the plugin evaluates the same source inside the
- *    embedded webview via `executeJavaScript`, whose promise resolves to the
- *    returned id array; this is the `return ids` variant of the script.
+ *  - Mode 2 (desktop-only): the plugin evaluates the same source inside the
+ *    user's own Web viewer tab via `executeJavaScript`, whose promise
+ *    resolves to the returned id array; this is the `return ids` variant.
  *
  * Behaviour: scroll until the page height is stable for three consecutive
  * reads, collect every `list=` parameter from `a[href*="list="]` links,
@@ -14,9 +14,8 @@
  * (WL = Watch Later, LL = Liked videos, RD* = radio/mix).
  *
  * The script only reads the DOM. It never touches cookies, storage, or
- * credentials, and it must stay that way (Mode 2's webview runs its own
- * session partition, so the page authenticates itself; the plugin never
- * sees any of it).
+ * credentials, and it must stay that way: the page runs in the user's own
+ * browser session, and the plugin reads nothing but the DOM.
  */
 export const COLLECTOR_SOURCE = `(async function collectLifelineSavedPlaylists() {
 	const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

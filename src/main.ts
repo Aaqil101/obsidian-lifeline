@@ -93,7 +93,7 @@ export default class LifelinePlugin extends Plugin {
 			listOwnedPlaylists(this.auth, quota),
 			listSubscriptions(this.auth, quota),
 		]);
-		await adoptCatalog(this, mergeCatalog(owned, savedPlaylists));
+		await adoptCatalog(this, mergeCatalog(owned.playlists, savedPlaylists));
 	}
 
 	/**

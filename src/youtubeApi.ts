@@ -219,10 +219,21 @@ export async function listChannelStatistics(
 }
 
 /** Playlists owned by the authenticated channel (playlists.list, mine=true). */
+export interface OwnedPlaylists {
+	playlists: PlaylistSummary[];
+	/**
+	 * The authenticated channel's id, taken from the owned playlists'
+	 * `snippet.channelId` (every one of them carries it). Null when the
+	 * account owns no playlists; by-ID resolution then can't tell owned
+	 * from saved and labels imported ids as saved.
+	 */
+	ownerChannelId: string | null;
+}
+
 export async function listOwnedPlaylists(
 	auth: ApiAuth,
 	quota: QuotaTracker,
-): Promise<PlaylistSummary[]> {
+): Promise<OwnedPlaylists> {
 	const rawItems = await collectPages(async (pageToken) => {
 		const json = await requestJson(
 			{
@@ -248,14 +259,18 @@ export async function listOwnedPlaylists(
 
 	const playlists: PlaylistSummary[] = [];
 	const seen = new Set<string>();
+	let ownerChannelId: string | null = null;
 	for (const raw of rawItems) {
 		const item = asRecord(raw);
+		const snippet = asRecord(item?.snippet);
 		const id = asString(item?.id);
-		if (!id || seen.has(id)) continue;
-		seen.add(id);
-		playlists.push({ id, title: asString(asRecord(item?.snippet)?.title) || id, saved: false });
+		if (id && !seen.has(id)) {
+			seen.add(id);
+			playlists.push({ id, title: asString(snippet?.title) || id, saved: false });
+		}
+		if (!ownerChannelId) ownerChannelId = asString(snippet?.channelId) || null;
 	}
-	return playlists;
+	return { playlists, ownerChannelId };
 }
 
 /**
@@ -265,11 +280,17 @@ export async function listOwnedPlaylists(
  * Batches 50 ids per call (1 quota unit per call). Ids YouTube doesn't return
  * (deleted, private, mistyped) are simply absent from the result; callers keep
  * their existing fallback titles for those.
+ *
+ * The collector page holds created *and* saved playlists, so the saved flag
+ * is decided per playlist: `snippet.channelId` is the owner, and it matches
+ * `ownerChannelId` (from listOwnedPlaylists) for playlists the user created.
+ * Without an owner id every resolved playlist is labeled saved.
  */
 export async function listPlaylistsByIds(
 	ids: string[],
 	auth: ApiAuth,
 	quota: QuotaTracker,
+	ownerChannelId: string | null,
 ): Promise<PlaylistSummary[]> {
 	const playlists: PlaylistSummary[] = [];
 	const seen = new Set<string>();
@@ -295,9 +316,9 @@ export async function listPlaylistsByIds(
 			const id = asString(item?.id);
 			if (!id || seen.has(id)) continue;
 			seen.add(id);
-			// Saved flag stays true: these ids are by definition absent from
-			// mine=true (that filter is what put them on the import path).
-			playlists.push({ id, title: asString(asRecord(item?.snippet)?.title) || id, saved: true });
+			const snippet = asRecord(item?.snippet);
+			const ownedByUser = ownerChannelId !== null && asString(snippet?.channelId) === ownerChannelId;
+			playlists.push({ id, title: asString(snippet?.title) || id, saved: !ownedByUser });
 		}
 	}
 	return playlists;

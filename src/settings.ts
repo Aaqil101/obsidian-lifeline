@@ -25,15 +25,23 @@ import {
 } from 'obsidian';
 import { COLLECTOR_SOURCE } from './collector';
 import { DATAVIEW_REQUIRED_NOTICE, isDataviewEnabled } from './dashboard';
+import { errorMessage } from './json';
 import { DEFAULT_OUTPUT_FOLDER } from './markdown';
 import {
 	addImportedPlaylistIds,
+	cleanPlaylistIds,
 	describeParse,
 	parsePlaylistIds,
 	removeImportedPlaylistId,
 } from './playlistIds';
-import { PlaylistWebviewModal } from './ui/playlistWebviewModal';
-import { findOpenCollectorTab, isWebviewSupported } from './webviewCompat';
+import {
+	findWebViewerTab,
+	isGoogleSignInUrl,
+	isWebViewerEnabled,
+	openInWebViewer,
+	PLAYLISTS_FRAGMENT,
+	PLAYLISTS_URL,
+} from './webviewCompat';
 import {
 	DEFAULT_CHANNELS_FIELDS,
 	DEFAULT_DASHBOARD_SECTIONS,
@@ -404,8 +412,9 @@ export class LifelineSettingTab extends PluginSettingTab {
 	 * Saved-playlist ID collector sub-page. Mode 1 (default, every platform):
 	 * numbered DevTools steps, a copy button for the console collector, and a
 	 * lenient paste parser with an "N IDs parsed" count plus shape warnings.
-	 * Mode 2 (desktop-only, experimental): collect inside an embedded
-	 * webview. Imported IDs are persisted to data.json only.
+	 * Mode 2 (desktop-only): open the page in Obsidian's Web viewer core
+	 * plugin and collect from that tab with one click. Imported IDs are
+	 * persisted to data.json only.
 	 */
 	private renderCollectIdsPage(containerEl: HTMLElement): void {
 		const { settings } = this.plugin;
@@ -526,44 +535,97 @@ export class LifelineSettingTab extends PluginSettingTab {
 			if (title !== id) row.setDesc(id);
 		}
 
-		// Mode 2: experimental, desktop-only, hidden entirely on mobile.
+		// Mode 2: the user's own Web viewer tab (core plugin), desktop-only.
 		if (!Platform.isMobile) {
-			const webviewCard = this.group(containerEl, 'In-app browser');
-			// Embedded browsing varies by build (the <webview> tag is deprecated
-			// in Electron), so probe it right here instead of failing inside the
-			// modal. An open Web viewer tab counts as available even if the
-			// createElement probe were to fail: the modal can collect from it.
-			const webviewAvailable = isWebviewSupported() || findOpenCollectorTab() !== null;
-			new Setting(webviewCard)
-				.setName('Collect in-app (experimental)')
+			const webViewerCard = this.group(containerEl, 'Web viewer');
+			// Never enable a core plugin ourselves: check it and say so.
+			const webViewerEnabled = isWebViewerEnabled(this.app);
+
+			new Setting(webViewerCard)
+				.setName('Open saved playlists')
 				.setDesc(
-					'Opens YouTube.com/feed/playlists inside Obsidian so you can collect them with one click: it uses your open browser tab when one is already on that page (your existing sign-in), otherwise a sandboxed window of its own. If Google shows a sign-in page, close the view and use the console steps above; the plugin never handles your Google login.',
+					'Open YouTube.com/feed/playlists in the Web viewer, Obsidian’s built-in browser, where you keep your own sign-in. Sign in there if YouTube asks, then return here and collect.',
 				)
 				.addButton((button) => {
-					button.setButtonText('Open in-app browser').onClick(() => {
-						let addedWhileOpen = 0;
-						const modal = new PlaylistWebviewModal(
-							this.app,
-							async (ids) => {
-								const added = addImportedPlaylistIds(settings, ids);
-								await this.plugin.saveSettings();
-								addedWhileOpen += added;
-								return added;
-							},
-							() => {
-								if (addedWhileOpen > 0) this.display();
-							},
-						);
-						modal.open();
+					button.setButtonText('Open in Web viewer').onClick(() => {
+						if (!openInWebViewer(this.app, PLAYLISTS_URL)) {
+							new Notice(
+								'Could not open the Web viewer. Enable it in Settings → Core plugins → Web viewer.',
+								10000,
+							);
+						}
 					});
-					if (!webviewAvailable) button.setDisabled(true);
+					if (!webViewerEnabled) button.setDisabled(true);
 				});
-			webviewCard.createEl('p', {
-				cls: 'lifeline-settings-note',
-				text: webviewAvailable
-					? 'Embedded browsing is available on this build.'
-					: 'Embedded browsing is not available on this build. Use the console steps above.',
-			});
+
+			let collecting = false;
+			new Setting(webViewerCard)
+				.setName('Collect saved playlist IDs')
+				.setDesc(
+					'Run the collector script in your open Web viewer tab on that page: it scrolls to the end, collects every playlist ID, and starts tracking them. The script only reads the page; it never touches your cookies or account.',
+				)
+				.addButton((button) => {
+					button.setButtonText('Collect from tab').onClick(async () => {
+						if (collecting) return;
+						collecting = true;
+						button.setDisabled(true);
+						try {
+							await this.collectFromWebViewer(settings);
+						} finally {
+							collecting = false;
+							button.setDisabled(false);
+						}
+					});
+					if (!webViewerEnabled) button.setDisabled(true);
+				});
+
+			if (!webViewerEnabled) {
+				webViewerCard.createEl('p', {
+					cls: 'lifeline-settings-note',
+					text: 'The Web viewer core plugin is off. Enable it in Settings → Core plugins → Web viewer, or use the console steps above.',
+				});
+			}
+		}
+	}
+
+	/**
+	 * Mode 2 collect: run the collector script inside the user's own Web
+	 * viewer tab (their signed-in session; the plugin only reads the page),
+	 * then persist the ids exactly like a Mode 1 paste.
+	 */
+	private async collectFromWebViewer(settings: LifelineSettings): Promise<void> {
+		const tab = findWebViewerTab(this.app);
+		if (!tab) {
+			new Notice('Open YouTube.com/feed/playlists in the Web viewer first, then collect again.', 8000);
+			return;
+		}
+		const url = tab.getURL();
+		if (isGoogleSignInUrl(url)) {
+			new Notice(
+				'Google is asking you to sign in on that tab. Sign in there, open the playlists page, then collect again. Lifeline never handles your Google login.',
+				12000,
+			);
+			return;
+		}
+		if (!url.includes(PLAYLISTS_FRAGMENT)) {
+			new Notice('Open YouTube.com/feed/playlists in the Web viewer tab first.', 8000);
+			return;
+		}
+		try {
+			const ids = cleanPlaylistIds(await tab.executeJavaScript(COLLECTOR_SOURCE));
+			if (ids.length === 0) {
+				new Notice('No playlists found on that page.');
+				return;
+			}
+			const added = addImportedPlaylistIds(settings, ids);
+			await this.plugin.saveSettings();
+			new Notice(`Collected ${ids.length} playlist IDs · ${added} new.`);
+			this.display();
+		} catch (err) {
+			new Notice(
+				`Could not read the Web viewer tab: ${errorMessage(err)}. Use the console steps instead.`,
+				12000,
+			);
 		}
 	}
 

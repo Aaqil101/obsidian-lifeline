@@ -136,6 +136,7 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 		// --- playlist catalog (owned + saved) ----------------------------------
 		let playlists: PlaylistSummary[] = [];
 		let playlistsOk = false;
+		let ownerChannelId: string | null = null;
 		try {
 			// Saved playlists ride on the subscriptions call above; owned ones
 			// need playlists.list. If subscriptions failed, keep the previously
@@ -143,7 +144,9 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 			const saved = channelsOk
 				? savedPlaylists
 				: plugin.settings.playlistCatalog.filter((playlist) => playlist.saved);
-			playlists = mergeCatalog(await listOwnedPlaylists(plugin.auth, quota), saved);
+			const owned = await listOwnedPlaylists(plugin.auth, quota);
+			ownerChannelId = owned.ownerChannelId;
+			playlists = mergeCatalog(owned.playlists, saved);
 			playlistsOk = true;
 		} catch (err) {
 			errors.push(recordError(err, 'playlists'));
@@ -154,11 +157,17 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 		// quota unit per 50 ids. Isolated like every fetch: on failure the ids
 		// keep their previous titles and the rest of the run continues. Runs
 		// every sync so upstream renames of saved playlists are followed too.
+		// The collector page also lists the user's own created playlists, so
+		// each resolved id is labeled owned or saved by comparing its owner
+		// channel against the one captured above (not assumed saved).
 		const catalogIds = new Set(playlists.map((playlist) => playlist.id));
 		const unresolved = (plugin.settings.importedPlaylistIds ?? []).filter((id) => !catalogIds.has(id));
 		if (unresolved.length > 0) {
 			try {
-				playlists = mergeCatalog(playlists, await listPlaylistsByIds(unresolved, plugin.auth, quota));
+				playlists = mergeCatalog(
+					playlists,
+					await listPlaylistsByIds(unresolved, plugin.auth, quota, ownerChannelId),
+				);
 			} catch (err) {
 				errors.push(recordError(err, 'playlist metadata'));
 			}
@@ -336,8 +345,9 @@ function buildTargets(
 			// Collected from youtube.com/feed/playlists and not in the catalog:
 			// either the metadata lookup failed this run, or the playlist is
 			// gone upstream. Sync anyway so items still back up; state keeps a
-			// known title, else the raw id until the next successful lookup.
-			targets.push({ id, title: record?.title ?? id, saved: true });
+			// known title and saved flag, else the id syncs under its last known
+			// label (default saved: the catalog above is complete when it ok'd).
+			targets.push({ id, title: record?.title ?? id, saved: record?.saved ?? true });
 			continue;
 		}
 		if (!playlistsOk && record) {
@@ -444,10 +454,18 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 		if (!ctx.trackedIds.has(playlistId)) continue;
 		try {
 			if (playlistId === ctx.watchLaterId) {
-				await writeNote(vault, ctx.paths.watchLater, renderPlaylistNote(playlistId, record.title, record, ctx.now));
+				await writeNote(
+					vault,
+					ctx.paths.watchLater,
+					renderPlaylistNote(playlistId, record.title, record, ctx.now),
+				);
 			} else {
 				const path = `${ctx.paths.playlistsFolder}/${record.fileName}.md`;
-				await writeNote(vault, path, renderPlaylistNote(playlistId, record.title, record, ctx.now));
+				await writeNote(
+					vault,
+					path,
+					renderPlaylistNote(playlistId, record.title, record, ctx.now),
+				);
 				const previous = ctx.previousFiles.get(playlistId);
 				if (previous && previous !== record.fileName) {
 					await deleteNote(plugin.app, `${ctx.paths.playlistsFolder}/${previous}.md`);
