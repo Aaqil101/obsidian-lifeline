@@ -8,24 +8,24 @@
 
 ## What this plugin is (Lifeline)
 
-- Backs up YouTube subscriptions, playlists, and a watch-later substitute into Markdown notes (default folder `95 - Notes/YouTube/`): `Channels.md`, `Playlists/<name>.md`, `Watch Later.md`, and an opt-in `Dashboard.md` home note (one `dv.view()` call per section into the generated `lifeline-dashboard.js` script in a configurable scripts folder; gated on the community Dataview plugin). The sync log (`sync-log.md`) lives in the plugin folder.
+- Backs up YouTube subscriptions, playlists, and a watch-later substitute into Markdown notes (default folder `95 - Notes/YouTube/`): `Channels.md`, `Playlists/<name>.md`, `Watch Later.md`, an opt-in `Dashboard.md` home note (one `dv.view()` call per section into the generated `lifeline-dashboard.js` script in a configurable scripts folder; gated on the community Dataview plugin), opt-in per-note views above the bullets (one `dv.view()` call per note into `lifeline-noteviews.js`, in one of four layouts), and opt-in avatars/thumbnails appended as the last token on the bullets themselves (no Dataview needed; `off` / `link` / `download`). The sync log (`sync-log.json`) lives in the plugin folder.
 - Desktop-only (`isDesktopOnly: true`, `minAppVersion: 1.11.4` for the native SecretStorage API). No mobile, no telemetry, no video downloads.
 
 ### Architecture (keep `main.ts` lifecycle-only)
 
-- `src/main.ts`: lifecycle, commands, ribbon, status bar, `state.json`/`sync-log.md` persistence, startup auto-sync check (NOT a background scheduler), Dataview-gated `createDashboard()` write-and-open helper.
+- `src/main.ts`: lifecycle, commands, ribbon, status bar, `state.json`/`sync-log.json` persistence, startup auto-sync check (NOT a background scheduler), Dataview-gated `createDashboard()` write-and-open helper.
 - `src/auth.ts`: Google OAuth 2.0 installed-app flow with a loopback HTTP listener on `127.0.0.1`. Client ID, client secret, and refresh token live in `app.secretStorage` (OS keychain); **never** in `data.json`/`state.json`, which store only the secret *names*.
 - `src/youtubeApi.ts`: YouTube Data API v3 client: pagination, quota accounting, 401→refresh+retry once, exponential backoff on 403/429/5xx, batched channel statistics and by-ID playlist metadata (50 ids per quota unit; the latter titles imported saved-playlist IDs, which `mine=true` never lists).
-- `src/sync.ts`: orchestration: per-resource error isolation (auth/quota/network/api/io; one failure never aborts the run), state diffing, vault writes (including the opt-in `Dashboard.md` and its generated script, plus the opt-in note-tables script and the `dv.view()` blocks baked into Channels/playlist/Watch Later notes), append-only sync log in the plugin folder.
-- `src/markdown.ts`: pure Markdown renderers (Dataview inline-field entries, per-field channel rendering, optional `tableBlock` param for the opt-in DataviewJS table) + output path/file-name helpers + the shared `dataviewBlock()`/`viewCall()` fenced-block helpers used by both the Dashboard and note-tables renderers.
+- `src/sync.ts`: orchestration: per-resource error isolation (auth/quota/network/api/io; one failure never aborts the run), state diffing, vault writes (including the opt-in `Dashboard.md` and its generated script, plus the opt-in note-views script and the `dv.view()` blocks baked into Channels/playlist/Watch Later notes), the opt-in thumbnail downloads that run *before* the notes are written (bounded concurrency, abort timeout, magic-byte validation, one aggregated error per run), append-only sync log in the plugin folder.
+- `src/markdown.ts`: pure Markdown renderers (Dataview inline-field entries, per-field channel rendering, optional `viewBlock` param for the opt-in DataviewJS view, optional trailing image token) + output path/file-name helpers (including the `thumbnails/` folder) + the shared `dataviewBlock()`/`viewCall()` fenced-block helpers used by both the Dashboard and note-views renderers.
 - `src/dashboard.ts`: `Dashboard.md` renderer (pure: frontmatter counts + one `dv.view()` block per section gated by the checklist; the header call bakes the sync date for the delta card; degraded path = title + warning callout, no dataviewjs) + `isDataviewEnabled()` capability check (narrow structural probe of `app.plugins`, no `any`).
 - `src/dashboardScript.ts`: generator for `lifeline-dashboard.js` (hero header, clickable stat tiles, quick-link chips, new-since-sync + needs-attention cards, top-5 playlists with a collapsed full table, subscriber bars; injected CSS) + scripts-folder helpers (`DEFAULT_SCRIPTS_FOLDER`, `normalizeScriptsFolder`, `dashboardScriptPath`, `dashboardViewName`).
-- `src/tablesScript.ts`: generator for `lifeline-tables.js` (opt-in DataviewJS tables above the entries in Channels.md, playlist notes, and Watch Later.md; sections `channels` (columns follow `ChannelsFieldSettings`) and `playlist` (Video/Channel/Date added), each reading the calling note's own `dv.current().file.lists`) + `tablesScriptPath`/`tablesViewName` helpers. Channel cells stay narrow: `fmtDate` forces `yyyy-MM-dd` (Dataview would otherwise render bare ISO fields as long Luxon dates), `idCell` shortens the 24-char channel ID with the full value on hover, and `numCell`/`fmtShort` give YouTube-style counts (`4.67K`, `109M`) matching the dashboard.
+- `src/noteViewsScript.ts`: generator for `lifeline-noteviews.js` (opt-in DataviewJS views above the entries in Channels.md, playlist notes, and Watch Later.md; sections `channels` (columns follow `ChannelsFieldSettings`) and `playlist` (Video/Channel/Date added), each reading the calling note's own `dv.current().file.lists`) + `noteViewsScriptPath`/`noteViewsViewName` helpers. Layouts are chosen by the baked `layout` option: `table`, `chips`, `cards`, or `mixed` (chips for channels, cards for playlists; anything unrecognized falls back to the table). Chips and cards read the trailing image off the bullet and paint 60 entries behind a **Show more** button. Channel cells stay narrow: `fmtDate` forces `yyyy-MM-dd` (Dataview would otherwise render bare ISO fields as long Luxon dates, and the playlist `date` field is a `[[wiki link]]` that needs reading back out of the Link), `idCell` shortens the 24-char channel ID with the full value on hover, and `numCell`/`fmtShort` give YouTube-style counts (`4.67K`, `109M`) matching the dashboard.
 - `src/collector.ts`: shared saved-playlist collector script source (Mode 1 console paste + Mode 2 `executeJavaScript` in the user's Web viewer tab); DOM-only reads.
 - `src/playlistIds.ts`: lenient saved-ID parsing (JSON array / one-per-line / mixed), shape warnings (keep odd IDs), and the `importedPlaylistIds` set helpers for `data.json`.
 - `src/webviewCompat.ts`: **Web viewer** core-plugin helpers: enable check, open a URL in a new tab (never enabling the core plugin ourselves), and finder for an open tab to collect from; structural, feature-detected access to Obsidian's internal-plugin registry (no `any`).
-- `src/ui/syncLogModal.ts`: read-only modal viewer for `sync-log.md` (the plugin folder isn't vault-indexed, so the log can't open as a note).
-- `src/settings.ts`: `LifelineSettings`, defaults, settings tab (two SecretComponents, Channels.md fields sub-page with reset, playlist sub-page with refresh, Dashboard sub-page with Dataview gate + **Script folder** text row + refresh, **Dataview tables in notes** toggle with Dataview gate, watch-later dropdown, saved-playlist-ID collector sub-page with Mode 1 steps/copy + textarea + Mode 2 Web viewer open/collect buttons).
+- `src/ui/syncLogModal.ts`: read-only modal viewer for `sync-log.json` (the plugin folder isn't vault-indexed, so the log can't open as a note).
+- `src/settings.ts`: `LifelineSettings`, defaults, settings tab (two SecretComponents, **Channel avatars** and **Video thumbnails** three-mode dropdowns that are deliberately NOT gated on the views toggle, Channels.md fields sub-page with reset, playlist sub-page with refresh, Dashboard sub-page with Dataview gate + **Script folder** text row + refresh, **Views in notes** toggle with Dataview gate + **View layout** dropdown, watch-later dropdown, saved-playlist-ID collector sub-page with Mode 1 steps/copy + textarea + Mode 2 Web viewer open/collect buttons).
 - `src/types.ts` / `src/json.ts`: shared types + `SyncError`; type-safe JSON narrowing helpers (no `any`).
 
 ### Invariants
@@ -35,8 +35,11 @@
 - Keep native `fetch` for API calls; state sentinel `trackedPlaylists === null` means "track everything on first fetch".
 - Notes stay Dataview-queryable: one bullet per video or channel with bracketed inline fields (`[title:: …] [date:: …]`), rendered in `src/markdown.ts`.
 - Playlist notes list only watchable videos. Unavailable and removed entries stay in `state.json` (the backup) and surface as the disjoint frontmatter counts `unavailable_count` and `removed_count`, which the Dashboard's hidden-videos section reads.
+- All three note-view features default to `off`, and with `noteViews` off, `channelAvatars` off, and `videoThumbnails` off the note output must stay byte-identical to pre-feature output.
+- Images live in the bullets, never in the generated script, and the generated script makes no network request. `channelAvatars`/`videoThumbnails` are never gated behind the `noteViews` toggle: they need no Dataview.
+- Downloaded images are validated by magic bytes (JPEG `FF D8 FF`, PNG `89 50 4E 47`, `RIFF`+`WEBP` at offset 8, `GIF8`) rather than by status code or size, written as `.jpg` regardless of the real type, and skipped when the file already exists.
 - Releases: bump `manifest.json` + `versions.json`; GitHub release tag = version (no `v` prefix); attach `main.js`, `manifest.json`, `styles.css`.
-- `npm run deploy` builds and copies artifacts into the real vault (local convenience; requires `GITHUB_DIR` env var pointing to the vault's plugin folder).
+- `npm run deploy` builds and copies artifacts into the personal vault (local convenience; `GITHUB_DIR` is the GitHub *root*, and the script derives `<GITHUB_DIR>/Obsidian/Zettelkasten/.obsidian/plugins/lifeline` from it rather than treating `GITHUB_DIR` itself as the target).
 
 
 ## Environment & tooling
@@ -82,11 +85,11 @@ npm run build
       main.ts               # Plugin entry point, lifecycle only
       auth.ts               # Google OAuth 2.0 loopback flow + keychain secrets
       youtubeApi.ts         # Quota-aware YouTube Data API v3 client
-      sync.ts               # Sync orchestration, state diffing, vault writes
-      markdown.ts           # Pure Markdown renderers + output path helpers + dataviewBlock/viewCall
+      sync.ts               # Sync orchestration, state diffing, vault writes, thumbnail downloads
+      markdown.ts           # Pure Markdown renderers + image tokens + output path helpers + dataviewBlock/viewCall
       dashboard.ts          # Dashboard.md renderer + Dataview capability check
       dashboardScript.ts    # Generated lifeline-dashboard.js + scripts-folder helpers
-      tablesScript.ts       # Generated lifeline-tables.js (opt-in note tables) + path helpers
+      noteViewsScript.ts    # Generated lifeline-noteviews.js (opt-in note views) + path helpers
       collector.ts          # Shared saved-playlist collector script source
       playlistIds.ts        # Lenient saved-ID parsing + imported-ID helpers
       webviewCompat.ts      # Web viewer core-plugin helpers + tab finder
@@ -94,7 +97,7 @@ npm run build
       types.ts              # Shared types + SyncError
       json.ts               # Type-safe JSON narrowing helpers (no `any`)
       ui/
-        syncLogModal.ts     # Read-only viewer for sync-log.md
+        syncLogModal.ts     # Read-only viewer for sync-log.json
     ```
 - **Do not commit build artifacts**: Never commit `node_modules/`, `main.js`, or other generated files to version control.
 - Keep the plugin small. Avoid large dependencies. Prefer browser-compatible packages.

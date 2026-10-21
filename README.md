@@ -7,7 +7,7 @@ Lifeline is a **desktop-only** Obsidian plugin that periodically exports:
 - **Channels.md**: every channel you're subscribed to, as queryable fields
 - **Playlists/\*.md**: one note per playlist you choose to track
 - **Watch Later.md**: a dedicated note for your watch-later substitute playlist
-- **sync-log.md** (in the plugin folder): an append-only record of every sync run
+- **sync-log.json** (in the plugin folder): an append-only record of every sync run
 
 All output is plain Markdown inside your vault. No proprietary formats, no databases. Your backup stays readable and searchable forever, and every entry is a Dataview-queryable record.
 
@@ -75,16 +75,17 @@ Whichever route you use, imported IDs land in `data.json`, appear on the same se
 ├── Channels.md          # one field-list entry per channel
 ├── Dashboard.md         # opt-in home note: one dv.view() call per section
 ├── Watch Later.md       # your watch-later substitute playlist
-└── Playlists/
-    ├── Favorites.md
-    └── Watched later.md
+├── Playlists/
+│   ├── Favorites.md
+│   └── Watched later.md
+└── thumbnails/          # opt-in avatars and thumbnails (Download mode only)
 
 98 - Organize/Scripts/   # default Script folder (configurable in settings)
-├── lifeline-dashboard.js # generated DataviewJS that draws Dashboard.md
-└── lifeline-tables.js    # generated DataviewJS that draws the note tables (opt-in)
+├── lifeline-dashboard.js  # generated DataviewJS that draws Dashboard.md
+└── lifeline-noteviews.js  # generated DataviewJS that draws the note views (opt-in)
 
 .obsidian/plugins/lifeline/
-└── sync-log.md          # one line per sync run (opened via the status bar)
+└── sync-log.json        # the last 200 sync runs (opened from the status bar)
 ```
 
 ### Playlist entries
@@ -100,7 +101,7 @@ Each video is a single list item with Dataview inline fields:
 - Playlist notes carry `saved: true` in their frontmatter when the playlist was saved from another channel rather than created by you, so `WHERE saved` picks them out in Dataview. Playlists you created and collected from the same page are labeled `saved: false` (the owner channel decides, not the import path).
 - Only watchable videos get a bullet. Private or deleted videos and videos removed from the playlist upstream are left out of the note, but never out of the backup: they stay in `state.json` and the frontmatter reports them as `unavailable_count` and `removed_count` (both always present, so `video_count - unavailable_count - removed_count` is the number of bullets). The two counts never overlap, so a video that is both removed and unavailable counts once under `removed`.
 - Channels use the same pattern, with statistics when enabled: `[channel:: …] [id:: …] [subscribed_on:: …] [first_seen:: …] [last_seen:: …] [status:: …] [handle:: @x] [subscribers:: N] [videos:: N] [views:: N] [country:: AU]`.
-- Every channel field except the link itself is a checkbox under **Channels.md fields → Manage** (Settings → Lifeline → Notes). Subscribers, Videos, Views, and Country cost 1 quota unit per 50 channels per sync while any of them is enabled.
+- Every channel field except the link itself is a checkbox under **Channels.md fields → Manage** (Settings → Lifeline → Notes). Subscribers, Videos, Views, and Country cost 1 quota unit per 50 channels per sync while any of them is enabled, and so does **Channel avatars** (both ride the same request).
 
 ### Dashboard note
 
@@ -114,14 +115,36 @@ The cards, quick links row, and Top channels section each have a toggle under **
 
 Turning the toggle on requires the community [Dataview](https://github.com/blacksmithgu/obsidian-dataview) plugin; Lifeline checks and tells you to install it if it's missing. The note and its script refresh after every sync, and the **Create dashboard note** command, the **Refresh dashboard note** command, or the refresh icon on the Dashboard sub-page rewrites them on demand (the script is regenerated, so hand edits to it are overwritten). Changing **Script folder** moves the script and rewrites the note's calls; the old copy is cleaned up. Subscriber and video counts render YouTube-style (`109M`, `4.67K`); hover a number for the full value, or select it to switch between short and full. Zero API quota cost; if Dataview is disabled later, sync keeps the frontmatter and title and replaces every section with a one-line warning callout.
 
-### Dataview tables in notes
+### Views in notes
 
-**Dataview tables in notes** (opt-in, off by default; Settings → Lifeline → Notes) draws a live table above the entries in Channels.md, every playlist note, and Watch Later.md. Each note calls `lifeline-tables.js`, a second script Lifeline generates in the same **Script folder**, once:
+**Views in notes** (opt-in, off by default; Settings → Lifeline → Notes) draws a live view above the entries in Channels.md, every playlist note, and Watch Later.md. Each note calls `lifeline-noteviews.js`, a second script Lifeline generates in the same **Script folder**, once.
 
-- **Channels.md** renders one row per subscription. The columns follow your **Channels.md fields** checkboxes, so turning a field off removes its column too. To keep the table narrow, dates render as `YYYY-MM-DD`, the channel ID shows a short prefix (hover for the full 24-character value), and Subscribers/Videos/Views render YouTube-style (`4.67K`, `109M`; hover for the full value, select to flip between short and full).
-- **Playlist** and **Watch Later** notes render `Video`, `Channel`, and `Date added`, in playlist order.
+**View layout** chooses how it renders:
 
-The table reads the note's own list entries (`dv.current().file.lists`), so it always matches the bullets directly below it. The bullets stay: the table is purely additive, and your `file.lists` Dataview queries are unaffected. Turning the toggle on requires the community [Dataview](https://github.com/blacksmithgu/obsidian-dataview) plugin (Lifeline checks and tells you to install it if it's missing); the script is written immediately, and the notes pick up the table on the next sync. If Dataview is missing or the toggle is off, the notes carry no `dataviewjs` block at all. Changing **Script folder** moves this script alongside the dashboard one, and the old copy is cleaned up. Zero API quota cost.
+- **Mixed** (default): chips in Channels.md, cards in playlist notes. The three options below apply one layout everywhere.
+- **Chips**: one compact row per entry, image on the left, title and a muted meta line beside it.
+- **Cards**: a bordered card per entry with the accent on the left edge, the image across the top, and labeled rows underneath.
+- **Table**: the original grid, best when you want to scan several columns at once.
+
+Whatever the layout, the Channels.md columns and card rows follow your **Channels.md fields** checkboxes, so turning a field off removes it everywhere. To keep things narrow, dates render as `YYYY-MM-DD`, the channel ID shows a short prefix (hover for the full 24-character value), and Subscribers/Videos/Views render YouTube-style (`4.67K`, `109M`; hover for the full value, select it to flip between short and full).
+
+Chips and cards paint the first 60 entries when the note opens and put the rest behind a **Show more** button, so a 900-entry Watch Later does not build 900 nodes before you can read it.
+
+The view reads the note's own list entries (`dv.current().file.lists`), so it always matches the bullets directly below it. The bullets stay: the view is purely additive, and your `file.lists` Dataview queries are unaffected. Turning the toggle on requires the community [Dataview](https://github.com/blacksmithgu/obsidian-dataview) plugin (Lifeline checks and tells you to install it if it's missing); the script is written immediately, and the notes pick up the view on the next sync. If Dataview is missing or the toggle is off, the notes carry no `dataviewjs` block at all. Changing **Script folder** moves this script alongside the dashboard one, and the old copy is cleaned up. Zero API quota cost.
+
+### Images in notes
+
+**Channel avatars** (Channels.md) and **Video thumbnails** (playlist notes and Watch Later.md) each append one image to the end of every bullet. Both sit outside **Views in notes**: the image is in the bullet, so it renders with Dataview absent and with the views off. Both default to **Off**.
+
+Each setting has three modes:
+
+- **Off** (default): no image, and the notes are byte-for-byte what Lifeline wrote before this option existed.
+- **Link to YouTube**: the bullet carries `![](https://…)`, so the image loads from Google's image hosts (`yt3.ggpht.com` for avatars, `i.ytimg.com` for video thumbnails) **every time a note opens**. Convenient, but it is one request per note open and it tells those hosts which note you are reading. This is a deliberate opt-in: convenience over offline.
+- **Download into the vault**: Lifeline fetches each image **once, during sync**, checks that the bytes really are an image rather than an error page, and stores it in `<output folder>/thumbnails/`. The bullet then carries `![[channel-<id>.jpg]]` or `![[<videoId>.jpg]]`, so notes render offline and nothing is requested when you open one. Files already on disk are never fetched again, so after the first sync only new entries cost anything.
+
+A first sync with **Download into the vault** selected fetches every image, a few at a time, before it writes the notes; if your connection drops partway, Lifeline stops early, records one warning in the sync log, and writes the notes anyway. Any image that failed keeps its remote link as a fallback, and drops to no image only if there is no URL either, so one bad thumbnail affects one bullet rather than the note.
+
+Neither mode costs extra API quota. Video thumbnail URLs are derived from the video ID and never requested from the API. Avatar URLs ride the same statistics request as the Subscribers, Videos, Views, and Country fields, which costs 1 unit per 50 channels per sync; it only becomes an extra cost if you had turned all four of those fields off.
 
 ## Dataview recipes
 
@@ -170,12 +193,13 @@ WHERE v.title
 - **Manual:** command palette → **Lifeline: Sync now**, the ribbon refresh icon, or **Sync now** in settings.
 - **Automatic:** on Obsidian startup, Lifeline syncs once if the last successful sync is older than the configured interval (default: 20 hours). This is **not a background scheduler**; nothing syncs while Obsidian is closed.
 - The **status bar** shows a check/warn/cross icon plus the time of the last sync. Select it to open the sync log in a modal; hover for a summary (channels, playlists, videos, quota units, error kinds).
-- Every run appends a line to `sync-log.md`, including failures, so you always know the state of your backup.
+- Every run appends an entry to `sync-log.json`, including failures, so you always know the state of your backup.
 
 ## Security & privacy
 
 - **Secrets live in your system keychain.** The OAuth client ID, client secret, and refresh token are stored with Obsidian's native `SecretStorage` API (Obsidian 1.11.4+), which uses the OS credential store (for example Windows Credential Manager or macOS Keychain). They are **never** written to `data.json`, `state.json`, or any file in your vault. Those files hold only secret names, preferences, and sync state.
-- **What leaves your machine:** OAuth calls to `accounts.google.com` and `oauth2.googleapis.com`, and YouTube Data API calls to `googleapis.com/youtube/v3` using the `youtube.readonly` scope. That is all.
+- **What leaves your machine:** OAuth calls to `accounts.google.com` and `oauth2.googleapis.com`, and YouTube Data API calls to `googleapis.com/youtube/v3` using the `youtube.readonly` scope. That is all, unless you enable images.
+- **Images are opt-in and off by default.** With **Channel avatars** or **Video thumbnails** set to **Link to YouTube**, opening a note fetches that image from Google's image hosts (`yt3.ggpht.com`, `i.ytimg.com`), which reveals which note you opened and your IP address to Google. Set either to **Download into the vault** and the same fetches happen once, during sync, after which nothing is requested when a note opens. Lifeline never sends your vault contents, note titles, or file names to Google: it only requests the images themselves.
 - **No telemetry, no third-party services, no remote code.** Lifeline does exactly one thing: fetch your YouTube data and write Markdown notes.
 - **Revoking access:** remove Lifeline's permission at [myaccount.google.com/permissions](https://myaccount.google.com/permissions), and delete the stored secrets from Obsidian's secret storage if desired. On a new machine you'll need to authenticate again (the keychain is per-machine).
 
@@ -183,7 +207,7 @@ WHERE v.title
 
 - **Desktop only.** The OAuth flow uses a loopback redirect (`127.0.0.1`), so mobile isn't supported.
 - **YouTube's system "Watch Later" list is not accessible via the API.** Pick your own substitute playlist in settings; Lifeline writes it to `Watch Later.md`.
-- **Quota:** the YouTube API allows about 10,000 units/day by default; a full sync costs roughly 2 units, plus 1 per tracked playlist, plus 1 per 50 subscribed channels while statistics fields are enabled, plus 1 per 50 imported playlist IDs. Lifeline counts usage and warns at a configurable soft limit.
+- **Quota:** the YouTube API allows about 10,000 units/day by default; a full sync costs roughly 2 units, plus 1 per tracked playlist, plus 1 per 50 subscribed channels while statistics fields or channel avatars are enabled, plus 1 per 50 imported playlist IDs. Lifeline counts usage and warns at a configurable soft limit. Image downloads cost no quota.
 - **One Google account per vault.**
 - **No scheduler:** sync runs at startup (if due) or on demand.
 
@@ -194,10 +218,10 @@ npm install
 npm run dev      # esbuild watch mode
 npm run build    # type-check + production bundle
 npm run lint     # eslint (obsidianmd plugin rules)
-npm run deploy   # build, then copy artifacts into the vault (requires GITHUB_DIR env var set to the vault's plugin folder)
+npm run deploy   # build, then copy artifacts into <GITHUB_DIR>/Obsidian/Zettelkasten/.obsidian/plugins/lifeline (set GITHUB_DIR to your GitHub root)
 ```
 
-Source layout: `src/main.ts` (lifecycle only) delegates to `auth.ts` (OAuth loopback), `youtubeApi.ts` (quota-aware client), `sync.ts` (orchestration + state diffing), `markdown.ts` (renderers), `dashboard.ts` (Dashboard.md renderer + Dataview capability check), `dashboardScript.ts` (generator for `lifeline-dashboard.js` + script-folder helpers), `tablesScript.ts` (generator for `lifeline-tables.js`, the opt-in note tables), `collector.ts`/`playlistIds.ts`/`webviewCompat.ts` (saved-playlist ID collection), and `settings.ts` (settings tab). Sync state persists in `state.json` next to `data.json`; the sync log lives beside them in the plugin folder. Neither holds secrets.
+Source layout: `src/main.ts` (lifecycle only) delegates to `auth.ts` (OAuth loopback), `youtubeApi.ts` (quota-aware client), `sync.ts` (orchestration + state diffing + opt-in thumbnail downloads), `markdown.ts` (renderers and the image tokens they append), `dashboard.ts` (Dashboard.md renderer + Dataview capability check), `dashboardScript.ts` (generator for `lifeline-dashboard.js` + script-folder helpers), `noteViewsScript.ts` (generator for `lifeline-noteviews.js`, the opt-in note views), `collector.ts`/`playlistIds.ts`/`webviewCompat.ts` (saved-playlist ID collection), and `settings.ts` (settings tab). Sync state persists in `state.json` next to `data.json`; the sync log lives beside them in the plugin folder. Neither holds secrets.
 
 Progress is tracked in [GitHub issues](https://github.com/Aaqil101/obsidian-lifeline/issues): open issues are the roadmap, closed issues are what shipped.
 
