@@ -22,9 +22,11 @@ import {
 	Setting,
 	setIcon,
 	type ButtonComponent,
+	type TextComponent,
 } from 'obsidian';
 import { COLLECTOR_SOURCE } from './collector';
 import { DATAVIEW_REQUIRED_NOTICE, isDataviewEnabled } from './dashboard';
+import { DEFAULT_SCRIPTS_FOLDER, normalizeScriptsFolder } from './dashboardScript';
 import { errorMessage } from './json';
 import { DEFAULT_OUTPUT_FOLDER } from './markdown';
 import {
@@ -34,6 +36,7 @@ import {
 	parsePlaylistIds,
 	removeImportedPlaylistId,
 } from './playlistIds';
+import { writeTablesScript } from './sync';
 import {
 	findWebViewerTab,
 	isGoogleSignInUrl,
@@ -69,9 +72,9 @@ const FIELD_ROWS: Array<{ key: keyof ChannelsFieldSettings; name: string }> = [
 /** Dashboard.md live-section checklist rows, in render order. */
 const DASHBOARD_ROWS: Array<{ key: keyof DashboardSections; name: string }> = [
 	{ key: 'quickLinks', name: 'Quick links row' },
-	{ key: 'recent', name: 'Recently added videos' },
+	{ key: 'recent', name: 'New since last sync card' },
 	{ key: 'topChannels', name: 'Top channels by subscribers' },
-	{ key: 'attention', name: 'Needs attention list' },
+	{ key: 'attention', name: 'Needs attention card' },
 ];
 
 export interface LifelineSettings {
@@ -87,6 +90,15 @@ export interface LifelineSettings {
 	dashboardNote: boolean;
 	/** Which live sections render on Dashboard.md (sub-page checklist). */
 	dashboardSections: DashboardSections;
+	/** Vault folder holding the generated lifeline-dashboard.js view script. */
+	dashboardScriptsFolder: string;
+	/** Folder the script was last written to (null = never); lets a folder
+	 *  change trash the stale copy. Internal bookkeeping, not user-facing. */
+	dashboardScriptsFolderWritten: string | null;
+	/** Opt-in DataviewJS tables above the entries in Channels.md, every
+	 *  playlist note, and Watch Later.md (requires the community Dataview
+	 *  plugin). Draws from the generated lifeline-tables.js script. */
+	noteTables: boolean;
 	/** null = never fetched → every playlist is tracked on first fetch. */
 	trackedPlaylists: string[] | null;
 	/** IDs collected from youtube.com/feed/playlists; the API never lists them. */
@@ -110,6 +122,9 @@ export const DEFAULT_SETTINGS: LifelineSettings = {
 	channelsFields: { ...DEFAULT_CHANNELS_FIELDS },
 	dashboardNote: false,
 	dashboardSections: { ...DEFAULT_DASHBOARD_SECTIONS },
+	dashboardScriptsFolder: DEFAULT_SCRIPTS_FOLDER,
+	dashboardScriptsFolderWritten: null,
+	noteTables: false,
 	trackedPlaylists: null,
 	importedPlaylistIds: [],
 	knownPlaylistIds: [],
@@ -273,6 +288,36 @@ export class LifelineSettingTab extends PluginSettingTab {
 				text.setValue(settings.outputFolder).onChange(async (value) => {
 					settings.outputFolder = value;
 					await this.plugin.saveSettings();
+				}),
+			);
+
+		// Opt-in DataviewJS tables. Same Dataview gate as the dashboard toggle:
+		// revert + Notice when the community plugin is missing. Toggling on
+		// writes lifeline-tables.js immediately so the next sync's baked
+		// dv.view() calls resolve; toggling off needs nothing (the next sync
+		// rewrites the notes without the block).
+		new Setting(card)
+			.setName('Dataview tables in notes')
+			.setDesc(
+				'Draw a live DataviewJS table above the entries in Channels.md, every playlist note, and Watch Later.md. Columns follow your Channels.md field choices. Notes pick it up on the next sync. Requires the community Dataview plugin.',
+			)
+			.addToggle((toggle) =>
+				toggle.setValue(settings.noteTables).onChange(async (on) => {
+					if (on && !isDataviewEnabled(this.app)) {
+						new Notice(DATAVIEW_REQUIRED_NOTICE, 20000);
+						toggle.setValue(false);
+						return;
+					}
+					settings.noteTables = on;
+					await this.plugin.saveSettings();
+					if (on) {
+						try {
+							await writeTablesScript(this.plugin);
+						} catch (err) {
+							console.error('Lifeline: could not write the note-tables script', err);
+							new Notice('Could not write the note-tables script.');
+						}
+					}
 				}),
 			);
 
@@ -668,6 +713,27 @@ export class LifelineSettingTab extends PluginSettingTab {
 				}),
 			);
 
+		// Folder for lifeline-dashboard.js, the script Dashboard.md calls with
+		// dv.view(). Commits only on blur/Enter so a concurrent sync never
+		// writes the script into a half-typed folder.
+		let committedScriptsFolder = settings.dashboardScriptsFolder;
+		new Setting(card)
+			.setName('Script folder')
+			.setDesc(
+				'Vault folder for lifeline-dashboard.js, the DataviewJS script that draws Dashboard.md (status header, tables). Regenerated on every dashboard refresh, so edits to it are overwritten. Moving it refreshes the note and cleans up the old copy.',
+			)
+			.addText((text) => {
+				text.setPlaceholder(DEFAULT_SCRIPTS_FOLDER).setValue(settings.dashboardScriptsFolder);
+				text.inputEl.addEventListener('keydown', (event) => {
+					if (event.key === 'Enter') text.inputEl.blur();
+				});
+				text.inputEl.addEventListener('blur', () => {
+					void this.commitScriptsFolder(text, committedScriptsFolder).then((folder) => {
+						committedScriptsFolder = folder;
+					});
+				});
+			});
+
 		for (const row of DASHBOARD_ROWS) {
 			new Setting(card).setName(row.name).addToggle((toggle) =>
 				toggle.setValue(settings.dashboardSections[row.key]).onChange(async (on) => {
@@ -679,6 +745,27 @@ export class LifelineSettingTab extends PluginSettingTab {
 				}),
 			);
 		}
+	}
+
+	/**
+	 * Normalize and store the script folder when the field is left (blur or
+	 * Enter). Returns the value to treat as committed. No-op when unchanged so
+	 * a plain blur never rewrites anything; when it did change and the
+	 * dashboard is on, refresh the note immediately (open skipped: the user is
+	 * still in settings), which also trashes the script left in the old folder.
+	 */
+	private async commitScriptsFolder(
+		text: TextComponent,
+		previousCommitted: string,
+	): Promise<string> {
+		const { settings } = this.plugin;
+		const next = normalizeScriptsFolder(text.getValue());
+		text.setValue(next);
+		if (next === previousCommitted) return previousCommitted;
+		settings.dashboardScriptsFolder = next;
+		await this.plugin.saveSettings();
+		if (settings.dashboardNote) await this.plugin.createDashboard({ open: false });
+		return next;
 	}
 
 	private renderSyncSection(containerEl: HTMLElement): void {

@@ -12,6 +12,12 @@
 import { App, Notice, TFile, type Vault } from 'obsidian';
 import { isDataviewEnabled, renderDashboardNote } from './dashboard';
 import {
+	dashboardScriptPath,
+	normalizeScriptsFolder,
+	renderDashboardScript,
+} from './dashboardScript';
+import {
+	dataviewBlock,
 	formatDate,
 	outputPaths,
 	renderChannelsNote,
@@ -19,8 +25,10 @@ import {
 	renderSyncLogLine,
 	sanitizeFileName,
 	SYNC_LOG_HEADER,
+	viewCall,
 	type OutputPaths,
 } from './markdown';
+import { renderTablesScript, tablesScriptPath, tablesViewName } from './tablesScript';
 import {
 	listChannelStatistics,
 	listOwnedPlaylists,
@@ -437,13 +445,32 @@ function uniqueFileName(state: SyncState, playlistId: string, base: string): str
 async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<void> {
 	const vault = plugin.app.vault;
 
+	// Dataview note tables (opt-in): write the script first so the dv.view()
+	// calls baked into the notes always resolve. Written regardless of
+	// Dataview state (a degraded note simply omits the block), matching the
+	// dashboard script precedent.
+	if (plugin.settings.noteTables) {
+		try {
+			await writeTablesScript(plugin);
+		} catch (err) {
+			ctx.errors.push(recordError(err, tablesScriptPath(plugin.settings.dashboardScriptsFolder)));
+		}
+	}
+	// The block itself is only baked in when Dataview is actually enabled.
+	const tablesReady = plugin.settings.noteTables && isDataviewEnabled(plugin.app);
+	const viewName = tablesViewName(plugin.settings.dashboardScriptsFolder);
+	const channelsTable = tablesReady
+		? dataviewBlock(viewCall(viewName, { section: 'channels', fields: plugin.settings.channelsFields }))
+		: undefined;
+	const playlistTable = tablesReady ? dataviewBlock(viewCall(viewName, { section: 'playlist' })) : undefined;
+
 	// Channels.md: only write when the fetch succeeded or we have known channels.
 	if (ctx.channelsOk || Object.keys(ctx.state.channels).length > 0) {
 		try {
 			await writeNote(
 				vault,
 				ctx.paths.channels,
-				renderChannelsNote(ctx.state, ctx.now, plugin.settings.channelsFields),
+				renderChannelsNote(ctx.state, ctx.now, plugin.settings.channelsFields, channelsTable),
 			);
 		} catch (err) {
 			ctx.errors.push(recordError(err, ctx.paths.channels));
@@ -457,14 +484,14 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 				await writeNote(
 					vault,
 					ctx.paths.watchLater,
-					renderPlaylistNote(playlistId, record.title, record, ctx.now),
+					renderPlaylistNote(playlistId, record.title, record, ctx.now, playlistTable),
 				);
 			} else {
 				const path = `${ctx.paths.playlistsFolder}/${record.fileName}.md`;
 				await writeNote(
 					vault,
 					path,
-					renderPlaylistNote(playlistId, record.title, record, ctx.now),
+					renderPlaylistNote(playlistId, record.title, record, ctx.now, playlistTable),
 				);
 				const previous = ctx.previousFiles.get(playlistId);
 				if (previous && previous !== record.fileName) {
@@ -478,6 +505,13 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 
 	// Dashboard (opt-in): last so its header reflects every write above.
 	if (plugin.settings.dashboardNote) {
+		// Script first, in its own try: Dashboard.md's dv.view() calls need it,
+		// and a script failure is recorded as its own error before status runs.
+		try {
+			await writeDashboardScript(plugin);
+		} catch (err) {
+			ctx.errors.push(recordError(err, dashboardScriptPath(plugin.settings.dashboardScriptsFolder)));
+		}
 		try {
 			const status = computeStatus(ctx.errors, ctx.quotaSoftWarn, ctx.channelsOk || ctx.playlistsSynced > 0);
 			await writeNote(vault, ctx.paths.dashboard, renderDashboardNote(ctx.state, {
@@ -488,11 +522,59 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 				watchLaterId: ctx.watchLaterId,
 				syncedAt: ctx.now,
 				status,
+				scriptsFolder: plugin.settings.dashboardScriptsFolder,
 			}));
 		} catch (err) {
 			ctx.errors.push(recordError(err, ctx.paths.dashboard));
 		}
 	}
+}
+
+/**
+ * Write one generated view script into the configured scripts folder and
+ * record which folder it landed in. Both generated scripts (the dashboard
+ * script and the note-tables script) share the same folder setting and the
+ * same bookkeeping key, so whichever one notices a folder change trashes the
+ * copies of BOTH scripts left in the old folder. Written regardless of
+ * Dataview state: a degraded note simply does not reference it, and the
+ * script is ready when Dataview comes back.
+ */
+async function writeGeneratedScript(
+	plugin: LifelinePlugin,
+	scriptPath: (folder: string) => string,
+	content: string,
+): Promise<void> {
+	const folder = normalizeScriptsFolder(plugin.settings.dashboardScriptsFolder);
+	await writeNote(plugin.app.vault, scriptPath(folder), content);
+	const previous = plugin.settings.dashboardScriptsFolderWritten;
+	if (previous !== folder) {
+		plugin.settings.dashboardScriptsFolderWritten = folder;
+		await plugin.saveSettings();
+		if (previous) {
+			const oldFolder = normalizeScriptsFolder(previous);
+			await deleteNote(plugin.app, dashboardScriptPath(oldFolder));
+			await deleteNote(plugin.app, tablesScriptPath(oldFolder));
+		}
+	}
+}
+
+/**
+ * Write the generated dv.view script (lifeline-dashboard.js). Called
+ * alongside every Dashboard.md write so the note's baked view name always
+ * resolves: Dataview's dv.view() lookup does not throw, it silently renders
+ * "custom view not found" otherwise.
+ */
+async function writeDashboardScript(plugin: LifelinePlugin): Promise<void> {
+	await writeGeneratedScript(plugin, dashboardScriptPath, renderDashboardScript());
+}
+
+/**
+ * Write the generated note-tables script (lifeline-tables.js). Exported so
+ * the settings toggle-on can write it immediately, before the next sync
+ * bakes the dv.view() calls into the notes.
+ */
+export async function writeTablesScript(plugin: LifelinePlugin): Promise<void> {
+	await writeGeneratedScript(plugin, tablesScriptPath, renderTablesScript());
 }
 
 /**
@@ -505,6 +587,8 @@ export async function writeDashboardNote(plugin: LifelinePlugin): Promise<string
 	const trackedIds = new Set(plugin.settings.trackedPlaylists ?? []);
 	if (plugin.settings.watchLaterPlaylistId) trackedIds.add(plugin.settings.watchLaterPlaylistId);
 	const last = plugin.state.lastSync;
+	// Script first: the note's dv.view() calls would break without it.
+	await writeDashboardScript(plugin);
 	const content = renderDashboardNote(plugin.state, {
 		paths,
 		sections: plugin.settings.dashboardSections,
@@ -513,6 +597,7 @@ export async function writeDashboardNote(plugin: LifelinePlugin): Promise<string
 		watchLaterId: plugin.settings.watchLaterPlaylistId,
 		syncedAt: last ? new Date(last.at) : new Date(),
 		status: last?.status ?? null,
+		scriptsFolder: plugin.settings.dashboardScriptsFolder,
 	});
 	await writeNote(plugin.app.vault, paths.dashboard, content);
 	return paths.dashboard;

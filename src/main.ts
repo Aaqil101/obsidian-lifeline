@@ -60,6 +60,13 @@ export default class LifelinePlugin extends Plugin {
 				void this.createDashboard();
 			},
 		});
+		this.addCommand({
+			id: 'refresh-dashboard',
+			name: 'Refresh dashboard note',
+			callback: () => {
+				void this.createDashboard({ open: false });
+			},
+		});
 
 		this.addRibbonIcon('refresh-cw', 'Sync YouTube backup', () => {
 			void this.syncNow();
