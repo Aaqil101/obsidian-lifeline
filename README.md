@@ -56,7 +56,7 @@ If authorization later fails with a `deleted_client` error, Google has auto-dele
 4. Select **Authenticate with Google** and approve access (scope: read-only YouTube access).
 5. Pick your **output folder** (defaults to `95 - Notes/YouTube`).
 6. Optionally choose a **watch-later playlist**, and open **Playlists to track** (chevron row) to uncheck any playlists you don't want backed up (everything is tracked by default on first sync; playlists you saved from other channels are included and labeled **(saved)**). The list refresh icon lives on that sub-page. For playlists you *saved* that the API can't enumerate, see **Saved playlists** below.
-7. Optionally open **Dashboard** (chevron row) and turn on **Dashboard note** to get a `Dashboard.md` home note. Lifeline checks that the community **Dataview** plugin is enabled first; the live sections also degrade gracefully if Dataview is later disabled.
+7. Optionally open **Dashboard** (chevron row) and turn on **Dashboard note** to get a `Dashboard.md` home note. Lifeline checks that the community **Dataview** plugin is enabled first, writes its script to the **Script folder** (default `98 - Organize/Scripts`), and degrades to a warning callout if Dataview is later disabled.
 8. Select **Sync now**, or use the ribbon icon, or run the command **Lifeline: Sync now**.
 
 ## Saved playlists
@@ -64,20 +64,24 @@ If authorization later fails with a `deleted_client` error, Google has auto-dele
 YouTube's API returns the playlists you *created*, but not the ones you *saved* from other channels (subscriptions.list includes only created lists, and there is no endpoint that lists a user's saved playlists). To back those up too, Lifeline collects their IDs from the web page itself: two ways, both feeding the same box in **Settings → Lifeline → Get saved playlist IDs**:
 
 1. **Console steps (default, works everywhere).** The settings page has numbered steps for opening `youtube.com/feed/playlists` with DevTools and a **Copy collector script** button. Paste the script into the console; it scrolls the page, collects every saved playlist ID (skipping Watch Later, Liked videos, and radio/mix links), and copies a JSON array. Paste that array back into the settings box. Plain lists and mixed text work too, not just JSON. IDs are then stored in `data.json` and synced like any other tracked playlist.
-2. **In-app browser (experimental, desktop-only).** **Settings → Lifeline → Get saved playlist IDs → Collect in-app (experimental)** opens the playlists page inside Obsidian. If you already have that page open in the core **Web viewer** plugin, Lifeline collects from that tab using your existing sign-in; otherwise it opens a sandboxed window of its own. If Google shows a sign-in page, it says so and points you back to the console steps; the plugin never handles your Google login, never reads cookies, and only runs the collector script in the page. The settings row shows whether embedded browsing is available in your Obsidian build (it's a deprecated Electron feature, so availability varies).
+2. **Web viewer (desktop-only).** **Settings → Lifeline → Get saved playlist IDs → Web viewer** has **Open in Web viewer**, which opens the playlists page in Obsidian's built-in **Web viewer** core plugin (enable it in **Settings → Core plugins** if it is off). That is your own signed-in browser session, so no sign-in page ever appears inside the plugin. Once the page is open, select **Collect from tab**: Lifeline runs the same collector script in that tab (it scrolls to the end for you), then adds the IDs to the tracked list directly. The script only reads the page; the plugin never handles your Google login and never reads cookies or storage, and the console steps above always remain an option.
 
-Whichever route you use, paste the result into the settings box and select **Add to tracked playlists**. Imported IDs appear on the same page and can be removed there; the plugin never sees your Google credentials in any of these flows.
+Whichever route you use, imported IDs land in `data.json`, appear on the same settings page, and can be removed there; the plugin never sees your Google credentials in any of these flows.
 
 ## What gets written
 
 ```
 95 - Notes/YouTube/
 ├── Channels.md          # one field-list entry per channel
-├── Dashboard.md         # opt-in home note: static summary + live DataviewJS sections
+├── Dashboard.md         # opt-in home note: one dv.view() call per section
 ├── Watch Later.md       # your watch-later substitute playlist
 └── Playlists/
     ├── Favorites.md
     └── Watched later.md
+
+98 - Organize/Scripts/   # default Script folder (configurable in settings)
+├── lifeline-dashboard.js # generated DataviewJS that draws Dashboard.md
+└── lifeline-tables.js    # generated DataviewJS that draws the note tables (opt-in)
 
 .obsidian/plugins/lifeline/
 └── sync-log.md          # one line per sync run (opened via the status bar)
@@ -92,19 +96,32 @@ Each video is a single list item with Dataview inline fields:
 ```
 
 - The date links your daily note (`[[YYYY-MM-DD]]`).
-- Playlist notes carry `saved: true` in their frontmatter when the playlist was saved from another channel rather than created by you, so `WHERE saved` picks them out in Dataview.
-- Videos removed from a playlist keep their entry with `[status:: removed from playlist]`; private or deleted videos get `[status:: unavailable]`. Nothing is ever silently dropped; that is the point of a backup.
+- Every playlist note (Watch Later included) carries a `url` in its frontmatter that opens the playlist on YouTube, so `file.frontmatter.url` is one click away in Dataview or the properties pane.
+- Playlist notes carry `saved: true` in their frontmatter when the playlist was saved from another channel rather than created by you, so `WHERE saved` picks them out in Dataview. Playlists you created and collected from the same page are labeled `saved: false` (the owner channel decides, not the import path).
+- Only watchable videos get a bullet. Private or deleted videos and videos removed from the playlist upstream are left out of the note, but never out of the backup: they stay in `state.json` and the frontmatter reports them as `unavailable_count` and `removed_count` (both always present, so `video_count - unavailable_count - removed_count` is the number of bullets). The two counts never overlap, so a video that is both removed and unavailable counts once under `removed`.
 - Channels use the same pattern, with statistics when enabled: `[channel:: …] [id:: …] [subscribed_on:: …] [first_seen:: …] [last_seen:: …] [status:: …] [handle:: @x] [subscribers:: N] [videos:: N] [views:: N] [country:: AU]`.
 - Every channel field except the link itself is a checkbox under **Channels.md fields → Manage** (Settings → Lifeline → Notes). Subscribers, Videos, Views, and Country cost 1 quota unit per 50 channels per sync while any of them is enabled.
 
 ### Dashboard note
 
-**Dashboard.md** (opt-in, off by default) is a home note with two halves:
+**Dashboard.md** (opt-in, off by default) is a home note whose visible content is all DataviewJS. The note itself stays small: frontmatter (state-derived counts), the title, and a `dv.view()` call per section under a real `##` heading. Each call runs `lifeline-dashboard.js`, a script Lifeline generates in the **Script folder** (default `98 - Organize/Scripts`, changeable under **Dashboard**), which queries the synced notes live:
 
-- A **static header** written from plugin state (no Dataview needed): last sync time and status, channel/playlist/video counts, quick links, and a playlist overview table.
-- **Live DataviewJS sections** that query the synced notes on render: recently added videos, top channels by subscribers, and videos that need attention (unavailable/removed). Each section has a toggle under **Dashboard** (Settings → Lifeline → Notes).
+- A **header**: the last sync time and status, clickable stat tiles (channels, playlists, videos, and a green **New since sync** count), a quick links row, and two cards side by side: **New since last sync** (videos added on or after the last sync date) and **Needs attention** (playlists with hidden, unavailable, or removed entries; **All clear** when there are none).
+- A **Playlists** section: the five most recently active playlists, with the full table (Watch Later pinned first, then alphabetical) inside a collapsed toggle below it.
+- A **Top channels** section with subscriber bars so the table reads as a chart.
 
-Turning the toggle on requires the community [Dataview](https://github.com/blacksmithgu/obsidian-dataview) plugin; Lifeline checks and tells you to install it if it's missing. The note refreshes after every sync, and the **Create dashboard note** command (or the refresh icon on the Dashboard sub-page) rewrites it on demand. Zero API quota cost; if Dataview is disabled later, sync keeps the static header and replaces the live sections with a one-line hint.
+The cards, quick links row, and Top channels section each have a toggle under **Dashboard** (Settings → Lifeline → Notes); the playlist table is always on.
+
+Turning the toggle on requires the community [Dataview](https://github.com/blacksmithgu/obsidian-dataview) plugin; Lifeline checks and tells you to install it if it's missing. The note and its script refresh after every sync, and the **Create dashboard note** command, the **Refresh dashboard note** command, or the refresh icon on the Dashboard sub-page rewrites them on demand (the script is regenerated, so hand edits to it are overwritten). Changing **Script folder** moves the script and rewrites the note's calls; the old copy is cleaned up. Subscriber and video counts render YouTube-style (`109M`, `4.67K`); hover a number for the full value, or select it to switch between short and full. Zero API quota cost; if Dataview is disabled later, sync keeps the frontmatter and title and replaces every section with a one-line warning callout.
+
+### Dataview tables in notes
+
+**Dataview tables in notes** (opt-in, off by default; Settings → Lifeline → Notes) draws a live table above the entries in Channels.md, every playlist note, and Watch Later.md. Each note calls `lifeline-tables.js`, a second script Lifeline generates in the same **Script folder**, once:
+
+- **Channels.md** renders one row per subscription. The columns follow your **Channels.md fields** checkboxes, so turning a field off removes its column too. To keep the table narrow, dates render as `YYYY-MM-DD`, the channel ID shows a short prefix (hover for the full 24-character value), and Subscribers/Videos/Views render YouTube-style (`4.67K`, `109M`; hover for the full value, select to flip between short and full).
+- **Playlist** and **Watch Later** notes render `Video`, `Channel`, and `Date added`, in playlist order.
+
+The table reads the note's own list entries (`dv.current().file.lists`), so it always matches the bullets directly below it. The bullets stay: the table is purely additive, and your `file.lists` Dataview queries are unaffected. Turning the toggle on requires the community [Dataview](https://github.com/blacksmithgu/obsidian-dataview) plugin (Lifeline checks and tells you to install it if it's missing); the script is written immediately, and the notes pick up the table on the next sync. If Dataview is missing or the toggle is off, the notes carry no `dataviewjs` block at all. Changing **Script folder** moves this script alongside the dashboard one, and the old copy is cleaned up. Zero API quota cost.
 
 ## Dataview recipes
 
@@ -113,7 +130,7 @@ Query commands run in the order written (`FROM`, then `FLATTEN`, then `WHERE`), 
 Every video across playlists and watch later:
 
 ```dataview
-TABLE WITHOUT ID v.title AS Video, v.channel AS Channel, v.date AS Added, v.status AS Status
+TABLE WITHOUT ID v.title AS Video, v.channel AS Channel, v.date AS Added
 FROM "95 - Notes/YouTube"
 FLATTEN file.lists AS v
 WHERE v.title
@@ -177,10 +194,10 @@ npm install
 npm run dev      # esbuild watch mode
 npm run build    # type-check + production bundle
 npm run lint     # eslint (obsidianmd plugin rules)
-npm run deploy   # build, then copy artifacts into the real vault (local convenience)
+npm run deploy   # build, then copy artifacts into the vault (requires GITHUB_DIR env var set to the vault's plugin folder)
 ```
 
-Source layout: `src/main.ts` (lifecycle only) delegates to `auth.ts` (OAuth loopback), `youtubeApi.ts` (quota-aware client), `sync.ts` (orchestration + state diffing), `markdown.ts` (renderers), `dashboard.ts` (Dashboard.md renderer + Dataview capability check), `collector.ts`/`playlistIds.ts`/`webviewCompat.ts` (saved-playlist ID collection), and `settings.ts` (settings tab). Sync state persists in `state.json` next to `data.json`; the sync log lives beside them in the plugin folder. Neither holds secrets.
+Source layout: `src/main.ts` (lifecycle only) delegates to `auth.ts` (OAuth loopback), `youtubeApi.ts` (quota-aware client), `sync.ts` (orchestration + state diffing), `markdown.ts` (renderers), `dashboard.ts` (Dashboard.md renderer + Dataview capability check), `dashboardScript.ts` (generator for `lifeline-dashboard.js` + script-folder helpers), `tablesScript.ts` (generator for `lifeline-tables.js`, the opt-in note tables), `collector.ts`/`playlistIds.ts`/`webviewCompat.ts` (saved-playlist ID collection), and `settings.ts` (settings tab). Sync state persists in `state.json` next to `data.json`; the sync log lives beside them in the plugin folder. Neither holds secrets.
 
 Progress is tracked in [GitHub issues](https://github.com/Aaqil101/obsidian-lifeline/issues): open issues are the roadmap, closed issues are what shipped.
 

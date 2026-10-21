@@ -8,6 +8,7 @@ import { AuthManager } from './auth';
 import { DATAVIEW_REQUIRED_NOTICE, isDataviewEnabled } from './dashboard';
 import { formatTime } from './markdown';
 import { SyncLogModal } from './ui/syncLogModal';
+import { readSyncLog, removeLegacySyncLog } from './syncLog';
 import { adoptCatalog, mergeCatalog, runSync, writeDashboardNote } from './sync';
 import { listOwnedPlaylists, listSubscriptions, QuotaTracker } from './youtubeApi';
 import { DEFAULT_SETTINGS, LifelineSettingTab, type LifelineSettings } from './settings';
@@ -149,13 +150,15 @@ export default class LifelinePlugin extends Plugin {
 
 	async openSyncLog(): Promise<void> {
 		const adapter = this.app.vault.adapter;
-		const path = this.syncLogPath();
-		if (!(await adapter.exists(path))) {
-			new Notice('No sync log yet. Run a sync first.');
-			return;
-		}
+		// Clean up a stale pre-JSON text log (best-effort, never blocks viewing).
+		await removeLegacySyncLog(adapter, this.pluginDataPath('sync-log.md'));
 		try {
-			new SyncLogModal(this.app, await adapter.read(path)).open();
+			const entries = await readSyncLog(adapter, this.syncLogPath());
+			if (entries.length === 0) {
+				new Notice('No sync log yet. Run a sync first.');
+				return;
+			}
+			new SyncLogModal(this.app, entries, this.settings.quotaSoftLimit).open();
 		} catch (err) {
 			console.error('Lifeline: could not read sync log', err);
 			new Notice('Could not open the sync log.');
@@ -183,7 +186,7 @@ export default class LifelinePlugin extends Plugin {
 		this.register(() => window.clearTimeout(timer));
 	}
 
-	/** Plugin data folder (next to data.json): holds state.json and sync-log.md, never secrets. */
+	/** Plugin data folder (next to data.json): holds state.json and sync-log.json, never secrets. */
 	private pluginDataPath(fileName: string): string {
 		const pluginDir = this.manifest.dir ?? `${this.app.vault.configDir}/plugins/lifeline`;
 		return normalizePath(`${pluginDir}/${fileName}`);
@@ -193,9 +196,9 @@ export default class LifelinePlugin extends Plugin {
 		return this.pluginDataPath('state.json');
 	}
 
-	/** Sync log path: written by sync.ts, shown by the log modal. */
+	/** Sync log path: JSON run history written by sync.ts, shown by the log modal. */
 	syncLogPath(): string {
-		return this.pluginDataPath('sync-log.md');
+		return this.pluginDataPath('sync-log.json');
 	}
 
 	private async loadState(): Promise<SyncState> {

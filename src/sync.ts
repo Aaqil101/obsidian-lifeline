@@ -22,12 +22,11 @@ import {
 	outputPaths,
 	renderChannelsNote,
 	renderPlaylistNote,
-	renderSyncLogLine,
 	sanitizeFileName,
-	SYNC_LOG_HEADER,
 	viewCall,
 	type OutputPaths,
 } from './markdown';
+import { appendSyncLogRun } from './syncLog';
 import { renderTablesScript, tablesScriptPath, tablesViewName } from './tablesScript';
 import {
 	listChannelStatistics,
@@ -288,8 +287,7 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 
 	let result = buildResult();
 	try {
-		const line = renderSyncLogLine(result, now);
-		await appendSyncLog(plugin, line);
+		await appendSyncLogRun(plugin.app.vault.adapter, plugin.syncLogPath(), result);
 	} catch (err) {
 		errors.push(recordError(err, 'sync-log'));
 		result = buildResult();
@@ -639,20 +637,6 @@ async function writeNote(vault: Vault, path: string, content: string): Promise<v
 		if (raced instanceof TFile) await vault.modify(raced, content);
 		else throw new Error(`Could not create note: ${path}`);
 	}
-}
-
-/** Append one line to the sync log in the plugin folder. Uses the adapter
- * because .obsidian dot-folders are not vault-indexed. */
-async function appendSyncLog(plugin: LifelinePlugin, line: string): Promise<void> {
-	const adapter = plugin.app.vault.adapter;
-	const path = plugin.syncLogPath();
-	if (await adapter.exists(path)) {
-		const current = await adapter.read(path);
-		const prefix = current.endsWith('\n') ? current : `${current}\n`;
-		await adapter.write(path, `${prefix}${line}\n`);
-		return;
-	}
-	await adapter.write(path, `${SYNC_LOG_HEADER}\n\n${line}\n`);
 }
 
 /**

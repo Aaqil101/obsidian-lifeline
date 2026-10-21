@@ -8,14 +8,14 @@
  *   Watch Later.md       - the designated watch-later substitute playlist
  *   Dashboard.md         - opt-in home note (static summary + DataviewJS sections)
  *
- * The sync log (sync-log.md) lives in the plugin folder, not here.
+ * The sync log (sync-log.json) lives in the plugin folder, not here.
  *
  * Every entry uses Dataview inline fields with bracket syntax, which is
  * required for multiple fields on one line and is indexed per list item
  * (query via `file.lists`).
  */
 import { normalizePath } from 'obsidian';
-import type { ChannelsFieldSettings, PlaylistRecord, SyncRunResult, SyncState } from './types';
+import type { ChannelsFieldSettings, PlaylistRecord, SyncState } from './types';
 
 export interface OutputPaths {
 	folder: string;
@@ -197,25 +197,4 @@ export function renderPlaylistNote(
 	}
 	lines.push('');
 	return lines.join('\n');
-}
-
-/** File header for sync-log.md, written when the log is created. */
-export const SYNC_LOG_HEADER =
-	'# Lifeline sync log\n\n> Append-only: one line per sync run (newest last).';
-
-/** Single append-only log line, e.g. "2026-10-17 14:03:21 · ✓ · channels 42 · ..." */
-export function renderSyncLogLine(result: SyncRunResult, syncedAt: Date): string {
-	const icon = result.status === 'ok' ? '✓' : result.status === 'warn' ? '⚠' : '✗';
-	let line =
-		`- ${formatDateTime(syncedAt)} · ${icon} · channels ${result.channelsSynced}` +
-		` · playlists ${result.playlistsSynced} · videos ${result.videosFound}` +
-		` · quota ${result.quotaUnits} units`;
-	if (result.quotaSoftWarn) line += ' · soft limit reached';
-	if (result.errors.length > 0) {
-		const kinds = Array.from(new Set(result.errors.map((error) => error.kind))).join(', ');
-		const first = result.errors[0];
-		const detail = first ? `${first.resource}: ${first.message}` : '';
-		line += ` · errors: ${kinds}${detail ? ` · ${detail.slice(0, 200)}` : ''}`;
-	}
-	return line;
 }

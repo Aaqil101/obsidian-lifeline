@@ -5,6 +5,105 @@
 	cursor: pointer;
 }
 
+/* Sync log modal: summary header + one row per run. Status color comes from
+   the row's lifeline-status-* class; errors expand in place. */
+.lifeline-sync-log-summary {
+	margin-bottom: 12px;
+	padding-bottom: 12px;
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.lifeline-sync-log-summary-line {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.lifeline-sync-log-summary-line + .lifeline-sync-log-summary-line {
+	margin-top: 2px;
+}
+
+.lifeline-sync-log-list {
+	max-height: 70vh;
+	overflow: auto;
+}
+
+.lifeline-sync-log-row {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 6px 0;
+	border-bottom: 1px solid var(--background-modifier-border);
+	font-size: var(--font-ui-smaller);
+}
+
+.lifeline-sync-log-row:last-child {
+	border-bottom: none;
+}
+
+.lifeline-sync-log-row-head {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.lifeline-sync-log-icon {
+	font-weight: 600;
+	width: 1em;
+	flex-shrink: 0;
+}
+
+.lifeline-status-ok .lifeline-sync-log-icon {
+	color: var(--color-green, var(--text-success));
+}
+
+.lifeline-status-warn .lifeline-sync-log-icon {
+	color: var(--color-yellow, var(--text-warning, var(--text-muted)));
+}
+
+.lifeline-status-error .lifeline-sync-log-icon {
+	color: var(--color-red, var(--text-error));
+}
+
+.lifeline-sync-log-time {
+	font-variant-numeric: tabular-nums;
+}
+
+.lifeline-sync-log-counts,
+.lifeline-sync-log-quota {
+	color: var(--text-muted);
+}
+
+.lifeline-sync-log-quota {
+	margin-left: auto;
+	font-variant-numeric: tabular-nums;
+}
+
+.lifeline-sync-log-flag {
+	padding: 0 6px;
+	border-radius: var(--radius-s);
+	background-color: var(--background-modifier-error);
+	color: var(--text-error);
+}
+
+.lifeline-log-expand {
+	cursor: pointer;
+}
+
+.lifeline-sync-log-errors {
+	margin-top: 2px;
+	padding-left: calc(1em + 8px);
+}
+
+.lifeline-sync-log-errors.is-collapsed {
+	display: none;
+}
+
+.lifeline-sync-log-error {
+	color: var(--text-error);
+	word-break: break-word;
+}
+
 .lifeline-subpage-back {
 	color: var(--text-muted);
 	text-decoration: none;
@@ -54,3 +153,4 @@
 .lifeline-collect-feedback p + p {
 	margin-top: 4px;
 }
+
