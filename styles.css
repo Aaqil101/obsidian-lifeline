@@ -5,8 +5,9 @@
 	cursor: pointer;
 }
 
-/* Sync log modal: summary header + one row per run. Status color comes from
-   the row's lifeline-status-* class; errors expand in place. */
+/* Sync log modal: summary header, today's rows, and a toggle that reveals
+   runs from earlier days. Status color comes from the row's
+   lifeline-status-* class; errors expand in place. */
 .lifeline-sync-log-summary {
 	margin-bottom: 12px;
 	padding-bottom: 12px;
@@ -25,6 +26,38 @@
 .lifeline-sync-log-list {
 	max-height: 70vh;
 	overflow: auto;
+}
+
+.lifeline-sync-log-list.is-collapsed {
+	display: none;
+}
+
+.lifeline-sync-log-empty {
+	padding: 6px 0;
+	border-bottom: 1px solid var(--background-modifier-border);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+/* Toggle that reveals runs from earlier days below today's list. */
+.lifeline-sync-log-earlier {
+	display: block;
+	width: 100%;
+	margin-top: 8px;
+	padding: 6px 4px;
+	border: none;
+	border-radius: var(--radius-s);
+	background: none;
+	box-shadow: none;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	text-align: left;
+	cursor: pointer;
+}
+
+.lifeline-sync-log-earlier:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
 }
 
 .lifeline-sync-log-row {

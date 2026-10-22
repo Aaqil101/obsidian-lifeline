@@ -59,16 +59,37 @@ export async function appendSyncLogRun(
 }
 
 /**
- * Total quota units consumed since the most recent Pacific-midnight reset,
- * across every run that falls on the current quota day. Each entry's
- * quotaUnits is the total for that single run, so we sum them.
+ * Total quota units consumed since the most recent Pacific-midnight reset:
+ * exactly the window YouTube counts against its daily limit. Each entry's
+ * quotaUnits is that single run's total, so we sum the ones inside the
+ * window and ignore runs from the closed day.
  */
-export function quotaUsedToday(entries: readonly SyncLogEntry[], now: Date = new Date()): number {
+export function quotaUsedSinceReset(
+	entries: readonly SyncLogEntry[],
+	now: Date = new Date(),
+): number {
 	const dayStart = pacificDayStartMs(now);
 	return entries.reduce(
 		(total, entry) => (entry.startedAt >= dayStart ? total + entry.quotaUnits : total),
 		0,
 	);
+}
+
+/**
+ * The next 00:00 Pacific Time after `now`: the instant YouTube's daily quota
+ * resets. Returned as a Date so callers can format it in the user's own time
+ * zone (which is often midday: Pacific midnight is noon in UTC+5:30). The
+ * target is the following Pacific calendar day's midnight (Pacific days run
+ * 23 to 25 hours across DST changes, so adding 24h blindly can land an hour
+ * off); its epoch ms comes from the zone offset at that wall-clock time,
+ * refined once so a value guessed across a DST boundary still lands on the
+ * real reset.
+ */
+export function nextQuotaReset(now: Date = new Date()): Date {
+	const { year, month, day } = pacificParts(now);
+	const wallClock = Date.UTC(year, month - 1, day + 1);
+	const firstGuess = wallClock - pacificOffsetMs(new Date(wallClock));
+	return new Date(wallClock - pacificOffsetMs(new Date(firstGuess)));
 }
 
 /** Structural guard so a corrupt entry can't crash the viewer. */
@@ -85,10 +106,33 @@ function isSyncLogEntry(value: unknown): value is SyncLogEntry {
 }
 
 /**
- * Epoch ms of the most recent midnight in Pacific Time. Uses Intl so the
- * correct PST/PDT offset is applied without a timezone dependency.
+ * Epoch ms of the most recent midnight in Pacific Time: the start of the
+ * window YouTube counts as one quota day. Uses Intl so the correct PST/PDT
+ * offset is applied without a timezone dependency.
  */
 function pacificDayStartMs(now: Date): number {
+	const { hour, minute, second } = pacificParts(now);
+	const secondsIntoDay = hour * 3600 + minute * 60 + second;
+	return now.getTime() - secondsIntoDay * 1000 - now.getMilliseconds();
+}
+
+/** Pacific offset from UTC at an instant, in ms (negative west of Greenwich). */
+function pacificOffsetMs(instant: Date): number {
+	const { year, month, day, hour, minute, second } = pacificParts(instant);
+	const wallClock = Date.UTC(year, month - 1, day, hour, minute, second);
+	// Compare whole seconds: the parts carry no milliseconds.
+	return wallClock - (instant.getTime() - instant.getMilliseconds());
+}
+
+/** Wall-clock fields of an instant as seen in the Pacific time zone. */
+function pacificParts(instant: Date): {
+	year: number;
+	month: number;
+	day: number;
+	hour: number;
+	minute: number;
+	second: number;
+} {
 	const parts = new Intl.DateTimeFormat('en-US', {
 		timeZone: QUOTA_RESET_TIME_ZONE,
 		year: 'numeric',
@@ -98,13 +142,18 @@ function pacificDayStartMs(now: Date): number {
 		minute: '2-digit',
 		second: '2-digit',
 		hour12: false,
-	}).formatToParts(now);
+	}).formatToParts(instant);
 	const get = (type: string): number =>
 		Number(parts.find((part) => part.type === type)?.value ?? '0');
-	// hour12: false can render midnight as hour "24"; normalize to 0.
-	const hour = get('hour') % 24;
-	const secondsIntoDay = hour * 3600 + get('minute') * 60 + get('second');
-	return now.getTime() - secondsIntoDay * 1000 - now.getMilliseconds();
+	return {
+		year: get('year'),
+		month: get('month'),
+		day: get('day'),
+		// hour12: false can render midnight as hour "24"; normalize to 0.
+		hour: get('hour') % 24,
+		minute: get('minute'),
+		second: get('second'),
+	};
 }
 
 /** Best-effort removal of a stale pre-JSON sync-log.md. Never throws. */
