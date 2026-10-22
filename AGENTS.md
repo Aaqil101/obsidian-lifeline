@@ -201,13 +201,6 @@ Follow Obsidian's **Developer Policies** and **Plugin Guidelines**. In particula
 - Avoid Node/Electron APIs if you want mobile compatibility; set `isDesktopOnly` accordingly.
 - Prefer `async/await` over promise chains; handle errors gracefully.
 
-## Commits
-
-- Commit only when explicitly asked, then one commit per file or logical change; don't bundle unrelated edits.
-- Message style: a short imperative summary line (sentence case), followed by a body of `- ` bullet descriptions of what changed. Match the style of existing examples in `git log` (e.g. `Update Google Cloud setup steps for the new Google Auth Platform console`).
-- Check `git status`/`git diff` before staging; stage files individually rather than `git add -A`.
-- When a commit is for an issue, reference the issue in the commit description body (e.g. `Fixes #21` when it completes the issue, or a `- Work In Progress (#21)` bullet while it only advances it, matching `git log`).
-
 ## Mobile
 
 - Where feasible, test on iOS and Android.
