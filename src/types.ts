@@ -106,6 +106,11 @@ export interface ChannelsFieldSettings {
 	videos: boolean;
 	views: boolean;
 	country: boolean;
+	/** avatar_url/avatar fields. Gated separately from the image mode, so a
+	 *  mode that is on can still be told to skip the avatar. */
+	avatar: boolean;
+	/** banner_url/banner fields, the same way. */
+	banner: boolean;
 }
 
 export const DEFAULT_CHANNELS_FIELDS: ChannelsFieldSettings = {
@@ -118,6 +123,11 @@ export const DEFAULT_CHANNELS_FIELDS: ChannelsFieldSettings = {
 	videos: true,
 	views: true,
 	country: true,
+	// On by default so an existing install that already downloads images keeps
+	// writing them; with every image mode off (the default) nothing renders
+	// either way, so the note stays byte-identical.
+	avatar: true,
+	banner: true,
 };
 
 /** Which optional sections render on Dashboard.md (settings checklist). */

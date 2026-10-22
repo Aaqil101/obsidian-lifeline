@@ -1,0 +1,177 @@
+/**
+ * Notes: where the notes go, the Dataview view rows (the toggle plus the two
+ * folders its generated files land in), and the doors to the Channels.md
+ * fields and Dashboard sub-pages.
+ *
+ * The image rows deliberately live in their own group (images.ts): they are
+ * content decisions with a folder of their own, not note structure.
+ */
+import { Notice, Setting } from 'obsidian';
+import { DATAVIEW_REQUIRED_NOTICE, isDataviewEnabled } from '../dashboard';
+import { DEFAULT_SCRIPTS_FOLDER, normalizeScriptsFolder } from '../dashboardScript';
+import { DEFAULT_OUTPUT_FOLDER, normalizeFolder } from '../markdown';
+import { DEFAULT_STYLES_FOLDER, normalizeStylesFolder } from '../noteViewsScript';
+import { writeNoteViewScripts } from '../sync';
+import { DEFAULT_CHANNELS_FIELDS } from '../types';
+import { folderSetting } from './folderPicker';
+import { FIELD_ROWS } from './types';
+import { group, navRow, type SettingsHost } from './ui';
+
+/** Landing group: output folder, views, and the two structural sub-pages. */
+export function renderNotesGroup(host: SettingsHost, containerEl: HTMLElement): void {
+	const { plugin } = host;
+	const { settings } = plugin;
+	const card = group(containerEl, 'Notes');
+
+	folderSetting(card, {
+		app: plugin.app,
+		name: 'Output folder',
+		desc: 'Where Channels.md, Playlists/, and Watch Later.md are written. The sync log stays in the plugin folder.',
+		value: settings.outputFolder,
+		placeholder: DEFAULT_OUTPUT_FOLDER,
+		normalize: (raw) => normalizeFolder(raw) || DEFAULT_OUTPUT_FOLDER,
+		commit: async (path) => {
+			settings.outputFolder = path;
+			await plugin.saveSettings();
+		},
+	});
+
+	// Opt-in DataviewJS views. Same Dataview gate as the dashboard toggle:
+	// revert + Notice when the community plugin is missing. Toggling on writes
+	// the three view scripts immediately so the next sync's baked dv.view()
+	// calls resolve; toggling off needs nothing (the next sync rewrites the
+	// notes without the block). Layout has no row here: it is picked in each
+	// note's toolbar and written back through it.
+	new Setting(card)
+		.setName('Views in notes')
+		.setDesc(
+			'Draw a live view above the entries in Channels.md, playlist notes, and Watch Later.md, each with search and a Layout picker. Notes pick it up on the next sync. Requires the community Dataview plugin.',
+		)
+		.addToggle((toggle) =>
+			toggle.setValue(settings.noteViews).onChange(async (on) => {
+				if (on && !isDataviewEnabled(plugin.app)) {
+					new Notice(DATAVIEW_REQUIRED_NOTICE, 20000);
+					toggle.setValue(false);
+					return;
+				}
+				settings.noteViews = on;
+				await plugin.saveSettings();
+				if (on) {
+					try {
+						await writeNoteViewScripts(plugin);
+					} catch (err) {
+						console.error('Lifeline: could not write the note-view scripts', err);
+						new Notice('Could not write the view scripts.');
+					}
+				}
+			}),
+		);
+
+	// Folder for lifeline-views.css, the stylesheet the view scripts read at
+	// render time (the quotebook.css pattern). Commits only on blur/Enter, then
+	// rewrites the three view scripts (they bake the stylesheet path) and the
+	// stylesheet itself, which also trashes the copy left in the old folder.
+	folderSetting(card, {
+		app: plugin.app,
+		name: 'Styles folder',
+		desc: 'Receives lifeline-views.css, the stylesheet the views draw with. Regenerated on every sync, so hand edits are overwritten; a missing file leaves the views unstyled but working.',
+		value: settings.stylesFolder,
+		placeholder: DEFAULT_STYLES_FOLDER,
+		normalize: normalizeStylesFolder,
+		commit: async (path) => {
+			settings.stylesFolder = path;
+			await plugin.saveSettings();
+			if (settings.noteViews) {
+				try {
+					await writeNoteViewScripts(plugin);
+				} catch (err) {
+					console.error('Lifeline: could not rewrite the note-view scripts for the new styles folder', err);
+					new Notice('Could not write the view stylesheet.');
+				}
+			}
+		},
+	});
+
+	// Folder for all four generated view scripts, not just the dashboard one:
+	// lifeline-dashboard.js for Dashboard.md, plus lifeline-channels.js,
+	// lifeline-playlists.js, and lifeline-watchlater.js for the note views.
+	// That is why this commit fans out to both features: whichever notices a
+	// folder change rewrites its files into the new folder and trashes the
+	// ones left behind. The styles folder above has one consumer, so it does
+	// not. The row lives here rather than on the Dashboard sub-page because it
+	// is shared infrastructure, and a shared setting buried under one of its
+	// consumers is a setting nobody finds.
+	folderSetting(card, {
+		app: plugin.app,
+		name: 'Script folder',
+		desc: 'Receives all four generated scripts: lifeline-dashboard.js, plus lifeline-channels.js, lifeline-playlists.js, and lifeline-watchlater.js for the note views. Regenerated on every sync, so hand edits are overwritten.',
+		value: settings.dashboardScriptsFolder,
+		placeholder: DEFAULT_SCRIPTS_FOLDER,
+		normalize: normalizeScriptsFolder,
+		commit: async (path) => {
+			settings.dashboardScriptsFolder = path;
+			await plugin.saveSettings();
+			// Both Dataview features keep a script in this folder, so both have
+			// to be re-pointed. The dashboard refresh also trashes the script
+			// left in the old folder; writeNoteViewScripts does the same for
+			// the three note-view scripts whose path the notes have baked in.
+			if (settings.dashboardNote) await plugin.createDashboard({ open: false });
+			if (settings.noteViews) {
+				try {
+					await writeNoteViewScripts(plugin);
+				} catch (err) {
+					console.error('Lifeline: could not rewrite the view scripts for the new scripts folder', err);
+					new Notice('Could not write the view scripts.');
+				}
+			}
+		},
+	});
+
+	navRow(
+		host,
+		card,
+		'Channels.md fields',
+		'Pick which fields each channel entry carries. The statistics rows cost 1 quota unit per 50 channels per sync while any is on.',
+		'channels',
+		'list',
+	);
+
+	navRow(
+		host,
+		card,
+		'Dashboard',
+		settings.dashboardNote
+			? 'On. Dashboard.md refreshes after every sync; open this page to pick its live sections.'
+			: 'Off. A home note with sync stats and live DataviewJS sections.',
+		'dashboard',
+		'home',
+	);
+}
+
+/** Channels.md fields sub-page: one toggle per field, plus a reset in the heading. */
+export function renderChannelsFieldsPage(host: SettingsHost, containerEl: HTMLElement): void {
+	const { settings } = host.plugin;
+	const card = group(containerEl, 'Channels.md fields', (heading) => {
+		heading.addExtraButton((button) =>
+			button
+				.setIcon('rotate-ccw')
+				.setTooltip('Reset all fields to defaults')
+				.onClick(async () => {
+					settings.channelsFields = { ...DEFAULT_CHANNELS_FIELDS };
+					await host.plugin.saveSettings();
+					host.display();
+				}),
+		);
+	});
+
+	for (const row of FIELD_ROWS) {
+		const setting = new Setting(card).setName(row.name);
+		if (row.desc) setting.setDesc(row.desc);
+		setting.addToggle((toggle) =>
+			toggle.setValue(settings.channelsFields[row.key]).onChange(async (on) => {
+				settings.channelsFields[row.key] = on;
+				await host.plugin.saveSettings();
+			}),
+		);
+	}
+}

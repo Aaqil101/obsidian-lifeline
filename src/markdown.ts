@@ -29,16 +29,62 @@ export interface OutputPaths {
 
 export const DEFAULT_OUTPUT_FOLDER = '95 - Notes/YouTube';
 
-export function outputPaths(outputFolder: string): OutputPaths {
-	const folder = normalizePath(outputFolder.trim() || DEFAULT_OUTPUT_FOLDER);
+/** How a root-level folder is stored: a slash, distinct from '' meaning unset. */
+const VAULT_ROOT = '/';
+
+/**
+ * Trim a folder the user entered. Returns null when nothing was entered (so a
+ * caller can fall back to a default) and '' when the vault root was picked
+ * deliberately, which is the only way to tell those two apart.
+ */
+function cleanFolder(path: string): string | null {
+	const trimmed = path.trim();
+	if (!trimmed) return null;
+	const stripped = trimmed.replace(/^\/+|\/+$/g, '');
+	return stripped ? normalizePath(stripped) : '';
+}
+
+/** Join a folder with a child name, so a root-level folder yields no leading slash. */
+function joinPath(base: string, name: string): string {
+	return base ? `${base}/${name}` : name;
+}
+
+/**
+ * Where the notes go. `imagesFolder` is the parent folder chosen for
+ * downloaded images: empty means "keep them beside the notes", and files
+ * always land in its `thumbnails/` sub-folder.
+ */
+export function outputPaths(outputFolder: string, imagesFolder?: string | null): OutputPaths {
+	const folder = cleanFolder(outputFolder) ?? DEFAULT_OUTPUT_FOLDER;
+	const parent = cleanFolder(imagesFolder ?? '') ?? folder;
 	return {
 		folder,
-		channels: `${folder}/Channels.md`,
-		playlistsFolder: `${folder}/Playlists`,
-		watchLater: `${folder}/Watch Later.md`,
-		dashboard: `${folder}/Dashboard.md`,
-		thumbnails: `${folder}/thumbnails`,
+		channels: joinPath(folder, 'Channels.md'),
+		playlistsFolder: joinPath(folder, 'Playlists'),
+		watchLater: joinPath(folder, 'Watch Later.md'),
+		dashboard: joinPath(folder, 'Dashboard.md'),
+		thumbnails: joinPath(parent, 'thumbnails'),
 	};
+}
+
+/**
+ * The folder downloaded images sit in, shown in the settings picker when
+ * `imagesFolder` is empty so the row never looks unset.
+ */
+export function imagesParentFolder(outputFolder: string, imagesFolder?: string | null): string {
+	const custom = cleanFolder(imagesFolder ?? '');
+	// A non-null result means the row was set; '' there means the vault root.
+	if (custom !== null) return custom || VAULT_ROOT;
+	return cleanFolder(outputFolder) ?? DEFAULT_OUTPUT_FOLDER;
+}
+
+/** Canonical stored form of a folder a user typed: '' when the box is blank,
+ *  '/' when they deliberately mean the vault root (so blank stays "unset" and
+ *  the root stays selectable). */
+export function normalizeFolder(path: string): string {
+	const trimmed = path.trim();
+	if (!trimmed) return '';
+	return cleanFolder(trimmed) ?? VAULT_ROOT;
 }
 
 /**
@@ -173,7 +219,9 @@ export function viewCall(viewName: string, options: Record<string, string | bool
  * When `images` is provided (and its mode is not `off`), each bullet ends
  * with that channel's images as fields: `avatar_url`, plus `avatar` when the
  * local file exists, and `banner_url`/`banner` the same pair for the
- * channel banner. Omitted or `off`, the output is unchanged.
+ * channel banner. Each pair is also gated on its own `fields` toggle, so the
+ * checkbox can drop one without the other. Omitted or `off`, the output is
+ * unchanged.
  */
 export function renderChannelsNote(
 	state: SyncState,
@@ -213,8 +261,17 @@ export function renderChannelsNote(
 		if (fields.videos && typeof channel.videoCount === 'number') parts.push(`[videos:: ${channel.videoCount}]`);
 		if (fields.views && typeof channel.viewCount === 'number') parts.push(`[views:: ${channel.viewCount}]`);
 		if (fields.country && channel.country) parts.push(`[country:: ${channel.country}]`);
-		parts.push(...bulletImageFields(images, channelImageBase(id), channel.avatar, 'avatar_url', 'avatar'));
-		parts.push(...bulletImageFields(images, channelBannerImageBase(id), channel.banner, 'banner_url', 'banner'));
+		// Image fields ride their own checkboxes too: a mode that is on still
+		// writes nothing when the row is off, so avatars and banners can be
+		// picked apart instead of being all-or-nothing.
+		if (fields.avatar) {
+			parts.push(...bulletImageFields(images, channelImageBase(id), channel.avatar, 'avatar_url', 'avatar'));
+		}
+		if (fields.banner) {
+			parts.push(
+				...bulletImageFields(images, channelBannerImageBase(id), channel.banner, 'banner_url', 'banner'),
+			);
+		}
 		lines.push(`- ${parts.join(' ')}`);
 	}
 	lines.push('');

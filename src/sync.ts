@@ -126,7 +126,7 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 	const startedAt = Date.now();
 	const now = new Date(startedAt);
 	const errors: SyncErrorRecord[] = [];
-	const paths = outputPaths(plugin.settings.outputFolder);
+	const paths = outputPaths(plugin.settings.outputFolder, plugin.settings.imagesFolder);
 	const quota = new QuotaTracker(plugin.settings.quotaSoftLimit);
 	const state = plugin.state;
 
@@ -238,9 +238,11 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 			fields.videos ||
 			fields.views ||
 			fields.country ||
-			// Avatars arrive on this same part=snippet response, so wanting one
-			// is the only reason to keep the call; it adds no request of its own.
-			plugin.settings.channelAvatars !== 'off';
+			// Avatars and banners arrive on this same part=snippet response, so
+			// wanting either is the only reason to keep the call; it adds no
+			// request of its own. Both field toggles count, since a mode that is
+			// on writes nothing once they are off.
+			(plugin.settings.channelAvatars !== 'off' && (fields.avatar || fields.banner));
 		if (channelsOk && statsWanted) {
 			const { stats, syncErrors } = await listChannelStatistics(
 				plugin.auth,
@@ -721,7 +723,7 @@ export async function writeNoteViewScripts(
  * it works before any sync has run (status null → "never").
  */
 export async function writeDashboardNote(plugin: LifelinePlugin): Promise<string> {
-	const paths = outputPaths(plugin.settings.outputFolder);
+	const paths = outputPaths(plugin.settings.outputFolder, plugin.settings.imagesFolder);
 	const trackedIds = new Set(plugin.settings.trackedPlaylists ?? []);
 	if (plugin.settings.watchLaterPlaylistId) trackedIds.add(plugin.settings.watchLaterPlaylistId);
 	const last = plugin.state.lastSync;
@@ -742,7 +744,7 @@ export async function writeDashboardNote(plugin: LifelinePlugin): Promise<string
 }
 
 // ---------------------------------------------------------------------------
-// Thumbnails (opt-in "Download into the vault" mode)
+// Thumbnails (opt-in "Download" mode, into the configured Images folder)
 // ---------------------------------------------------------------------------
 
 /** Parallel image fetches. Deliberately low: these race with the note writes
