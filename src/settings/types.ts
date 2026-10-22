@@ -10,7 +10,7 @@
  */
 import { DEFAULT_SCRIPTS_FOLDER } from '../dashboardScript';
 import { DEFAULT_OUTPUT_FOLDER } from '../markdown';
-import { DEFAULT_STYLES_FOLDER } from '../noteViewsScript';
+import { DEFAULT_STYLES_FOLDER, type NoteViewKind } from '../noteViewsScript';
 import {
 	DEFAULT_CHANNELS_FIELDS,
 	DEFAULT_DASHBOARD_SECTIONS,
@@ -20,13 +20,76 @@ import {
 	type PlaylistSummary,
 } from '../types';
 
-/** Layout for the opt-in note views, picked in each note's toolbar (there is
- *  deliberately no settings row for it). `mixed` picks the layout per note:
- *  chips for Channels.md, cards for playlist notes. */
+/** Layout of one opt-in note view. `mixed` is legacy only: it was the value
+ *  the single setting used to hold, meaning "chips for Channels.md, cards for
+ *  playlist notes", a choice the three per-kind rows below now express
+ *  directly. Still understood wherever an old note or an unmigrated data.json
+ *  can supply it (the view script resolves it, onload expands it), but no
+ *  dropdown offers it. */
 export type NoteLayout = 'table' | 'mixed' | 'cards' | 'chips';
 
-/** Default note layout: chips in Channels.md, cards in playlists. */
-export const DEFAULT_NOTE_LAYOUT: NoteLayout = 'mixed';
+/** One choice in a layout dropdown, in menu order. Deliberately no Mixed:
+ *  within one note type it is just a slower way of naming the other value. */
+export const NOTE_LAYOUT_OPTIONS: Array<{ value: NoteLayout; label: string }> = [
+	{ value: 'chips', label: 'Chips' },
+	{ value: 'cards', label: 'Cards' },
+	{ value: 'table', label: 'Table' },
+];
+
+/** Layout of each note type's view, one row per type in the Notes group.
+ *  Split per type because the notes are read differently: a long Watch Later
+ *  queue scans better as a dense table while a curated playlist shows off
+ *  its thumbnail as cards, and one shared row could never say that. */
+export type NoteLayouts = Record<NoteViewKind, NoteLayout>;
+
+/** Defaults: chips for the flat channel list, cards for the video lists,
+ *  which is exactly what the retired `mixed` resolved to, so an upgrade
+ *  leaves every note looking the same. */
+export const DEFAULT_NOTE_LAYOUTS: NoteLayouts = {
+	channels: 'chips',
+	playlists: 'cards',
+	watchlater: 'cards',
+};
+
+/** The three layout rows, in render order and in the order the notes appear
+ *  in the vault. Each names the note it drives: a bare "Playlists" would read
+ *  as though it covered Watch Later too, which is the whole point of the
+ *  third row. */
+export const LAYOUT_ROWS: Array<{ key: NoteViewKind; name: string; desc: string }> = [
+	{
+		key: 'channels',
+		name: 'Channels layout',
+		desc: 'How the view above Channels.md renders. Chips keep the long channel list compact; cards add the avatar and banner.',
+	},
+	{
+		key: 'playlists',
+		name: 'Playlists layout',
+		desc: 'How the view above every playlist note renders. Cards lead with the video thumbnail; table fits more rows on screen.',
+	},
+	{
+		key: 'watchlater',
+		name: 'Watch Later layout',
+		desc: 'How the view above Watch Later.md renders. Kept apart from Playlists because a long watch queue usually reads best as a table.',
+	},
+];
+
+/**
+ * Expand the pre-split `noteLayout` key, one layout for all three notes, into
+ * the per-kind `noteLayouts` object. `mixed` expands to what it used to resolve
+ * to at view time, so an upgrade leaves every note looking the same. Returns
+ * null when there is no legacy key to migrate, so the caller can leave
+ * data.json untouched on every ordinary load.
+ */
+export function expandLegacyLayout(legacy: unknown): NoteLayouts | null {
+	if (typeof legacy !== 'string') return null;
+	// Anything that is not one of the three concrete layouts lands on the
+	// defaults: that covers "mixed", which was chips for Channels.md and cards
+	// for the video lists, and any unrecognized value, which used to fall back
+	// to it as well. Either way the migrated object never carries a value no
+	// dropdown offers any more.
+	if (legacy !== 'chips' && legacy !== 'cards' && legacy !== 'table') return { ...DEFAULT_NOTE_LAYOUTS };
+	return { channels: legacy, playlists: legacy, watchlater: legacy };
+}
 
 /** One row of the Channels.md fields checklist, in render order. */
 export interface FieldRow {
@@ -90,11 +153,10 @@ export interface LifelineSettings {
 	 *  plugin). Draw from the generated lifeline-channels.js,
 	 *  lifeline-playlists.js, and lifeline-watchlater.js scripts. */
 	noteViews: boolean;
-	/** How those views render, written by each note's toolbar Layout select
-	 *  (no settings row). `mixed` = chips for Channels.md, cards for playlist
-	 *  notes; the other three apply one layout everywhere. Ignored while
-	 *  `noteViews` is off. */
-	noteLayout: NoteLayout;
+	/** How those views render, one row per note type (Notes group). Written
+	 *  back by each note's toolbar Layout select too, so switching there needs
+	 *  no sync. Ignored while `noteViews` is off. */
+	noteLayouts: NoteLayouts;
 	/** Vault folder holding the generated lifeline-views.css stylesheet the
 	 *  view scripts read at view time (the quotebook.css pattern). */
 	stylesFolder: string;
@@ -136,7 +198,7 @@ export const DEFAULT_SETTINGS: LifelineSettings = {
 	dashboardScriptsFolder: DEFAULT_SCRIPTS_FOLDER,
 	dashboardScriptsFolderWritten: null,
 	noteViews: false,
-	noteLayout: DEFAULT_NOTE_LAYOUT,
+	noteLayouts: { ...DEFAULT_NOTE_LAYOUTS },
 	stylesFolder: DEFAULT_STYLES_FOLDER,
 	stylesFolderWritten: null,
 	channelAvatars: 'off',

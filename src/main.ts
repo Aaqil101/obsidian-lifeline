@@ -11,7 +11,7 @@ import { SyncLogModal } from './ui/syncLogModal';
 import { readSyncLog, removeLegacySyncLog } from './syncLog';
 import { adoptCatalog, mergeCatalog, runSync, writeDashboardNote } from './sync';
 import { listOwnedPlaylists, listSubscriptions, QuotaTracker } from './youtubeApi';
-import { DEFAULT_SETTINGS, LifelineSettingTab, type LifelineSettings } from './settings';
+import { DEFAULT_SETTINGS, LifelineSettingTab, expandLegacyLayout, type LifelineSettings } from './settings';
 import { createDefaultState, type SyncRunResult, type SyncState } from './types';
 
 /** Delay before the startup auto-sync check fires, so the vault can settle. */
@@ -34,6 +34,17 @@ export default class LifelinePlugin extends Plugin {
 			loaded.noteViews = legacy.noteTables;
 		}
 		if (legacy) delete legacy.noteTables;
+		// One `noteLayout` for all three notes became one per note type, so the
+		// old value is expanded rather than dropped. An existing choice maps to
+		// what it resolved to before (mixed: chips for channels, cards for the
+		// video lists), which leaves every note looking the same after an
+		// upgrade. The stale key is purged here rather than waiting for some
+		// later settings change to happen to write it out.
+		const staleLayout = loaded as { noteLayout?: unknown } | null;
+		const hadStaleLayout = staleLayout?.noteLayout !== undefined;
+		const expandedLayout = hadStaleLayout ? expandLegacyLayout(staleLayout?.noteLayout) : null;
+		if (staleLayout) delete staleLayout.noteLayout;
+		if (expandedLayout && loaded && loaded.noteLayouts === undefined) loaded.noteLayouts = expandedLayout;
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
 		// Per-key merge so field toggles added later still get their defaults.
 		this.settings.channelsFields = {
@@ -44,11 +55,11 @@ export default class LifelinePlugin extends Plugin {
 			...DEFAULT_SETTINGS.dashboardSections,
 			...(loaded?.dashboardSections ?? {}),
 		};
-		// Persist the rename once, and only when a legacy key was actually
+		// Persist both renames once, and only when a legacy key was actually
 		// found. Startup stays read-only on every other load, and the stale
-		// noteTables key is purged from data.json instead of waiting for some
-		// later settings change to happen to write it out.
-		if (hadLegacyTables) await this.saveSettings();
+		// noteTables and noteLayout keys are purged from data.json instead of
+		// waiting for some later settings change to happen to write them out.
+		if (hadLegacyTables || hadStaleLayout) await this.saveSettings();
 		this.state = await this.loadState();
 		this.auth = new AuthManager(this);
 

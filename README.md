@@ -124,19 +124,20 @@ Turning the toggle on requires the community [Dataview](https://github.com/black
 
 **Views in notes** (opt-in, off by default; Settings → Lifeline → Notes) draws a live view above the entries in Channels.md, every playlist note, and Watch Later.md. Each note type calls its own script in the same **Script folder**: Channels.md calls `lifeline-channels.js`, playlist notes call `lifeline-playlists.js`, and Watch Later.md calls `lifeline-watchlater.js`. Lifeline generates all three.
 
-Each view can render in four layouts:
+Each view can render in three layouts, and you pick one per note type under **Notes** (three dropdowns, right under the **Views in notes** toggle: **Channels layout**, **Playlists layout**, and **Watch Later layout**):
 
-- **Mixed** (default): chips in Channels.md, cards in playlist notes. The three options below apply one layout everywhere.
 - **Chips**: one compact row per entry with the title and a muted meta line, plus the avatar on the left when **Channel avatars and banners** (or **Video thumbnails**) is on.
-- **Cards**: a bordered card per entry with the accent on the left edge. Channel cards put the banner across the top (when the channel has one) with the avatar as a round badge half over its lower-left edge, the way a channel header sits on YouTube; a channel with no banner simply leads the card with the avatar, so nothing is ever force-cropped. Playlist and watch-later cards put the video thumbnail across the top. Labeled rows sit underneath.
+- **Cards** (default): a bordered card per entry with the accent on the left edge. Channel cards put the banner across the top (when the channel has one) with the avatar as a round badge half over its lower-left edge, the way a channel header sits on YouTube; a channel with no banner simply leads the card with the avatar, so nothing is ever force-cropped. Playlist and watch-later cards put the video thumbnail across the top. Labeled rows sit underneath.
 - **Table**: the original grid, best when you want to scan several columns at once.
+
+Channels default to **Chips**, and playlists and Watch Later default to **Cards**. The three are separate on purpose: a long Watch Later queue usually reads best as a **Table** while a curated playlist shows off its thumbnails as **Cards**, and one shared dropdown could never say that. (Older versions had a single **Mixed** option standing in for this; your existing choice is carried over automatically.)
 
 Whatever the layout, the Channels.md columns and card rows follow your **Channels.md fields** checkboxes, so turning a field off removes it everywhere. To keep things narrow, dates render as `YYYY-MM-DD`, the channel ID shows a short prefix (hover for the full 24-character value), and Subscribers/Videos/Views render YouTube-style (`4.67K`, `109M`; hover for the full value, select it to flip between short and full).
 
 Every view opens with a toolbar:
 
 - A **search box** that filters the entries as you type (search covers the name or title, handle, ID, country, status, channel, or date, whichever you pick in the box beside it).
-- A **Layout** select that switches between Mixed, Chips, Cards, and Table immediately, with no sync needed. The choice is saved as your new default (there is no settings row for it), so every note follows it, including any other view already open.
+- A **Layout** select that switches between Chips, Cards, and Table immediately, with no sync needed. The choice is saved as that note type's default, the same slot the settings dropdowns write to, so every note of that type follows it, including any other view already open. It only changes the note type you are looking at: switching in a playlist note leaves Channels.md alone.
 - A **Refresh** button that re-reads the note's bullets, for when you edited them by hand.
 - A count line, for example `Showing 60 of 412 channels`, or `Found 3 of 412 channels` while searching.
 

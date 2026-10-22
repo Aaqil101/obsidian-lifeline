@@ -4,26 +4,26 @@
  * Later.md. One generated script per note type, so each note calls its own
  * file once:
  *
- *   dv.view("<scriptsFolder>/lifeline-channels", { layout: "mixed", fields: {...} })
- *   dv.view("<scriptsFolder>/lifeline-playlists", { layout: "mixed" })
- *   dv.view("<scriptsFolder>/lifeline-watchlater", { layout: "mixed" })
+ *   dv.view("<scriptsFolder>/lifeline-channels", { layout: "chips", fields: {...} })
+ *   dv.view("<scriptsFolder>/lifeline-playlists", { layout: "cards" })
+ *   dv.view("<scriptsFolder>/lifeline-watchlater", { layout: "cards" })
  *
  * The section (channels or playlist) is baked into each script rather than
- * passed in. Layouts: table, chips, cards, and mixed (chips for channels,
- * cards for playlists). Every layout reads the calling note's own list
- * entries via dv.current().file.lists, so the view always mirrors the bullets
- * below it and needs no vault-wide query.
+ * passed in, along with the note type, which is the key each view reads and
+ * writes its layout under. Layouts: chips, cards, and table. Every layout
+ * reads the calling note's own list entries via dv.current().file.lists, so
+ * the view always mirrors the bullets below it and needs no vault-wide query.
  *
  * Each view opens with a toolbar in the spirit of the quotebook DataviewJS
  * script: one bordered container holding the search row (search box, a
  * "search in" scope select, a Layout select, a Refresh button) with the
  * result count in a bar beneath it. The Layout select switches the rendering
- * immediately and writes the choice back into the plugin's settings (there is
- * deliberately no settings row for it), then refreshes every open view the
- * way Dataview's own force-refresh command does, so no sync is needed: the
- * script prefers the live setting over the layout baked into the note, and
- * the baked value is only a fallback for when the plugin instance cannot be
- * reached.
+ * immediately and writes the choice back into the plugin's settings under
+ * this note type's own key, the same slot the three settings rows edit, then
+ * refreshes every open view the way Dataview's own force-refresh command
+ * does, so no sync is needed: the script prefers the live setting over the
+ * layout baked into the note, and the baked value is only a fallback for
+ * when the plugin instance cannot be reached.
  *
  * Sync writes the three scripts and the stylesheet whenever the "Views in
  * notes" setting is on (sync.ts: writeNoteViewScripts), trashes copies left
@@ -148,274 +148,279 @@ const SEARCH_DEBOUNCE_MS = 250;
  * (the quotebook.css pattern): the generated script reads that file at view
  * time and injects it, so restyling never needs a code change here.
  */
-export const NOTE_VIEWS_CSS = `.lifeline-views table.dataview.table-view-table {
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m, 8px);
-  overflow: hidden;
-  margin: 4px 0 8px;
+export const NOTE_VIEWS_CSS = `
+.lifeline-views table.dataview.table-view-table {
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m, 8px);
+    overflow: hidden;
+    margin: 4px 0 8px;
 }
 .lifeline-views table.dataview.table-view-table thead > tr > th {
-  background: var(--background-secondary);
-  color: var(--text-muted);
-  font-weight: 600;
-  font-size: 0.85em;
-  text-align: left;
-  border-bottom: 1px solid var(--background-modifier-border);
+    background: var(--background-secondary);
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.85em;
+    text-align: left;
+    border-bottom: 1px solid var(--background-modifier-border);
 }
 .lifeline-views table.dataview.table-view-table tbody > tr > td {
-  border-bottom: 1px solid var(--background-modifier-border);
+    border-bottom: 1px solid var(--background-modifier-border);
 }
 .lifeline-views table.dataview.table-view-table tbody > tr:last-child > td {
-  border-bottom: none;
+    border-bottom: none;
 }
 .lifeline-views table.dataview.table-view-table tbody > tr:hover > td {
-  background: var(--background-modifier-hover);
+    background: var(--background-modifier-hover);
 }
 .lifeline-views .lv-toolbar {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin: 4px 0 16px;
-  padding: 20px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m, 8px);
-  background: var(--background-secondary);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 4px 0 16px;
+    padding: 20px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m, 8px);
+    background: var(--background-secondary);
 }
 .lifeline-views .lv-toolbar-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
 }
 .lifeline-views .lv-search {
-  flex: 1 1 300px;
-  min-width: 220px;
-  min-height: 44px;
-  padding: 0 16px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s, 6px);
-  background: var(--background-primary);
-  color: var(--text-normal);
-  font-size: 14px;
+    flex: 1 1 300px;
+    min-width: 220px;
+    min-height: 44px;
+    padding: 0 16px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s, 6px);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 14px;
 }
 .lifeline-views .lv-search:focus {
-  outline: none;
-  border-color: var(--interactive-accent);
-  box-shadow: 0 0 0 2px var(--background-modifier-border-focus, var(--background-modifier-border));
+    outline: none;
+    border-color: var(--interactive-accent);
+    box-shadow: 0 0 0 2px
+        var(
+            --background-modifier-border-focus,
+            var(--background-modifier-border)
+        );
 }
 .lifeline-views .lv-search::placeholder {
-  color: var(--text-muted);
-  font-style: normal;
+    color: var(--text-muted);
+    font-style: normal;
 }
 .lifeline-views .lv-select {
-  min-height: 44px;
-  padding: 0 12px;
-  line-height: normal;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s, 6px);
-  background: var(--background-primary);
-  color: var(--text-normal);
-  font-size: 14px;
-  max-width: 190px;
+    min-height: 44px;
+    padding: 0 12px;
+    line-height: normal;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s, 6px);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 14px;
+    max-width: 190px;
 }
 .lifeline-views .lv-refresh {
-  padding: 12px 20px;
-  cursor: pointer;
-  border: none;
-  border-radius: var(--radius-s, 6px);
-  background: var(--interactive-accent);
-  color: var(--text-on-accent, var(--text-normal));
-  font-size: 14px;
-  font-weight: 500;
-  white-space: nowrap;
+    padding: 12px 20px;
+    cursor: pointer;
+    border: none;
+    border-radius: var(--radius-s, 6px);
+    background: var(--interactive-accent);
+    color: var(--text-on-accent, var(--text-normal));
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
 }
 .lifeline-views .lv-refresh:hover {
-  background: var(--interactive-accent-hover, var(--interactive-hover));
+    background: var(--interactive-accent-hover, var(--interactive-hover));
 }
 .lifeline-views .lv-stats {
-  padding: 10px 16px;
-  border-radius: var(--radius-s, 6px);
-  background: var(--background-primary);
-  color: var(--text-accent, var(--interactive-accent));
-  font-size: 14px;
-  font-weight: 500;
+    padding: 10px 16px;
+    border-radius: var(--radius-s, 6px);
+    background: var(--background-primary);
+    color: var(--text-accent, var(--interactive-accent));
+    font-size: 14px;
+    font-weight: 500;
 }
 .lifeline-views .lv-empty {
-  text-align: center;
-  color: var(--text-muted);
-  padding: 14px;
+    text-align: center;
+    color: var(--text-muted);
+    padding: 14px;
 }
 .lifeline-views .lv-chips,
 .lifeline-views .lv-cards {
-  margin: 8px 0 14px;
+    margin: 8px 0 14px;
 }
 .lifeline-views .lv-chips {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
 }
 .lifeline-views .lv-chip {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  border: 1px solid var(--background-modifier-border);
-  border-left: 3px solid var(--text-accent, var(--interactive-accent));
-  border-radius: var(--radius-s, 6px);
-  background: var(--background-secondary);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border: 1px solid var(--background-modifier-border);
+    border-left: 3px solid var(--text-accent, var(--interactive-accent));
+    border-radius: var(--radius-s, 6px);
+    background: var(--background-secondary);
 }
 .lifeline-views .lv-chip:hover {
-  background: var(--background-modifier-hover);
+    background: var(--background-modifier-hover);
 }
 .lifeline-views .lv-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 16px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 16px;
 }
 .lifeline-views .lv-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--background-modifier-border);
-  border-left: 3px solid var(--text-accent, var(--interactive-accent));
-  border-radius: var(--radius-s, 6px);
-  background: var(--background-secondary);
-  overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--background-modifier-border);
+    border-left: 3px solid var(--text-accent, var(--interactive-accent));
+    border-radius: var(--radius-s, 6px);
+    background: var(--background-secondary);
+    overflow: hidden;
 }
 .lifeline-views .lv-card:hover {
-  background: var(--background-modifier-hover);
+    background: var(--background-modifier-hover);
 }
 .lifeline-views .lv-card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 16px;
 }
 .lifeline-views .lv-card .lv-title {
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--background-modifier-border);
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--background-modifier-border);
 }
 .lifeline-views .lv-thumb {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: var(--radius-s, 6px);
-  overflow: hidden;
-  background: var(--background-modifier-border);
-  color: var(--text-muted);
-  font-weight: 600;
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-s, 6px);
+    overflow: hidden;
+    background: var(--background-modifier-border);
+    color: var(--text-muted);
+    font-weight: 600;
 }
 .lifeline-views .lv-card .lv-thumb {
-  width: 100%;
-  height: 110px;
-  border-radius: 0;
+    width: 100%;
+    height: 110px;
+    border-radius: 0;
 }
 .lifeline-views .lv-thumb img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 .lifeline-views .lv-banner {
-  position: relative;
-  width: 100%;
-  height: 110px;
-  background: var(--background-modifier-border);
+    position: relative;
+    width: 100%;
+    height: 110px;
+    background: var(--background-modifier-border);
 }
 .lifeline-views .lv-banner img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 .lifeline-views .lv-avatar {
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  overflow: hidden;
-  background: var(--background-modifier-border);
-  color: var(--text-muted);
-  font-weight: 600;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 68px;
+    height: 68px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: var(--background-modifier-border);
+    color: var(--text-muted);
+    font-weight: 600;
 }
 .lifeline-views .lv-avatar img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 /* Inside a strip the badge straddles the banner's lower-left edge, the way a
    channel header sits on YouTube; the ring in the card's background color
    separates it from the artwork behind it. */
 .lifeline-views .lv-banner .lv-avatar {
-  position: absolute;
-  left: 16px;
-  bottom: -24px;
-  border: 3px solid var(--background-secondary);
-  z-index: 1;
+    position: absolute;
+    left: 16px;
+    bottom: -24px;
+    border: 3px solid var(--background-secondary);
+    z-index: 1;
 }
 .lifeline-views .lv-card--banner .lv-card-body {
-  /* The badge's lower half hangs into the body, so the title clears it. */
-  padding-top: 44px;
+    /* The badge's lower half hangs into the body, so the title clears it. */
+    padding-top: 20px;
 }
 .lifeline-views .lv-body {
-  min-width: 0;
+    min-width: 0;
 }
 .lifeline-views .lv-title {
-  font-weight: 600;
-  text-decoration: none;
+    font-weight: 600;
+    text-decoration: none;
 }
 .lifeline-views .lv-title:hover {
-  text-decoration: underline;
+    text-decoration: underline;
 }
 .lifeline-views .lv-meta {
-  margin-top: 2px;
-  color: var(--text-muted);
-  font-size: 0.85em;
+    margin-top: 2px;
+    color: var(--text-muted);
+    font-size: 0.85em;
 }
 .lifeline-views .lv-meta-row {
-  display: flex;
-  gap: 6px;
-  font-size: 0.85em;
+    display: flex;
+    gap: 6px;
+    font-size: 0.85em;
 }
 .lifeline-views .lv-meta-label {
-  color: var(--text-muted);
+    color: var(--text-muted);
 }
 .lifeline-views .lv-more {
-  width: 100%;
-  /* The container gap already separates it from the last row. */
-  margin-top: 0;
-  padding: 10px 16px;
-  cursor: pointer;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s, 6px);
-  background: var(--background-secondary);
-  color: var(--text-normal);
-  font-size: 14px;
-  font-weight: 500;
+    width: 100%;
+    /* The container gap already separates it from the last row. */
+    margin-top: 0;
+    padding: 10px 16px;
+    cursor: pointer;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s, 6px);
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    font-size: 14px;
+    font-weight: 500;
 }
 .lifeline-views .lv-cards > .lv-more {
-  grid-column: 1 / -1;
+    grid-column: 1 / -1;
 }
 .lifeline-views .lv-more:hover {
-  background: var(--background-modifier-hover);
+    background: var(--background-modifier-hover);
 }
 @media (max-width: 600px) {
-  .lifeline-views .lv-toolbar-row {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .lifeline-views .lv-search,
-  .lifeline-views .lv-select {
-    max-width: unset;
-    width: 100%;
-  }
+    .lifeline-views .lv-toolbar-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .lifeline-views .lv-search,
+    .lifeline-views .lv-select {
+        max-width: unset;
+        width: 100%;
+    }
 }
 `;
 
@@ -435,18 +440,18 @@ export function renderNoteViewScript(kind: NoteViewKind, stylesFolder: string): 
  * Lifeline note-view script for ${note} (generated).
  *
  * The note invokes this file once:
- *   dv.view("98 - Organize/Scripts/lifeline-${kind}", { layout: "mixed"${kind === 'channels' ? ', fields: {...}' : ''} })
- * Layouts: table, chips, cards, mixed (chips for channels, cards for
- * playlists; mixed is the default). Every layout reads the calling note's
- * own list entries (dv.current().file.lists), so the view mirrors the
+ *   dv.view("98 - Organize/Scripts/lifeline-${kind}", { layout: "${kind === 'channels' ? 'chips' : 'cards'}"${kind === 'channels' ? ', fields: {...}' : ''} })
+ * Layouts: chips, cards, table. Every layout reads the calling note's own
+ * list entries (dv.current().file.lists), so the view mirrors the
  * inline-field entries below it. Regenerated on every sync while "Views in
  * notes" is on; hand edits are overwritten.
  *
  * The toolbar at the top offers search, a "search in" scope, a Layout select,
  * and Refresh, all inside one bordered container with the result count in a
  * bar beneath the controls. Layout changes are instant, are written back into
- * the plugin's settings, and refresh the other open views; the layout baked
- * into the note is only a fallback for when the plugin cannot be reached.
+ * the plugin's settings under this note type's own key, so playlists and Watch
+ * Later can differ, and refresh the other open views; the layout baked into
+ * the note is only a fallback for when the plugin cannot be reached.
  *
  * Styling is NOT baked in: this script reads ${VIEWS_STYLESHEET_FILE} from
  * the vault's styles folder at view time and injects it, so hand edits to
@@ -933,10 +938,15 @@ const KNOWN_LAYOUTS = ["table", "mixed", "chips", "cards"];
 // Which note shape this file serves; baked per script ("channels" in
 // lifeline-channels.js, "playlist" in the other two) rather than passed in.
 const section = ${JSON.stringify(section)};
+// Which note type this file serves, baked beside the section so the layout is
+// read and written under its own key: playlists and Watch Later share a shape
+// but deliberately not a layout, which is the point of the three settings rows.
+const kind = ${JSON.stringify(kind)};
 
 // The plugin instance is the live source of truth for the layout: switching
-// in the toolbar saves it there, so every note follows without a sync. The
-// layout baked into the note is only a fallback (plugin disabled, old note).
+// in the toolbar, or in the settings rows, saves it there, so every note of
+// this type follows without a sync. The layout baked into the note is only a
+// fallback (plugin disabled, old note).
 const pluginInstance = () => {
   try {
     return app.plugins && app.plugins.plugins ? app.plugins.plugins["lifeline"] : null;
@@ -947,14 +957,18 @@ const pluginInstance = () => {
 
 const liveLayout = () => {
   const plugin = pluginInstance();
-  const value = plugin && plugin.settings ? plugin.settings.noteLayout : null;
+  const layouts = plugin && plugin.settings ? plugin.settings.noteLayouts : null;
+  const value = layouts ? layouts[kind] : null;
   return KNOWN_LAYOUTS.indexOf(value) >= 0 ? value : null;
 };
 
 const persistLayout = (value) => {
   const plugin = pluginInstance();
   if (!plugin || !plugin.settings || typeof plugin.saveSettings !== "function") return;
-  plugin.settings.noteLayout = value;
+  // Under this note type's own key, so switching here never touches the
+  // layout of a different kind of note.
+  if (!plugin.settings.noteLayouts) plugin.settings.noteLayouts = {};
+  plugin.settings.noteLayouts[kind] = value;
   try {
     Promise.resolve(plugin.saveSettings()).catch(() => {});
   } catch (err) {
@@ -962,8 +976,9 @@ const persistLayout = (value) => {
   }
 };
 
-// A layout switch here is a global choice, so other open views follow it the
-// way Dataview's own force-refresh command makes them: bump the index
+// A layout switch here is a choice shared by every note of this type, so the
+// other open views follow it the way Dataview's own force-refresh command
+// makes them: bump the index
 // revision, then fire the refresh event (Dataview ignores the event unless
 // the revision moved). Our own view re-renders too, which is why the current
 // search is stashed below and restored by the next run instead of dropped.
@@ -1077,13 +1092,18 @@ toolbarRow.appendChild(scope);
 const layoutSelect = document.createElement("select");
 layoutSelect.className = "lv-select";
 layoutSelect.setAttribute("aria-label", "Layout");
-for (const option of [["mixed", "Mixed"], ["chips", "Chips"], ["cards", "Cards"], ["table", "Table"]]) {
+// Three concrete choices only. "mixed" used to stand for "chips for channels,
+// cards for the video lists", which the per-kind settings rows now say
+// directly, so it survives only as a value an old note can still bake in;
+// resolveLayout turns that into the real starting value rather than leaving
+// the select blank.
+for (const option of [["chips", "Chips"], ["cards", "Cards"], ["table", "Table"]]) {
   const opt = document.createElement("option");
   opt.value = option[0];
   opt.textContent = option[1];
   layoutSelect.appendChild(opt);
 }
-layoutSelect.value = state.layout;
+layoutSelect.value = resolveLayout(state.layout);
 toolbarRow.appendChild(layoutSelect);
 
 const refresh = document.createElement("button");

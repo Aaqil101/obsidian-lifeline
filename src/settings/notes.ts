@@ -14,7 +14,13 @@ import { DEFAULT_STYLES_FOLDER, normalizeStylesFolder } from '../noteViewsScript
 import { writeNoteViewScripts } from '../sync';
 import { DEFAULT_CHANNELS_FIELDS } from '../types';
 import { folderSetting } from './folderPicker';
-import { FIELD_ROWS } from './types';
+import {
+	DEFAULT_NOTE_LAYOUTS,
+	FIELD_ROWS,
+	LAYOUT_ROWS,
+	NOTE_LAYOUT_OPTIONS,
+	type NoteLayout,
+} from './types';
 import { group, navRow, type SettingsHost } from './ui';
 
 /** Landing group: output folder, views, and the two structural sub-pages. */
@@ -40,8 +46,8 @@ export function renderNotesGroup(host: SettingsHost, containerEl: HTMLElement): 
 	// revert + Notice when the community plugin is missing. Toggling on writes
 	// the three view scripts immediately so the next sync's baked dv.view()
 	// calls resolve; toggling off needs nothing (the next sync rewrites the
-	// notes without the block). Layout has no row here: it is picked in each
-	// note's toolbar and written back through it.
+	// notes without the block). The layout rows below stay live either way so
+	// a choice survives the toggle, described as inactive while off.
 	new Setting(card)
 		.setName('Views in notes')
 		.setDesc(
@@ -66,6 +72,27 @@ export function renderNotesGroup(host: SettingsHost, containerEl: HTMLElement): 
 				}
 			}),
 		);
+
+	// Layout rows. Live while the toggle is off but described as inactive
+	// rather than disabled, so a choice made with views off survives and is
+	// still there when they come back on. No rewrite on change: each view
+	// reads its own layout out of the live plugin settings at render time, so
+	// the next re-render of an open note picks the new value up with no sync
+	// and no regenerated script. The note's baked layout is only a fallback.
+	for (const row of LAYOUT_ROWS) {
+		new Setting(card)
+			.setName(row.name)
+			.setDesc(settings.noteViews ? row.desc : `${row.desc} Only applies while Views in notes is on.`)
+			.addDropdown((dropdown) => {
+				for (const option of NOTE_LAYOUT_OPTIONS) dropdown.addOption(option.value, option.label);
+				dropdown.setValue(settings.noteLayouts[row.key]).onChange(async (value) => {
+					settings.noteLayouts[row.key] = NOTE_LAYOUT_OPTIONS.some((option) => option.value === value)
+						? (value as NoteLayout)
+						: DEFAULT_NOTE_LAYOUTS[row.key];
+					await plugin.saveSettings();
+				});
+			});
+	}
 
 	// Folder for lifeline-views.css, the stylesheet the view scripts read at
 	// render time (the quotebook.css pattern). Commits only on blur/Enter, then

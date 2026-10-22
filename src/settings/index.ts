@@ -19,7 +19,14 @@ import { renderCollectIdsPage } from './collectPage';
 import { renderSyncGroup } from './syncSection';
 import { addBackCrumb, type SettingsHost, type SubPage } from './ui';
 
-export { DEFAULT_SETTINGS, DEFAULT_NOTE_LAYOUT, type LifelineSettings, type NoteLayout } from './types';
+export {
+	DEFAULT_SETTINGS,
+	DEFAULT_NOTE_LAYOUTS,
+	expandLegacyLayout,
+	type LifelineSettings,
+	type NoteLayout,
+	type NoteLayouts,
+} from './types';
 
 /** The pages that can be open instead of the landing list. */
 const SUB_PAGES: Record<Exclude<SubPage, 'none'>, (host: SettingsHost, containerEl: HTMLElement) => void> = {

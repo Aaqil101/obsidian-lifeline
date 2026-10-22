@@ -482,20 +482,23 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 	// Each note type calls its own script; the section is baked into each.
 	const viewsReady = plugin.settings.noteViews && isDataviewEnabled(plugin.app);
 	const folder = plugin.settings.dashboardScriptsFolder;
-	const layout = plugin.settings.noteLayout;
+	// One layout per note type. The note only ever bakes its own type's value,
+	// and the view re-reads the live setting at render time, so this is purely
+	// the fallback for a note rendered while the plugin cannot be reached.
+	const layouts = plugin.settings.noteLayouts;
 	const channelsView = viewsReady
 		? dataviewBlock(
 				viewCall(noteViewViewName('channels', folder), {
-					layout,
+					layout: layouts.channels,
 					fields: plugin.settings.channelsFields,
 				}),
 			)
 		: undefined;
 	const playlistView = viewsReady
-		? dataviewBlock(viewCall(noteViewViewName('playlists', folder), { layout }))
+		? dataviewBlock(viewCall(noteViewViewName('playlists', folder), { layout: layouts.playlists }))
 		: undefined;
 	const watchLaterView = viewsReady
-		? dataviewBlock(viewCall(noteViewViewName('watchlater', folder), { layout }))
+		? dataviewBlock(viewCall(noteViewViewName('watchlater', folder), { layout: layouts.watchlater }))
 		: undefined;
 
 	// Thumbnails first, and only when a download setting is on: a bullet
