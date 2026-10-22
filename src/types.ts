@@ -77,17 +77,21 @@ export interface ChannelRecord {
 	country?: string;
 	/** Channel avatar URL from channels.list snippet.thumbnails; absent until fetched. */
 	avatar?: string;
+	/** Channel banner URL from brandingSettings.image; absent when the channel has no banner. */
+	banner?: string;
 }
 
 /**
  * How an optional image in a note renders. Independent of the Dataview-gated
- * views: images live in the bullets, so they work with the community Dataview
- * plugin absent and while "Views in notes" is off.
+ * views: the image is an inline field in the bullet, so it works with the
+ * community Dataview plugin absent and while "Views in notes" is off.
  *
  * - `off`: no image at all (the default, and the only byte-identical mode).
- * - `link`: embed the remote URL; the host is fetched every time a note opens.
- * - `download`: fetch once during sync and embed the vault copy, so notes
- *   render offline and nothing is fetched when a note is opened.
+ * - `link`: write the remote URL into the *_url field; the host is fetched
+ *   every time a view renders the image.
+ * - `download`: fetch once during sync and also write the local file's
+ *   wikilink into the field, so views render offline and nothing is fetched
+ *   when a note is opened.
  */
 export type ImageMode = 'off' | 'link' | 'download';
 

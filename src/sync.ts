@@ -17,6 +17,7 @@ import {
 	renderDashboardScript,
 } from './dashboardScript';
 import {
+	channelBannerImageBase,
 	channelImageBase,
 	dataviewBlock,
 	formatDate,
@@ -31,7 +32,17 @@ import {
 	type OutputPaths,
 } from './markdown';
 import { appendSyncLogRun } from './syncLog';
-import { noteViewsScriptPath, noteViewsViewName, renderNoteViewsScript } from './noteViewsScript';
+import {
+	NOTE_VIEWS_CSS,
+	NOTE_VIEW_KINDS,
+	legacyNoteViewsScriptPath,
+	legacyTablesScriptPath,
+	normalizeStylesFolder,
+	noteViewScriptPath,
+	noteViewViewName,
+	renderNoteViewScript,
+	viewsStylesheetPath,
+} from './noteViewsScript';
 import {
 	listChannelStatistics,
 	listOwnedPlaylists,
@@ -248,6 +259,7 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 				if (stat.views !== null) record.viewCount = stat.views;
 				record.country = stat.country || record.country;
 				record.avatar = stat.avatar || record.avatar;
+				record.banner = stat.banner || record.banner;
 			}
 		}
 
@@ -456,33 +468,46 @@ function uniqueFileName(state: SyncState, playlistId: string, base: string): str
 async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<void> {
 	const vault = plugin.app.vault;
 
-	// Note views (opt-in): write the script first so the dv.view()
+	// Note views (opt-in): write the three scripts first so the dv.view()
 	// calls baked into the notes always resolve. Written regardless of
 	// Dataview state (a degraded note simply omits the block), matching the
-	// dashboard script precedent.
+	// dashboard script precedent. Per-script error isolation, so one failing
+	// write never costs the others.
 	if (plugin.settings.noteViews) {
-		try {
-			await writeNoteViewsScript(plugin);
-		} catch (err) {
-			ctx.errors.push(recordError(err, noteViewsScriptPath(plugin.settings.dashboardScriptsFolder)));
-		}
+		await writeNoteViewScripts(plugin, (err, path) => ctx.errors.push(recordError(err, path)));
 	}
 	// The block itself is only baked in when Dataview is actually enabled.
+	// Each note type calls its own script; the section is baked into each.
 	const viewsReady = plugin.settings.noteViews && isDataviewEnabled(plugin.app);
-	const viewName = noteViewsViewName(plugin.settings.dashboardScriptsFolder);
+	const folder = plugin.settings.dashboardScriptsFolder;
 	const layout = plugin.settings.noteLayout;
 	const channelsView = viewsReady
-		? dataviewBlock(viewCall(viewName, { section: 'channels', layout, fields: plugin.settings.channelsFields }))
+		? dataviewBlock(
+				viewCall(noteViewViewName('channels', folder), {
+					layout,
+					fields: plugin.settings.channelsFields,
+				}),
+			)
 		: undefined;
-	const playlistView = viewsReady ? dataviewBlock(viewCall(viewName, { section: 'playlist', layout })) : undefined;
+	const playlistView = viewsReady
+		? dataviewBlock(viewCall(noteViewViewName('playlists', folder), { layout }))
+		: undefined;
+	const watchLaterView = viewsReady
+		? dataviewBlock(viewCall(noteViewViewName('watchlater', folder), { layout }))
+		: undefined;
 
 	// Thumbnails first, and only when a download setting is on: a bullet
-	// embeds the local copy only once it exists on disk, so every download
+	// names the local copy only once it exists on disk, so every download
 	// has to finish before any note is rendered. Runs regardless of the views
-	// toggle, since images live in the bullets rather than the view.
+	// toggle, since the image fields live in the bullets rather than the view.
 	const available = await collectThumbnails(plugin, ctx);
 	const channelImages: BulletImages = { mode: plugin.settings.channelAvatars, available };
 	const videoImages: BulletImages = { mode: plugin.settings.videoThumbnails, available };
+	// Where the error list stands before any note write: the legacy-script
+	// cleanup below may only run once every note has been rewritten onto the
+	// current view names, and a failed write leaves its note pointing at the
+	// old ones.
+	const errorsBeforeNotes = ctx.errors.length;
 
 	// Channels.md: only write when the fetch succeeded or we have known channels.
 	if (ctx.channelsOk || Object.keys(ctx.state.channels).length > 0) {
@@ -510,7 +535,7 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 				await writeNote(
 					vault,
 					ctx.paths.watchLater,
-					renderPlaylistNote(playlistId, record.title, record, ctx.now, playlistView, videoImages),
+					renderPlaylistNote(playlistId, record.title, record, ctx.now, watchLaterView, videoImages),
 				);
 			} else {
 				const path = `${ctx.paths.playlistsFolder}/${record.fileName}.md`;
@@ -529,11 +554,12 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 		}
 	}
 
-	// Legacy note-tables script: only once every note above has been rewritten
-	// without its dv.view() call, so no note can be left pointing at a file
-	// this deletes. Best effort, never fails the run.
+	// Superseded scripts (the pre-split lifeline-noteviews.js and the
+	// pre-rename lifeline-tables.js): only once every note above has been
+	// rewritten onto the current view names, so no note can be left pointing
+	// at a file this deletes. Best effort, never fails the run.
 	try {
-		await deleteLegacyTablesScript(plugin);
+		await deleteLegacyViewScripts(plugin, ctx.errors.length === errorsBeforeNotes);
 	} catch {
 		// a stale copy is harmless; the next sync retries it
 	}
@@ -567,11 +593,11 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 
 /**
  * Write one generated view script into the configured scripts folder and
- * record which folder it landed in. Both generated scripts (the dashboard
- * script and the note-views script) share the same folder setting and the
- * same bookkeeping key, so whichever one notices a folder change trashes the
- * copies of BOTH scripts left in the old folder, along with the legacy
- * lifeline-tables.js from before the rename. Written regardless of
+ * record which folder it landed in. All four generated scripts (the
+ * dashboard script and the three note-view scripts) share the same folder
+ * setting and the same bookkeeping key, so whichever one notices a folder
+ * change trashes the copies left in the old folder, along with the legacy
+ * lifeline-noteviews.js and lifeline-tables.js. Written regardless of
  * Dataview state: a degraded note simply does not reference it, and the
  * script is ready when Dataview comes back.
  */
@@ -589,24 +615,29 @@ async function writeGeneratedScript(
 		if (previous) {
 			const oldFolder = normalizeScriptsFolder(previous);
 			await deleteNote(plugin.app, dashboardScriptPath(oldFolder));
-			await deleteNote(plugin.app, noteViewsScriptPath(oldFolder));
-			await deleteNote(plugin.app, `${oldFolder}/lifeline-tables.js`);
+			for (const kind of NOTE_VIEW_KINDS) await deleteNote(plugin.app, noteViewScriptPath(kind, oldFolder));
+			await deleteNote(plugin.app, legacyNoteViewsScriptPath(oldFolder));
+			await deleteNote(plugin.app, legacyTablesScriptPath(oldFolder));
 		}
 	}
 }
 
 /**
- * Remove the lifeline-tables.js left over from before the layout rename.
- * Called after the notes are rewritten, so nothing that still points at the
- * old view name can be left holding a deleted script. Best effort: a missing
- * file is a no-op and a failure never fails the sync.
+ * Remove the scripts superseded by the current names: lifeline-noteviews.js
+ * (now split into three) and lifeline-tables.js (from before the rename).
+ * Only called once every note has been rewritten off the old view names, so
+ * nothing that still points at them can be left holding a deleted script.
+ * Best effort: a missing file is a no-op and a failure never fails the sync.
  */
-async function deleteLegacyTablesScript(plugin: LifelinePlugin): Promise<void> {
-	const folder = normalizeScriptsFolder(plugin.settings.dashboardScriptsFolder);
-	await deleteNote(plugin.app, `${folder}/lifeline-tables.js`);
+async function deleteLegacyViewScripts(plugin: LifelinePlugin, notesRewritten: boolean): Promise<void> {
+	if (!notesRewritten) return;
+	const current = normalizeScriptsFolder(plugin.settings.dashboardScriptsFolder);
 	const previous = plugin.settings.dashboardScriptsFolderWritten;
-	if (previous && previous !== folder) {
-		await deleteNote(plugin.app, `${normalizeScriptsFolder(previous)}/lifeline-tables.js`);
+	const folders = [current];
+	if (previous && previous !== current) folders.push(normalizeScriptsFolder(previous));
+	for (const folder of folders) {
+		await deleteNote(plugin.app, legacyNoteViewsScriptPath(folder));
+		await deleteNote(plugin.app, legacyTablesScriptPath(folder));
 	}
 }
 
@@ -621,12 +652,67 @@ async function writeDashboardScript(plugin: LifelinePlugin): Promise<void> {
 }
 
 /**
- * Write the generated note-views script (lifeline-noteviews.js). Exported so
- * the settings toggle-on can write it immediately, before the next sync
- * bakes the dv.view() calls into the notes.
+ * Write the generated view stylesheet (lifeline-views.css) into the
+ * configured styles folder. Every view script reads this file at view time,
+ * so it must exist before the notes are rendered; written alongside the
+ * scripts for the same reason the dashboard script is written before the
+ * note. Its own bookkeeping key (stylesFolderWritten) trashes a copy left in
+ * a previous styles folder, mirroring writeGeneratedScript's cleanup.
+ * A missing or unreadable stylesheet leaves views unstyled but functional,
+ * so a failure here is recorded and never blocks the scripts.
  */
-export async function writeNoteViewsScript(plugin: LifelinePlugin): Promise<void> {
-	await writeGeneratedScript(plugin, noteViewsScriptPath, renderNoteViewsScript());
+async function writeViewsStylesheet(plugin: LifelinePlugin): Promise<void> {
+	const folder = normalizeStylesFolder(plugin.settings.stylesFolder);
+	await writeNote(plugin.app.vault, viewsStylesheetPath(folder), NOTE_VIEWS_CSS);
+	const previous = plugin.settings.stylesFolderWritten;
+	if (previous !== folder) {
+		plugin.settings.stylesFolderWritten = folder;
+		await plugin.saveSettings();
+		if (previous) await deleteNote(plugin.app, viewsStylesheetPath(normalizeStylesFolder(previous)));
+	}
+}
+
+/**
+ * Write the generated view stylesheet and the three generated note-view
+ * scripts (lifeline-channels.js, lifeline-playlists.js,
+ * lifeline-watchlater.js). Exported so the settings toggle-on can write them
+ * immediately, before the next sync bakes the dv.view() calls into the
+ * notes. The stylesheet goes first: each script reads it at view time, so it
+ * must be in place before any note is rendered. With an error sink each
+ * write is isolated (one failing write is recorded and never blocks the
+ * others); without one the first failure is rethrown for the caller to
+ * report.
+ */
+export async function writeNoteViewScripts(
+	plugin: LifelinePlugin,
+	onError?: (err: unknown, path: string) => void,
+): Promise<void> {
+	// Errors land in the array rather than a captured `let`: each step keeps
+	// running so one failing write never blocks the rest, and the first
+	// normalized error is rethrown once everything has been attempted.
+	const firstErrors: Error[] = [];
+	const step = async (fn: () => Promise<void>, path: string): Promise<void> => {
+		try {
+			await fn();
+		} catch (err) {
+			if (onError) onError(err, path);
+			else firstErrors.push(err instanceof Error ? err : new Error(String(err)));
+		}
+	};
+	await step(() => writeViewsStylesheet(plugin), viewsStylesheetPath(plugin.settings.stylesFolder));
+	for (const kind of NOTE_VIEW_KINDS) {
+		await step(
+			() =>
+				writeGeneratedScript(
+					plugin,
+					(folder) => noteViewScriptPath(kind, folder),
+					renderNoteViewScript(kind, plugin.settings.stylesFolder),
+				),
+			noteViewScriptPath(kind, plugin.settings.dashboardScriptsFolder),
+		);
+	}
+	const firstError = firstErrors[0];
+	if (firstError !== undefined) throw firstError;
 }
 
 /**
@@ -737,15 +823,15 @@ async function fetchImage(url: string): Promise<FetchOutcome> {
 }
 
 /**
- * Download every thumbnail this run's notes will embed, before any note is
- * written, and return the file base names now present in the thumbnails
+ * Download every thumbnail this run's notes will reference, before any note
+ * is written, and return the file base names now present in the thumbnails
  * folder.
  *
  * Costs nothing when both image settings are off (the default). Existing
  * files are never re-fetched: the folder is listed once instead of checking
  * file by file. Nothing here ever throws: an image that cannot be fetched
- * leaves that one bullet on its remote URL or with no image, and the run
- * still writes every note.
+ * leaves that one bullet on its remote URL field or with no image, and the
+ * run still writes every note.
  */
 async function collectThumbnails(plugin: LifelinePlugin, ctx: WriteContext): Promise<ReadonlySet<string>> {
 	const { channelAvatars, videoThumbnails } = plugin.settings;
@@ -776,6 +862,9 @@ async function collectThumbnails(plugin: LifelinePlugin, ctx: WriteContext): Pro
 	if (channelAvatars === 'download') {
 		for (const [id, channel] of Object.entries(ctx.state.channels)) {
 			queue(channelImageBase(id), channel.avatar ?? '');
+			// The banner rides the same toggle and folder; a channel without one
+			// simply queues nothing.
+			queue(channelBannerImageBase(id), channel.banner ?? '');
 		}
 	}
 	if (videoThumbnails === 'download') {

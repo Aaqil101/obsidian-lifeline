@@ -44,7 +44,7 @@ export function outputPaths(outputFolder: string): OutputPaths {
 /**
  * Image data for one note, handed in by sync.ts (which owns the vault reads).
  * `available` holds the file base names already present in the thumbnails
- * folder, so a note embeds the local copy only when it actually exists.
+ * folder, so a bullet names the local copy only when it actually exists.
  */
 export interface BulletImages {
 	mode: ImageMode;
@@ -54,6 +54,11 @@ export interface BulletImages {
 /** Base name (no extension) of a downloaded channel avatar. */
 export function channelImageBase(channelId: string): string {
 	return `channel-${channelId}`;
+}
+
+/** Base name (no extension) of a downloaded channel banner. */
+export function channelBannerImageBase(channelId: string): string {
+	return `channel-${channelId}-banner`;
 }
 
 /** Base name (no extension) of a downloaded video thumbnail. */
@@ -71,16 +76,48 @@ export function videoThumbnailUrl(videoId: string): string {
 }
 
 /**
- * The trailing image token for one bullet, or '' when there is none.
+ * Text for a Markdown link label, or for a plain inline-field value.
  *
- * `download` prefers the vault copy and falls back to the remote URL when this
- * entry's download failed, then to no image when there is no URL at all, so
- * one bad thumbnail degrades one bullet instead of the note.
+ * Square brackets are structural in both roles: they close the link and they
+ * close the Dataview field around it, so a title like "The ENTIRE History of
+ * ROME [No AI]" would write `[title:: [The ENTIRE History of ROME [No AI]](url)]`
+ * and break the parsing on both ends. The brackets are rewritten as
+ * parentheses instead: "The ENTIRE History of ROME (No AI)". Every other
+ * character is passed through untouched, so titles without brackets render
+ * exactly as before.
  */
-function bulletImage(images: BulletImages | undefined, base: string, url: string | undefined): string {
-	if (!images || images.mode === 'off') return '';
-	if (images.mode === 'download' && images.available.has(base)) return `![[${base}.jpg]]`;
-	return url ? `![](${url})` : '';
+function labelText(text: string): string {
+	return text.replace(/\[/g, '(').replace(/\]/g, ')');
+}
+
+/**
+ * The image fields appended to one bullet, or [] when there is none.
+ *
+ * Two fields, deliberately: the `*_url` field always carries the remote link
+ * when one exists (in both modes), so queries and the view's fallback work
+ * the same either way; the local field (`thumbnail`/`avatar`/`banner`) is
+ * written only in download mode and only while the file is really on disk,
+ * holding the wikilink of the downloaded image, which the view prefers. A
+ * failed download therefore degrades to the remote field rather than the
+ * note, and with the mode off nothing is appended at all.
+ *
+ * Fields only, never embeds: the image is data in the bullet, and the view
+ * above it is what draws the picture.
+ */
+function bulletImageFields(
+	images: BulletImages | undefined,
+	base: string,
+	url: string | undefined,
+	urlField: 'avatar_url' | 'thumbnail_url' | 'banner_url',
+	localField: 'avatar' | 'thumbnail' | 'banner',
+): string[] {
+	if (!images || images.mode === 'off') return [];
+	const fields: string[] = [];
+	if (url) fields.push(`[${urlField}:: ${url}]`);
+	if (images.mode === 'download' && images.available.has(base)) {
+		fields.push(`[${localField}:: [[${base}.jpg]]]`);
+	}
+	return fields;
 }
 
 /** Filesystem-safe note name (kept to 120 characters). */
@@ -134,7 +171,9 @@ export function viewCall(viewName: string, options: Record<string, string | bool
  * view is additive so `file.lists` queries are unaffected.
  *
  * When `images` is provided (and its mode is not `off`), each bullet ends
- * with that channel's avatar. Omitted or `off`, the output is unchanged.
+ * with that channel's images as fields: `avatar_url`, plus `avatar` when the
+ * local file exists, and `banner_url`/`banner` the same pair for the
+ * channel banner. Omitted or `off`, the output is unchanged.
  */
 export function renderChannelsNote(
 	state: SyncState,
@@ -156,7 +195,7 @@ export function renderChannelsNote(
 	];
 	if (viewBlock) lines.push(viewBlock, '');
 	for (const [id, channel] of entries) {
-		const parts = [`[channel:: [${channel.title}](${channel.url})]`];
+		const parts = [`[channel:: [${labelText(channel.title)}](${channel.url})]`];
 		if (fields.channelId) parts.push(`[id:: ${id}]`);
 		if (fields.subscribedOn && channel.subscribedOn) {
 			parts.push(`[subscribed_on:: ${channel.subscribedOn}]`);
@@ -174,8 +213,8 @@ export function renderChannelsNote(
 		if (fields.videos && typeof channel.videoCount === 'number') parts.push(`[videos:: ${channel.videoCount}]`);
 		if (fields.views && typeof channel.viewCount === 'number') parts.push(`[views:: ${channel.viewCount}]`);
 		if (fields.country && channel.country) parts.push(`[country:: ${channel.country}]`);
-		const image = bulletImage(images, channelImageBase(id), channel.avatar);
-		if (image) parts.push(image);
+		parts.push(...bulletImageFields(images, channelImageBase(id), channel.avatar, 'avatar_url', 'avatar'));
+		parts.push(...bulletImageFields(images, channelBannerImageBase(id), channel.banner, 'banner_url', 'banner'));
 		lines.push(`- ${parts.join(' ')}`);
 	}
 	lines.push('');
@@ -203,7 +242,8 @@ export function renderChannelsNote(
  * view is additive so `file.lists` queries are unaffected.
  *
  * When `images` is provided (and its mode is not `off`), each bullet ends
- * with that video's thumbnail. Omitted or `off`, the output is unchanged.
+ * with that video's thumbnail as fields (`thumbnail_url`, plus `thumbnail`
+ * when the local file exists). Omitted or `off`, the output is unchanged.
  */
 export function renderPlaylistNote(
 	playlistId: string,
@@ -244,12 +284,19 @@ export function renderPlaylistNote(
 	for (const [videoId, video] of videos) {
 		const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
 		const channelValue = video.channelId
-			? `[${video.channelTitle || 'unknown channel'}](https://www.youtube.com/channel/${video.channelId})`
-			: video.channelTitle || 'unknown channel';
-		const parts = [`[title:: [${video.title}](${watchUrl})]`, `[channel:: ${channelValue}]`];
+			? `[${labelText(video.channelTitle || 'unknown channel')}](https://www.youtube.com/channel/${video.channelId})`
+			: labelText(video.channelTitle || 'unknown channel');
+		const parts = [`[title:: [${labelText(video.title)}](${watchUrl})]`, `[channel:: ${channelValue}]`];
 		if (video.dateAdded) parts.push(`[date:: [[${video.dateAdded}]]]`);
-		const image = bulletImage(images, videoImageBase(videoId), videoThumbnailUrl(videoId));
-		if (image) parts.push(image);
+		parts.push(
+			...bulletImageFields(
+				images,
+				videoImageBase(videoId),
+				videoThumbnailUrl(videoId),
+				'thumbnail_url',
+				'thumbnail',
+			),
+		);
 		lines.push(`- ${parts.join(' ')}`);
 	}
 	lines.push('');

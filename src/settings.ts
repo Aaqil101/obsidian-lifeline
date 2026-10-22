@@ -29,6 +29,7 @@ import { DATAVIEW_REQUIRED_NOTICE, isDataviewEnabled } from './dashboard';
 import { DEFAULT_SCRIPTS_FOLDER, normalizeScriptsFolder } from './dashboardScript';
 import { errorMessage } from './json';
 import { DEFAULT_OUTPUT_FOLDER } from './markdown';
+import { DEFAULT_STYLES_FOLDER, normalizeStylesFolder } from './noteViewsScript';
 import {
 	addImportedPlaylistIds,
 	cleanPlaylistIds,
@@ -36,7 +37,7 @@ import {
 	parsePlaylistIds,
 	removeImportedPlaylistId,
 } from './playlistIds';
-import { writeNoteViewsScript } from './sync';
+import { writeNoteViewScripts } from './sync';
 import {
 	findWebViewerTab,
 	isGoogleSignInUrl,
@@ -78,8 +79,9 @@ const DASHBOARD_ROWS: Array<{ key: keyof DashboardSections; name: string }> = [
 	{ key: 'attention', name: 'Needs attention card' },
 ];
 
-/** Layout for the opt-in note views (settings dropdown). `mixed` picks the
- *  layout per note: chips for Channels.md, cards for playlist notes. */
+/** Layout for the opt-in note views, picked in each note's toolbar (there is
+ *  deliberately no settings row for it). `mixed` picks the layout per note:
+ *  chips for Channels.md, cards for playlist notes. */
 export type NoteLayout = 'table' | 'mixed' | 'cards' | 'chips';
 
 /** Default note layout: chips in Channels.md, cards in playlists. */
@@ -105,12 +107,20 @@ export interface LifelineSettings {
 	dashboardScriptsFolderWritten: string | null;
 	/** Opt-in DataviewJS views above the entries in Channels.md, every
 	 *  playlist note, and Watch Later.md (requires the community Dataview
-	 *  plugin). Draws from the generated lifeline-noteviews.js script. */
+	 *  plugin). Draw from the generated lifeline-channels.js,
+	 *  lifeline-playlists.js, and lifeline-watchlater.js scripts. */
 	noteViews: boolean;
-	/** How those views render. `mixed` = chips for Channels.md, cards for
-	 *  playlist notes; the other three apply one layout everywhere.
-	 *  Ignored while `noteViews` is off. */
+	/** How those views render, written by each note's toolbar Layout select
+	 *  (no settings row). `mixed` = chips for Channels.md, cards for playlist
+	 *  notes; the other three apply one layout everywhere. Ignored while
+	 *  `noteViews` is off. */
 	noteLayout: NoteLayout;
+	/** Vault folder holding the generated lifeline-views.css stylesheet the
+	 *  view scripts read at view time (the quotebook.css pattern). */
+	stylesFolder: string;
+	/** Folder the stylesheet was last written to (null = never); lets a folder
+	 *  change trash the stale copy. Internal bookkeeping, not user-facing. */
+	stylesFolderWritten: string | null;
 	/** Avatar at the end of every Channels.md bullet. Not gated on the views
 	 *  toggle: images live in the bullets, so they need no Dataview. */
 	channelAvatars: ImageMode;
@@ -144,6 +154,8 @@ export const DEFAULT_SETTINGS: LifelineSettings = {
 	dashboardScriptsFolderWritten: null,
 	noteViews: false,
 	noteLayout: DEFAULT_NOTE_LAYOUT,
+	stylesFolder: DEFAULT_STYLES_FOLDER,
+	stylesFolderWritten: null,
 	channelAvatars: 'off',
 	videoThumbnails: 'off',
 	trackedPlaylists: null,
@@ -312,32 +324,34 @@ export class LifelineSettingTab extends PluginSettingTab {
 				}),
 			);
 
-		// Image pickers. Deliberately NOT gated on the views toggle: images
-		// live in the bullets, so they work with Dataview absent and with
-		// views off. Default off, which is also the byte-identical path.
+		// Image pickers. Deliberately NOT gated on the views toggle: the image
+		// is an inline field in the bullet, written for any vault, Dataview or
+		// not. The views are what draw the picture. Default off, which is also
+		// the byte-identical path.
 		this.imageModeSetting(
 			card,
-			'Channel avatars',
-			'Add an avatar to each channel bullet in Channels.md. Link loads it from Google each time a note opens; Download fetches it once during sync into the thumbnails folder, so notes render offline. Off by default; notes update on the next sync.',
+			'Channel avatars and banners',
+			'Add an avatar and a banner to each channel bullet in Channels.md as fields: avatar_url and banner_url hold the remote links, avatar and banner the local files once Download has fetched them. The views above the notes draw the picture: cards put the banner across the top with the avatar as a badge, chips use the avatar only. Link loads them from Google whenever a view renders; Download fetches them once during sync into the thumbnails folder, so views render offline. Off by default; notes update on the next sync.',
 			'channelAvatars',
 		);
 
 		this.imageModeSetting(
 			card,
 			'Video thumbnails',
-			'Add a thumbnail to each bullet in playlist notes and Watch Later.md. Link loads it from Google each time a note opens; Download fetches it once during sync into the thumbnails folder, so notes render offline. Off by default; notes update on the next sync.',
+			'Add a thumbnail to each bullet in playlist notes and Watch Later.md as fields: thumbnail_url holds the remote link, thumbnail the local file once Download has fetched it. The views above the notes draw the picture. Link loads it from Google whenever a view renders; Download fetches it once during sync into the thumbnails folder, so views render offline. Off by default; notes update on the next sync.',
 			'videoThumbnails',
 		);
 
 		// Opt-in DataviewJS views. Same Dataview gate as the dashboard toggle:
 		// revert + Notice when the community plugin is missing. Toggling on
-		// writes lifeline-noteviews.js immediately so the next sync's baked
+		// writes the three view scripts immediately so the next sync's baked
 		// dv.view() calls resolve; toggling off needs nothing (the next sync
-		// rewrites the notes without the block).
+		// rewrites the notes without the block). Layout has no row here: it
+		// is picked in each note's toolbar and written back through it.
 		new Setting(card)
 			.setName('Views in notes')
 			.setDesc(
-				'Draw a live DataviewJS view above the entries in Channels.md, every playlist note, and Watch Later.md. Columns follow your Channels.md field choices. Notes pick it up on the next sync. Requires the community Dataview plugin.',
+				'Draw a live DataviewJS view above the entries in Channels.md, every playlist note, and Watch Later.md. Columns follow your Channels.md field choices; each view has a toolbar with search and a Layout picker, and the last layout you pick is remembered. Notes pick it up on the next sync. Requires the community Dataview plugin.',
 			)
 			.addToggle((toggle) =>
 				toggle.setValue(settings.noteViews).onChange(async (on) => {
@@ -350,36 +364,37 @@ export class LifelineSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 					if (on) {
 						try {
-							await writeNoteViewsScript(this.plugin);
+							await writeNoteViewScripts(this.plugin);
 						} catch (err) {
-							console.error('Lifeline: could not write the note-views script', err);
-							new Notice('Could not write the note-views script.');
+							console.error('Lifeline: could not write the note-view scripts', err);
+							new Notice('Could not write the view scripts.');
 						}
 					}
 				}),
 			);
 
-		// Layout picker. Described as inactive rather than disabled while the
-		// toggle is off, so the choice survives turning views off and back on.
+		// Folder for lifeline-views.css, the stylesheet the view scripts read
+		// at render time (the quotebook.css pattern). Commits only on
+		// blur/Enter, then rewrites the three view scripts (they bake the
+		// stylesheet path) and the stylesheet itself, which also trashes the
+		// copy left in the old folder, mirroring commitScriptsFolder.
+		let committedStylesFolder = settings.stylesFolder;
 		new Setting(card)
-			.setName('View layout')
+			.setName('Styles folder')
 			.setDesc(
-				'How the view renders above the entries. Mixed draws chips in Channels.md and cards in playlist notes; the other options use one layout everywhere. Only applies while Views in notes is on.',
+				'Vault folder that receives lifeline-views.css, the stylesheet drawn by the views above your notes (the same idea as quotebook.css for the quotebook script). Regenerated on every sync, so hand edits are overwritten. A missing file leaves the views unstyled but working.',
 			)
-			.addDropdown((dropdown) =>
-				dropdown
-					.addOption('mixed', 'Mixed (recommended)')
-					.addOption('chips', 'Chips')
-					.addOption('cards', 'Cards')
-					.addOption('table', 'Table')
-					.setValue(settings.noteLayout)
-					.onChange(async (value) => {
-						settings.noteLayout = (['table', 'mixed', 'cards', 'chips'].includes(value)
-							? value
-							: DEFAULT_NOTE_LAYOUT) as NoteLayout;
-						await this.plugin.saveSettings();
-					}),
-			);
+			.addText((text) => {
+				text.setPlaceholder(DEFAULT_STYLES_FOLDER).setValue(settings.stylesFolder);
+				text.inputEl.addEventListener('keydown', (event) => {
+					if (event.key === 'Enter') text.inputEl.blur();
+				});
+				text.inputEl.addEventListener('blur', () => {
+					void this.commitStylesFolder(text, committedStylesFolder).then((folder) => {
+						committedStylesFolder = folder;
+					});
+				});
+			});
 
 		this.navRow(
 			card,
@@ -852,6 +867,35 @@ export class LifelineSettingTab extends PluginSettingTab {
 		settings.dashboardScriptsFolder = next;
 		await this.plugin.saveSettings();
 		if (settings.dashboardNote) await this.plugin.createDashboard({ open: false });
+		return next;
+	}
+
+	/**
+	 * Normalize and store the styles folder when the field is left (blur or
+	 * Enter). Returns the value to treat as committed. No-op when unchanged;
+	 * when it did change and the note views are on, rewrite the stylesheet and
+	 * the three view scripts (they bake the stylesheet path) so every open
+	 * note renders from the new location right away, which also trashes the
+	 * stylesheet left in the old folder.
+	 */
+	private async commitStylesFolder(
+		text: TextComponent,
+		previousCommitted: string,
+	): Promise<string> {
+		const { settings } = this.plugin;
+		const next = normalizeStylesFolder(text.getValue());
+		text.setValue(next);
+		if (next === previousCommitted) return previousCommitted;
+		settings.stylesFolder = next;
+		await this.plugin.saveSettings();
+		if (settings.noteViews) {
+			try {
+				await writeNoteViewScripts(this.plugin);
+			} catch (err) {
+				console.error('Lifeline: could not rewrite the note-view scripts for the new styles folder', err);
+				new Notice('Could not write the view stylesheet.');
+			}
+		}
 		return next;
 	}
 

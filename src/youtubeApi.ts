@@ -67,6 +67,13 @@ export interface ChannelStatistics {
 	 * '' when the channel carries no thumbnail.
 	 */
 	avatar: string;
+	/**
+	 * Channel banner URL from brandingSettings.image.bannerExternalUrl. The
+	 * branding part is already requested for the country field, so this rides
+	 * the same request and costs no extra quota either. '' when the channel
+	 * never set a banner, which is common for smaller channels.
+	 */
+	banner: string;
 }
 
 export interface PlaylistVideoItem {
@@ -206,6 +213,7 @@ export async function listChannelStatistics(
 				const statistics = asRecord(item?.statistics);
 				const snippet = asRecord(item?.snippet);
 				const brandingChannel = asRecord(asRecord(item?.brandingSettings)?.channel);
+				const brandingImage = asRecord(asRecord(item?.brandingSettings)?.image);
 				stats.push({
 					id,
 					handle: normalizeHandle(asString(snippet?.customUrl)),
@@ -217,6 +225,9 @@ export async function listChannelStatistics(
 					views: toCount(asString(statistics?.viewCount)),
 					country: asString(brandingChannel?.country),
 					avatar: pickThumbnail(asRecord(snippet?.thumbnails)),
+					// The only non-deprecated banner field; its siblings
+					// (bannerImageUrl, bannerExtraImageUrl) were retired.
+					banner: asString(brandingImage?.bannerExternalUrl),
 				});
 			}
 		} catch (err) {
