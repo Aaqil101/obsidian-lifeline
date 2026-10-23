@@ -964,8 +964,10 @@ const posterCard = (item) => {
 
   // The subscription facts, the way YouTube draws them: a red bell badge,
   // then the since date as a framed calendar button that opens that day's
-  // journal note. Both buttons are icon-only; their labels live in
-  // (single) aria-label tooltips, and the country rides on the since one.
+  // journal note when the bullet's wikilink says one exists (or the date is
+  // still upcoming): passive calendar badge otherwise. Both buttons are
+  // icon-only; their labels live in (single) aria-label tooltips, and the
+  // country rides on the since one.
   const footrow = el("div", "lv-poster-footrow");
   if (item.subscribed_on) {
     const iso = fmtDate(item.subscribed_on);
@@ -976,25 +978,36 @@ const posterCard = (item) => {
       badge.appendChild(bellNode());
       badge.setAttribute("aria-label", "Subscribed");
       footrow.appendChild(badge);
-      // The since date as a plain internal-link anchor, the same way the
-      // test note's button worked: hand Obsidian the date and let it resolve
-      // (or create-and-open) the note, whatever the vault holds. The source
-      // path is this note's, like every other wikilink.
-      const from = (() => {
-        try {
-          const current = dv.current();
-          return current && current.file ? current.file.path : "";
-        } catch (err) {
-          return "";
-        }
-      })();
-      const since = document.createElement("a");
-      since.className = "internal-link lv-poster-since";
-      since.dataset.href = iso;
-      since.addEventListener("click", (evt) => {
-        evt.preventDefault();
-        app.workspace.openLinkText(iso, from, false);
-      });
+      // The click promise follows the bullet: sync wikilinks subscribed_on
+      // only when the day's journal note exists (or the date is today or
+      // later), so the button is a real internal link exactly then, and the
+      // passive calendar badge (span, no link) otherwise. Dataview hands a
+      // Link (with a path) for the wikilink and a bare Luxon DateTime for
+      // the plain ISO text, so the object shape tells the two apart. The
+      // source path is this note's, like every other wikilink.
+      const linked =
+        item.subscribed_on != null &&
+        typeof item.subscribed_on === "object" &&
+        typeof item.subscribed_on.path === "string";
+      const since = document.createElement(linked ? "a" : "span");
+      if (linked) {
+        since.className = "internal-link lv-poster-since";
+        since.dataset.href = iso;
+        since.addEventListener("click", (evt) => {
+          evt.preventDefault();
+          const from = (() => {
+            try {
+              const current = dv.current();
+              return current && current.file ? current.file.path : "";
+            } catch (err) {
+              return "";
+            }
+          })();
+          app.workspace.openLinkText(iso, from, false);
+        });
+      } else {
+        since.className = "lv-poster-since";
+      }
       since.appendChild(calendarNode());
       since.setAttribute("aria-label", "Subscribed since " + iso + where);
       footrow.appendChild(since);
