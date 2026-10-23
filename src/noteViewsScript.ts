@@ -25,20 +25,23 @@
  * layout baked into the note, and the baked value is only a fallback for
  * when the plugin instance cannot be reached.
  *
- * Sync writes the three scripts and the stylesheet whenever the "Views in
+ * Sync writes the three scripts and their stylesheets whenever the "Views in
  * notes" setting is on (sync.ts: writeNoteViewScripts), trashes copies left
  * in a previous scripts folder (shared dashboardScriptsFolderWritten
- * tracking), and does the same for the stylesheet in a previous styles
+ * tracking), and does the same for the stylesheets in a previous styles
  * folder (stylesFolderWritten). Written regardless of Dataview state: a
  * degraded note simply omits the block, and the scripts are ready when
  * Dataview comes back.
  *
- * The view chrome lives in its own vault file, lifeline-views.css in the
- * configured styles folder, exactly like quotebook and its quotebook.css:
- * sync writes the file, and every generated script reads it at view time
- * with app.vault.cachedRead and injects it once, so the CSS can be themed,
- * overridden, or updated without regenerating the scripts. With the file
- * missing the view still works, just unstyled.
+ * The view chrome lives in per-kind vault files: lifeline-channels.css,
+ * lifeline-playlists.css, and lifeline-watchlater.css in the configured
+ * styles folder, exactly like quotebook and its quotebook.css. Sync writes
+ * one file per kind, and each generated script caches its own file's
+ * path and reads it
+ * at view time with app.vault.cachedRead, injecting it once under its own
+ * style id, so the CSS can be themed, overridden, or updated without
+ * regenerating the scripts. With the file missing the view still works, just
+ * unstyled. The superseded single lifeline-views.css is cleaned up by sync.
  *
  * The scripts make no network request of their own. They read the image
  * fields the sync appended to the bullet (thumbnail/avatar for a local vault
@@ -47,7 +50,7 @@
  *
  * Pure: this module only builds strings; sync.ts owns the vault writes.
  */
-import { normalizeScriptsFolder } from './dashboardScript';
+import { DASHBOARD_STYLESHEET_FILE, normalizeScriptsFolder } from './dashboardScript';
 
 /** Which note a generated view script serves. */
 export type NoteViewKind = 'channels' | 'playlists' | 'watchlater';
@@ -60,6 +63,15 @@ const NOTE_VIEW_SCRIPT_FILES: Record<NoteViewKind, string> = {
 	channels: 'lifeline-channels.js',
 	playlists: 'lifeline-playlists.js',
 	watchlater: 'lifeline-watchlater.js',
+};
+
+/** Generated stylesheet names inside the styles folder, one per note type:
+ *  each script reads its own file at view time, so a broken or missing sheet
+ *  only unstyles one kind of view while the others keep their look. */
+const NOTE_VIEW_STYLESHEET_FILES: Record<NoteViewKind, string> = {
+	channels: 'lifeline-channels.css',
+	playlists: 'lifeline-playlists.css',
+	watchlater: 'lifeline-watchlater.css',
 };
 
 /** The section each script bakes in: channels for Channels.md, playlist for
@@ -105,11 +117,12 @@ export function legacyTablesScriptPath(folder: string): string {
 	return `${normalizeScriptsFolder(folder)}/${LEGACY_TABLES_SCRIPT_FILE}`;
 }
 
-/** Default folder for the generated stylesheet (also the settings placeholder). */
+/** Default folder for the generated stylesheets (also the settings placeholder). */
 export const DEFAULT_STYLES_FOLDER = '98 - Organize/Styles';
 
-/** Generated stylesheet file name, mirroring quotebook.css in the same folder. */
-export const VIEWS_STYLESHEET_FILE = 'lifeline-views.css';
+/** Pre-split name of the single shared stylesheet. Per-kind sheets have
+ *  replaced it; sync deletes the old file once the new ones are written. */
+export const LEGACY_VIEWS_STYLESHEET_FILE = 'lifeline-views.css';
 
 /**
  * Normalize a user-entered styles folder: forward slashes, no duplicate or
@@ -127,9 +140,20 @@ export function normalizeStylesFolder(folder: string): string {
 	return cleaned || DEFAULT_STYLES_FOLDER;
 }
 
-/** Vault path of the generated stylesheet, e.g. `98 - Organize/Styles/lifeline-views.css`. */
-export function viewsStylesheetPath(folder: string): string {
-	return `${normalizeStylesFolder(folder)}/${VIEWS_STYLESHEET_FILE}`;
+/** Vault path of one generated stylesheet, e.g. `98 - Organize/Styles/lifeline-channels.css`. */
+export function viewsStylesheetPath(kind: NoteViewKind, folder: string): string {
+	return `${normalizeStylesFolder(folder)}/${NOTE_VIEW_STYLESHEET_FILES[kind]}`;
+}
+
+/** Vault path of the pre-split single stylesheet, for the cleanup pass. */
+export function legacyViewsStylesheetPath(folder: string): string {
+	return `${normalizeStylesFolder(folder)}/${LEGACY_VIEWS_STYLESHEET_FILE}`;
+}
+
+/** Vault path of the dashboard stylesheet in a styles folder, kept beside the
+ *  per-kind helpers so sync can write the folder's sheets together. */
+export function dashboardStylesheetPath(folder: string): string {
+	return `${normalizeStylesFolder(folder)}/${DASHBOARD_STYLESHEET_FILE}`;
 }
 
 /** How many entries a chips or cards view paints before it needs a click. */
@@ -139,16 +163,22 @@ const PAGE_SIZE = 60;
 const SEARCH_DEBOUNCE_MS = 250;
 
 /**
- * View chrome, scoped under the `.lifeline-views` class that the script adds
- * to its container. Table rules preserve Dataview's default table and just
- * frame it; chips and cards are drawn from scratch with theme variables only,
- * so every accent follows the user's theme.
+ * View chrome shared by every note view, scoped under the `.lifeline-views`
+ * class that the script adds to its container: the toolbar (search, scope,
+ * layout select, refresh) and the count bar. Table rules preserve Dataview's
+ * default table and just frame it; chips and cards are drawn from scratch
+ * with theme variables only, so every accent follows the user's theme.
  *
- * Exported because sync writes it to the styles folder as lifeline-views.css
- * (the quotebook.css pattern): the generated script reads that file at view
- * time and injects it, so restyling never needs a code change here.
+ * The per-kind sheets (NOTE_VIEWS_CSS_BY_KIND) assemble this plus the pieces
+ * a kind can select; sync writes one file per kind into the styles folder and
+ * the generated script reads that file at view time and injects it, so
+ * restyling never needs a code change here.
  */
-export const NOTE_VIEWS_CSS = `
+/**
+ * The list layouts the layout select offers on every kind of note: Dataview's
+ * framed table, chips, and the thumbnail cards.
+ */
+const NOTE_VIEWS_CSS_LISTS = `
 .lifeline-views table.dataview.table-view-table {
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--radius-m, 8px);
@@ -171,84 +201,6 @@ export const NOTE_VIEWS_CSS = `
 }
 .lifeline-views table.dataview.table-view-table tbody > tr:hover > td {
     background: var(--background-modifier-hover);
-}
-.lifeline-views .lv-toolbar {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    margin: 4px 0 16px;
-    padding: 20px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--radius-m, 8px);
-    background: var(--background-secondary);
-}
-.lifeline-views .lv-toolbar-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-}
-.lifeline-views .lv-search {
-    flex: 1 1 300px;
-    min-width: 220px;
-    min-height: 44px;
-    padding: 0 16px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--radius-s, 6px);
-    background: var(--background-primary);
-    color: var(--text-normal);
-    font-size: 14px;
-}
-.lifeline-views .lv-search:focus {
-    outline: none;
-    border-color: var(--interactive-accent);
-    box-shadow: 0 0 0 2px
-        var(
-            --background-modifier-border-focus,
-            var(--background-modifier-border)
-        );
-}
-.lifeline-views .lv-search::placeholder {
-    color: var(--text-muted);
-    font-style: normal;
-}
-.lifeline-views .lv-select {
-    min-height: 44px;
-    padding: 0 12px;
-    line-height: normal;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--radius-s, 6px);
-    background: var(--background-primary);
-    color: var(--text-normal);
-    font-size: 14px;
-    max-width: 190px;
-}
-.lifeline-views .lv-refresh {
-    padding: 12px 20px;
-    cursor: pointer;
-    border: none;
-    border-radius: var(--radius-s, 6px);
-    background: var(--interactive-accent);
-    color: var(--text-on-accent, var(--text-normal));
-    font-size: 14px;
-    font-weight: 500;
-    white-space: nowrap;
-}
-.lifeline-views .lv-refresh:hover {
-    background: var(--interactive-accent-hover, var(--interactive-hover));
-}
-.lifeline-views .lv-stats {
-    padding: 10px 16px;
-    border-radius: var(--radius-s, 6px);
-    background: var(--background-primary);
-    color: var(--text-accent, var(--interactive-accent));
-    font-size: 14px;
-    font-weight: 500;
-}
-.lifeline-views .lv-empty {
-    text-align: center;
-    color: var(--text-muted);
-    padding: 14px;
 }
 .lifeline-views .lv-chips,
 .lifeline-views .lv-cards {
@@ -411,6 +363,92 @@ export const NOTE_VIEWS_CSS = `
 .lifeline-views .lv-more:hover {
     background: var(--background-modifier-hover);
 }
+`;
+
+/**
+ * View chrome shared by every note view, scoped under the `.lifeline-views`
+ * class that the script adds to its container: the toolbar (search, scope,
+ * layout select, refresh) and the count bar.
+ */
+const NOTE_VIEWS_CSS_SHARED = `
+.lifeline-views .lv-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 4px 0 16px;
+    padding: 20px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m, 8px);
+    background: var(--background-secondary);
+}
+.lifeline-views .lv-toolbar-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.lifeline-views .lv-search {
+    flex: 1 1 300px;
+    min-width: 220px;
+    min-height: 44px;
+    padding: 0 16px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s, 6px);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 14px;
+}
+.lifeline-views .lv-search:focus {
+    outline: none;
+    border-color: var(--interactive-accent);
+    box-shadow: 0 0 0 2px
+        var(
+            --background-modifier-border-focus,
+            var(--background-modifier-border)
+        );
+}
+.lifeline-views .lv-search::placeholder {
+    color: var(--text-muted);
+    font-style: normal;
+}
+.lifeline-views .lv-select {
+    min-height: 44px;
+    padding: 0 12px;
+    line-height: normal;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s, 6px);
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-size: 14px;
+    max-width: 190px;
+}
+.lifeline-views .lv-refresh {
+    padding: 12px 20px;
+    cursor: pointer;
+    border: none;
+    border-radius: var(--radius-s, 6px);
+    background: var(--interactive-accent);
+    color: var(--text-on-accent, var(--text-normal));
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+.lifeline-views .lv-refresh:hover {
+    background: var(--interactive-accent-hover, var(--interactive-hover));
+}
+.lifeline-views .lv-stats {
+    padding: 10px 16px;
+    border-radius: var(--radius-s, 6px);
+    background: var(--background-primary);
+    color: var(--text-accent, var(--interactive-accent));
+    font-size: 14px;
+    font-weight: 500;
+}
+.lifeline-views .lv-empty {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 14px;
+}
 @media (max-width: 600px) {
     .lifeline-views .lv-toolbar-row {
         flex-direction: column;
@@ -423,6 +461,14 @@ export const NOTE_VIEWS_CSS = `
     }
 }
 `;
+
+/** One stylesheet per note kind: each script bakes its own file's path and
+ *  reads it at view time. */
+export const NOTE_VIEWS_CSS_BY_KIND: Record<NoteViewKind, string> = {
+	channels: NOTE_VIEWS_CSS_SHARED + NOTE_VIEWS_CSS_LISTS,
+	playlists: NOTE_VIEWS_CSS_SHARED + NOTE_VIEWS_CSS_LISTS,
+	watchlater: NOTE_VIEWS_CSS_SHARED + NOTE_VIEWS_CSS_LISTS,
+};
 
 /**
  * The full source of one generated view script (lifeline-channels.js,
@@ -441,7 +487,7 @@ export function renderNoteViewScript(kind: NoteViewKind, stylesFolder: string): 
  *
  * The note invokes this file once:
  *   dv.view("98 - Organize/Scripts/lifeline-${kind}", { layout: "${kind === 'channels' ? 'chips' : 'cards'}"${kind === 'channels' ? ', fields: {...}' : ''} })
- * Layouts: chips, cards, table. Every layout reads the calling note's own
+ * Layouts: chips, cards, table. Every layout reads the calling
  * list entries (dv.current().file.lists), so the view mirrors the
  * inline-field entries below it. Regenerated on every sync while "Views in
  * notes" is on; hand edits are overwritten.
@@ -453,7 +499,7 @@ export function renderNoteViewScript(kind: NoteViewKind, stylesFolder: string): 
  * Later can differ, and refresh the other open views; the layout baked into
  * the note is only a fallback for when the plugin cannot be reached.
  *
- * Styling is NOT baked in: this script reads ${VIEWS_STYLESHEET_FILE} from
+ * Styling is NOT baked in: this script reads ${NOTE_VIEW_STYLESHEET_FILES[kind]} from
  * the vault's styles folder at view time and injects it, so hand edits to
  * that file apply on the next render without regenerating anything.
  *
@@ -466,8 +512,8 @@ if (input == null) input = {};
 const toArr = (v) => (v == null ? [] : Array.isArray(v) ? v : typeof v.array === "function" ? v.array() : []);
 const dash = (v) => (v == null || v === "" ? "-" : v);
 
-const STYLE_ID = "lifeline-views-style";
-const CSS_PATH = ${JSON.stringify(viewsStylesheetPath(stylesFolder))};
+const STYLE_ID = ${JSON.stringify("lifeline-views-style-" + kind)};
+const CSS_PATH = ${JSON.stringify(viewsStylesheetPath(kind, stylesFolder))};
 // Read the stylesheet like the quotebook script reads quotebook.css: from
 // the vault itself, once per render, so edits apply on the next re-render.
 // A missing file (views just enabled, folder moved) leaves the view

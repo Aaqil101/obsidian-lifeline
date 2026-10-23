@@ -94,20 +94,29 @@ export function renderNotesGroup(host: SettingsHost, containerEl: HTMLElement): 
 			});
 	}
 
-	// Folder for lifeline-views.css, the stylesheet the view scripts read at
-	// render time (the quotebook.css pattern). Commits only on blur/Enter, then
-	// rewrites the three view scripts (they bake the stylesheet path) and the
-	// stylesheet itself, which also trashes the copy left in the old folder.
+	// Folder for the per-view stylesheets the view scripts read at render
+	// time (the quotebook.css pattern): lifeline-channels.css,
+	// lifeline-playlists.css, lifeline-watchlater.css and the dashboard's
+	// lifeline-dashboard.css. Commits only on blur/Enter, then rewrites the
+	// three view scripts (they bake their stylesheet's path) and the
+	// stylesheets themselves, which also trash the copies left in the old
+	// folder.
 	folderSetting(card, {
 		app: plugin.app,
 		name: 'Styles folder',
-		desc: 'Receives lifeline-views.css, the stylesheet the views draw with. Regenerated on every sync, so hand edits are overwritten; a missing file leaves the views unstyled but working.',
+		desc: 'Receives the four view stylesheets: lifeline-channels.css, lifeline-playlists.css, lifeline-watchlater.css, and the dashboard\'s lifeline-dashboard.css. Regenerated on every sync, so hand edits are overwritten; a missing file leaves the views unstyled but working.',
 		value: settings.stylesFolder,
 		placeholder: DEFAULT_STYLES_FOLDER,
 		normalize: normalizeStylesFolder,
 		commit: async (path) => {
 			settings.stylesFolder = path;
 			await plugin.saveSettings();
+			// The dashboard script bakes its stylesheet's path too, so whichever
+			// of the two Dataview features is on gets re-pointed: createDashboard
+			// rewrites the script into the new folder; writeNoteViewScripts does
+			// the same for the three note-view scripts. Both pass also trash the
+			// stylesheets left in the old folder.
+			if (settings.dashboardNote) await plugin.createDashboard({ open: false });
 			if (settings.noteViews) {
 				try {
 					await writeNoteViewScripts(plugin);

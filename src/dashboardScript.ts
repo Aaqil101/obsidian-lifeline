@@ -25,6 +25,10 @@ export const DEFAULT_SCRIPTS_FOLDER = '98 - Organize/Scripts';
 /** Generated file name inside the scripts folder. */
 export const DASHBOARD_SCRIPT_FILE = 'lifeline-dashboard.js';
 
+/** Generated stylesheet name inside the styles folder, read by the generated
+ *  script at view time (the quotebook.css pattern, like the note views). */
+export const DASHBOARD_STYLESHEET_FILE = 'lifeline-dashboard.css';
+
 /**
  * Normalize a user-entered scripts folder: forward slashes, no duplicate or
  * edge slashes, trimmed. Empty (or slash-only) input falls back to the
@@ -51,8 +55,10 @@ export function dashboardViewName(folder: string): string {
 
 /** All CSS for the dashboard, scoped under the `.lifeline-dash` class that the
  * script adds to every section container (so the rest of the vault keeps
- * Dataview's default look). Colors use theme variables with sane fallbacks. */
-const DASHBOARD_CSS = `.lifeline-dash .lifeline-hero {
+ * Dataview's default look). Colors use theme variables with sane fallbacks.
+ * Sync writes this into the styles folder as lifeline-dashboard.css; the
+ * generated script reads the file at view time instead of baking it in. */
+export const DASHBOARD_CSS = `.lifeline-dash .lifeline-hero {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -260,10 +266,10 @@ const DASHBOARD_CSS = `.lifeline-dash .lifeline-hero {
 /**
  * The full source of lifeline-dashboard.js. The generated code contains no
  * backticks or template placeholders, so it can be embedded in this TS
- * template literal; regexes are double-escaped, and the CSS is injected via
- * JSON.stringify to keep quoting mechanical.
+ * template literal; regexes are double-escaped. The stylesheet path is baked
+ * in, the CSS itself read from that file at view time.
  */
-export function renderDashboardScript(): string {
+export function renderDashboardScript(cssPath: string): string {
 	return `/**
  * Lifeline dashboard view script (generated).
  *
@@ -365,17 +371,28 @@ const renderValue = (parent, v) => {
 };
 
 const STYLE_ID = "lifeline-dash-style";
-const STYLE = ${JSON.stringify(DASHBOARD_CSS)};
-const ensureStyle = () => {
+const CSS_PATH = ${JSON.stringify(cssPath)};
+// Read the stylesheet from the vault like the note views do, so hand edits
+// apply on the next render. A missing file (views just enabled, folder
+// moved) leaves the dashboard unstyled but fully functional.
+const ensureStyle = async () => {
   if (document.getElementById(STYLE_ID)) return;
+  let css = "";
+  try {
+    const file = app.vault.getAbstractFileByPath(CSS_PATH);
+    css = file ? await app.vault.cachedRead(file) : "";
+  } catch (err) {
+    css = "";
+  }
+  if (!css) return;
   const el = document.createElement("style");
   el.id = STYLE_ID;
-  el.textContent = STYLE;
+  el.textContent = css;
   document.head.appendChild(el);
 };
 
 dv.container.classList.add("lifeline-dash");
-ensureStyle();
+await ensureStyle();
 
 function sectionHeader() {
   const current = dv.current();

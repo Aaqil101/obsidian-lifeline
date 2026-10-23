@@ -12,6 +12,7 @@
 import { App, Notice, TFile, type Vault } from 'obsidian';
 import { isDataviewEnabled, renderDashboardNote } from './dashboard';
 import {
+	DASHBOARD_CSS,
 	dashboardScriptPath,
 	normalizeScriptsFolder,
 	renderDashboardScript,
@@ -33,10 +34,12 @@ import {
 } from './markdown';
 import { appendSyncLogRun } from './syncLog';
 import {
-	NOTE_VIEWS_CSS,
+	NOTE_VIEWS_CSS_BY_KIND,
 	NOTE_VIEW_KINDS,
+	dashboardStylesheetPath,
 	legacyNoteViewsScriptPath,
 	legacyTablesScriptPath,
+	legacyViewsStylesheetPath,
 	normalizeStylesFolder,
 	noteViewScriptPath,
 	noteViewViewName,
@@ -647,46 +650,84 @@ async function deleteLegacyViewScripts(plugin: LifelinePlugin, notesRewritten: b
 }
 
 /**
- * Write the generated dv.view script (lifeline-dashboard.js). Called
- * alongside every Dashboard.md write so the note's baked view name always
- * resolves: Dataview's dv.view() lookup does not throw, it silently renders
- * "custom view not found" otherwise.
+ * Write the generated dv.view script (lifeline-dashboard.js) and its
+ * stylesheet. Called alongside every Dashboard.md write so the note's baked
+ * view name always resolves: Dataview's dv.view() lookup does not throw, it
+ * silently renders "custom view not found" otherwise, and an unstyled
+ * dashboard renders worse than not.
  */
 async function writeDashboardScript(plugin: LifelinePlugin): Promise<void> {
-	await writeGeneratedScript(plugin, dashboardScriptPath, renderDashboardScript());
+	await writeViewStylesheets(plugin);
+	await writeGeneratedScript(
+		plugin,
+		dashboardScriptPath,
+		renderDashboardScript(dashboardStylesheetPath(plugin.settings.stylesFolder)),
+	);
 }
 
 /**
- * Write the generated view stylesheet (lifeline-views.css) into the
- * configured styles folder. Every view script reads this file at view time,
- * so it must exist before the notes are rendered; written alongside the
- * scripts for the same reason the dashboard script is written before the
- * note. Its own bookkeeping key (stylesFolderWritten) trashes a copy left in
- * a previous styles folder, mirroring writeGeneratedScript's cleanup.
- * A missing or unreadable stylesheet leaves views unstyled but functional,
- * so a failure here is recorded and never blocks the scripts.
+ * Write the generated view stylesheets into the configured styles folder:
+ * one per note kind (lifeline-channels.css, lifeline-playlists.css,
+ * lifeline-watchlater.css) plus the dashboard's lifeline-dashboard.css.
+ * Every view script reads its own file at view time, so they must exist
+ * before the notes are rendered; written alongside the scripts for the same
+ * reason the dashboard script is written before the note. The bookkeeping
+ * key (stylesFolderWritten) trashes copies left in a previous styles folder,
+ * mirroring writeGeneratedScript's cleanup, and the superseded single
+ * lifeline-views.css is removed from both folders on the same pass. A
+ * missing or unreadable stylesheet leaves views unstyled but functional, so
+ * a failure here is recorded by the caller and never blocks the scripts.
  */
-async function writeViewsStylesheet(plugin: LifelinePlugin): Promise<void> {
+async function writeViewStylesheets(plugin: LifelinePlugin): Promise<void> {
 	const folder = normalizeStylesFolder(plugin.settings.stylesFolder);
-	await writeNote(plugin.app.vault, viewsStylesheetPath(folder), NOTE_VIEWS_CSS);
+	await writeNote(
+		plugin.app.vault,
+		viewsStylesheetPath('channels', folder),
+		NOTE_VIEWS_CSS_BY_KIND.channels,
+	);
+	await writeNote(
+		plugin.app.vault,
+		viewsStylesheetPath('playlists', folder),
+		NOTE_VIEWS_CSS_BY_KIND.playlists,
+	);
+	await writeNote(
+		plugin.app.vault,
+		viewsStylesheetPath('watchlater', folder),
+		NOTE_VIEWS_CSS_BY_KIND.watchlater,
+	);
+	await writeNote(plugin.app.vault, dashboardStylesheetPath(folder), DASHBOARD_CSS);
 	const previous = plugin.settings.stylesFolderWritten;
 	if (previous !== folder) {
 		plugin.settings.stylesFolderWritten = folder;
 		await plugin.saveSettings();
-		if (previous) await deleteNote(plugin.app, viewsStylesheetPath(normalizeStylesFolder(previous)));
+		if (previous) {
+			const before = normalizeStylesFolder(previous);
+			for (const kind of NOTE_VIEW_KINDS) {
+				await deleteNote(plugin.app, viewsStylesheetPath(kind, before));
+			}
+			await deleteNote(plugin.app, dashboardStylesheetPath(before));
+		}
+	}
+	// The single shared sheet the four per-kind files replaced is stale in
+	// the current folder and wherever the sheets used to live; each run
+	// sweeps both so a folder move never leaves one behind.
+	const staleFolders = new Set<string>([folder]);
+	if (previous) staleFolders.add(normalizeStylesFolder(previous));
+	for (const stale of staleFolders) {
+		await deleteNote(plugin.app, legacyViewsStylesheetPath(stale));
 	}
 }
 
 /**
- * Write the generated view stylesheet and the three generated note-view
- * scripts (lifeline-channels.js, lifeline-playlists.js,
- * lifeline-watchlater.js). Exported so the settings toggle-on can write them
- * immediately, before the next sync bakes the dv.view() calls into the
- * notes. The stylesheet goes first: each script reads it at view time, so it
- * must be in place before any note is rendered. With an error sink each
- * write is isolated (one failing write is recorded and never blocks the
- * others); without one the first failure is rethrown for the caller to
- * report.
+ * Write the generated view stylesheets (one per note kind plus the
+ * dashboard's) and the three generated note-view scripts
+ * (lifeline-channels.js, lifeline-playlists.js, lifeline-watchlater.js).
+ * Exported so the settings toggle-on can write them immediately, before the
+ * next sync bakes the dv.view() calls into the notes. The stylesheets go
+ * first: each script reads its own at view time, so they must be in place
+ * before any note is rendered. With an error sink each write is isolated
+ * (one failing write is recorded and never blocks the others); without one
+ * the first failure is rethrown for the caller to report.
  */
 export async function writeNoteViewScripts(
 	plugin: LifelinePlugin,
@@ -704,7 +745,10 @@ export async function writeNoteViewScripts(
 			else firstErrors.push(err instanceof Error ? err : new Error(String(err)));
 		}
 	};
-	await step(() => writeViewsStylesheet(plugin), viewsStylesheetPath(plugin.settings.stylesFolder));
+	await step(
+		() => writeViewStylesheets(plugin),
+		dashboardStylesheetPath(plugin.settings.stylesFolder),
+	);
 	for (const kind of NOTE_VIEW_KINDS) {
 		await step(
 			() =>

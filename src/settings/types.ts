@@ -157,8 +157,9 @@ export interface LifelineSettings {
 	 *  back by each note's toolbar Layout select too, so switching there needs
 	 *  no sync. Ignored while `noteViews` is off. */
 	noteLayouts: NoteLayouts;
-	/** Vault folder holding the generated lifeline-views.css stylesheet the
-	 *  view scripts read at view time (the quotebook.css pattern). */
+	/** Vault folder holding the per-view stylesheets (lifeline-channels.css,
+	 *  lifeline-playlists.css, lifeline-watchlater.css, and the dashboard's
+	 *  lifeline-dashboard.css) that the view scripts read at view time. */
 	stylesFolder: string;
 	/** Folder the stylesheet was last written to (null = never); lets a folder
 	 *  change trash the stale copy. Internal bookkeeping, not user-facing. */
