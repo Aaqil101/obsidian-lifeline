@@ -18,7 +18,7 @@ import {
 	DEFAULT_NOTE_LAYOUTS,
 	FIELD_ROWS,
 	LAYOUT_ROWS,
-	NOTE_LAYOUT_OPTIONS,
+	NOTE_LAYOUT_OPTIONS_BY_KIND,
 	type NoteLayout,
 } from './types';
 import { group, navRow, type SettingsHost } from './ui';
@@ -80,13 +80,16 @@ export function renderNotesGroup(host: SettingsHost, containerEl: HTMLElement): 
 	// the next re-render of an open note picks the new value up with no sync
 	// and no regenerated script. The note's baked layout is only a fallback.
 	for (const row of LAYOUT_ROWS) {
+		// Per-kind choice lists: the poster card is a channel shape, so only
+		// the Channels row offers it.
+		const options = NOTE_LAYOUT_OPTIONS_BY_KIND[row.key];
 		new Setting(card)
 			.setName(row.name)
 			.setDesc(settings.noteViews ? row.desc : `${row.desc} Only applies while Views in notes is on.`)
 			.addDropdown((dropdown) => {
-				for (const option of NOTE_LAYOUT_OPTIONS) dropdown.addOption(option.value, option.label);
+				for (const option of options) dropdown.addOption(option.value, option.label);
 				dropdown.setValue(settings.noteLayouts[row.key]).onChange(async (value) => {
-					settings.noteLayouts[row.key] = NOTE_LAYOUT_OPTIONS.some((option) => option.value === value)
+					settings.noteLayouts[row.key] = options.some((option) => option.value === value)
 						? (value as NoteLayout)
 						: DEFAULT_NOTE_LAYOUTS[row.key];
 					await plugin.saveSettings();

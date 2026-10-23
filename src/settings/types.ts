@@ -26,7 +26,7 @@ import {
  *  directly. Still understood wherever an old note or an unmigrated data.json
  *  can supply it (the view script resolves it, onload expands it), but no
  *  dropdown offers it. */
-export type NoteLayout = 'table' | 'mixed' | 'cards' | 'chips';
+export type NoteLayout = 'table' | 'mixed' | 'cards' | 'chips' | 'poster';
 
 /** One choice in a layout dropdown, in menu order. Deliberately no Mixed:
  *  within one note type it is just a slower way of naming the other value. */
@@ -35,6 +35,23 @@ export const NOTE_LAYOUT_OPTIONS: Array<{ value: NoteLayout; label: string }> = 
 	{ value: 'cards', label: 'Cards' },
 	{ value: 'table', label: 'Table' },
 ];
+
+/** The same dropdown per note type: the poster card is a channel shape
+ *  (banner, subscribe badge, journal link), so only the Channels row offers
+ *  it; the video lists stay on chips, cards, and table. */
+export const NOTE_LAYOUT_OPTIONS_BY_KIND: Record<
+	NoteViewKind,
+	Array<{ value: NoteLayout; label: string }>
+> = {
+	channels: [
+		{ value: 'poster', label: 'Poster' },
+		{ value: 'chips', label: 'Chips' },
+		{ value: 'cards', label: 'Cards' },
+		{ value: 'table', label: 'Table' },
+	],
+	playlists: NOTE_LAYOUT_OPTIONS,
+	watchlater: NOTE_LAYOUT_OPTIONS,
+};
 
 /** Layout of each note type's view, one row per type in the Notes group.
  *  Split per type because the notes are read differently: a long Watch Later
@@ -59,7 +76,7 @@ export const LAYOUT_ROWS: Array<{ key: NoteViewKind; name: string; desc: string 
 	{
 		key: 'channels',
 		name: 'Channels layout',
-		desc: 'How the view above Channels.md renders. Chips keep the long channel list compact; cards add the avatar and banner.',
+		desc: 'How the view above Channels.md renders. Poster draws a YouTube-style channel card (banner, subscribe badge, journal link); chips keep the long list compact; cards add the avatar and banner.',
 	},
 	{
 		key: 'playlists',
@@ -118,7 +135,7 @@ export const FIELD_ROWS: FieldRow[] = [
 	{
 		key: 'banner',
 		name: 'Banner',
-		desc: 'Writes banner_url and banner, drawn as the top strip of a channel card. Card view only; chips and the table never show a banner.',
+		desc: 'Writes banner_url and banner, drawn as the top strip of a channel card or the poster card. Chips and the table never show a banner.',
 	},
 ];
 

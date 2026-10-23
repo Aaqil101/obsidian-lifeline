@@ -10,9 +10,10 @@
  *
  * The section (channels or playlist) is baked into each script rather than
  * passed in, along with the note type, which is the key each view reads and
- * writes its layout under. Layouts: chips, cards, and table. Every layout
- * reads the calling note's own list entries via dv.current().file.lists, so
- * the view always mirrors the bullets below it and needs no vault-wide query.
+ * writes its layout under. Layouts: chips, cards, and table, plus the
+ * YouTube-style poster card on Channels only. Every layout reads the calling
+ * note's own list entries via dv.current().file.lists, so the view always
+ * mirrors the bullets below it and needs no vault-wide query.
  *
  * Each view opens with a toolbar in the spirit of the quotebook DataviewJS
  * script: one bordered container holding the search row (search box, a
@@ -36,8 +37,8 @@
  * The view chrome lives in per-kind vault files: lifeline-channels.css,
  * lifeline-playlists.css, and lifeline-watchlater.css in the configured
  * styles folder, exactly like quotebook and its quotebook.css. Sync writes
- * one file per kind, and each generated script caches its own file's
- * path and reads it
+ * one file per kind (the channels sheet additionally carries the poster
+ * chrome), and each generated script caches its own file's path and reads it
  * at view time with app.vault.cachedRead, injecting it once under its own
  * style id, so the CSS can be themed, overridden, or updated without
  * regenerating the scripts. With the file missing the view still works, just
@@ -462,13 +463,557 @@ const NOTE_VIEWS_CSS_SHARED = `
 }
 `;
 
+/**
+ * The poster layout, a Channels-only card drawn the way YouTube draws a
+ * channel page: the banner fills the top with the identity strip (avatar,
+ * name, handle) laid onto a gradient at its foot, stat tiles run under a
+ * hairline, and a red subscribe badge plus a calendar button close the card.
+ * The classes carry the lv-poster- prefix so they never meet the shipped
+ * chips/cards chrome (lv-banner, lv-avatar, lv-card) even though the two
+ * never render into the same container.
+ */
+const NOTE_VIEWS_CSS_POSTER = `
+.lifeline-views .lv-posters {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
+    gap: 20px;
+    margin: 8px 0 16px;
+}
+.lifeline-views .lv-poster-card {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 12px;
+    background: var(--background-secondary);
+    overflow: hidden;
+    transition: box-shadow 0.15s ease;
+}
+.lifeline-views .lv-poster-card:hover {
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+.lifeline-views .lv-poster-banner {
+    position: relative;
+    height: 150px;
+    background: var(--background-modifier-border);
+}
+.lifeline-views .lv-poster-banner img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+/* Identity strip: avatar circle, name, and handle laid onto a gradient at
+   the banner's foot, the way a channel page header reads on YouTube. */
+.lifeline-views .lv-poster-strip {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 18px 14px 10px;
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.82));
+}
+.lifeline-views .lv-poster-head {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0 16px;
+}
+/* The avatar is its own circle: standalone size, its own ring, pulled over
+   the banner's lower edge like a channel badge. */
+.lifeline-views .lv-poster-avatar {
+    box-sizing: border-box;
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 76px;
+    height: 76px;
+    margin-top: -22px;
+    border: 4px solid var(--background-secondary);
+    border-radius: 50%;
+    overflow: hidden;
+    background: var(--background-modifier-border);
+    color: var(--text-muted);
+    font-weight: 600;
+    z-index: 1;
+}
+.lifeline-views .lv-poster-card--bare .lv-poster-avatar {
+    margin-top: 0;
+}
+.lifeline-views .lv-poster-avatar img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+/* Name and handle as a capsule beside the avatar circle, ending where the
+   text ends. Inside the banner strip the same classes strip their capsule
+   down and pick up the white-on-gradient colors instead. */
+.lifeline-views .lv-poster-id {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+    max-width: 100%;
+    padding: 5px 12px 6px 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-left: 3px solid var(--text-accent, var(--interactive-accent));
+    border-radius: 8px;
+    background: var(--background-secondary);
+}
+.lifeline-views .lv-poster-handle {
+    color: var(--text-muted);
+    font-size: 0.75em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.lifeline-views .lv-poster-name {
+    display: block;
+    flex: 0 1 auto;
+    min-width: 0;
+    font-size: 1.05em;
+    font-weight: 700;
+    color: var(--text-normal);
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.lifeline-views .lv-poster-name:hover {
+    text-decoration: underline;
+}
+/* Everything under the head, full width now. */
+.lifeline-views .lv-poster-info {
+    min-width: 0;
+    padding: 12px 16px 16px;
+}
+/* Stat tiles: subscribers, videos, views, in one hairline-divided strip. */
+.lifeline-views .lv-poster-stats {
+    display: flex;
+    padding: 9px 0;
+    border-top: 1px solid var(--background-modifier-border);
+}
+.lifeline-views .lv-poster-stat {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+}
+.lifeline-views .lv-poster-stat + .lv-poster-stat {
+    border-left: 1px solid var(--background-modifier-border);
+}
+.lifeline-views .lv-poster-stat-num {
+    font-weight: 700;
+    font-size: 1.05em;
+}
+.lifeline-views .lv-poster-stat-label {
+    color: var(--text-muted);
+    font-size: 0.68em;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+/* The subscribed badge: YouTube red, bell in front, the subscribed-since
+   date on the calendar button beside it as a tooltip. */
+.lifeline-views .lv-poster-footrow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+}
+.lifeline-views .lv-poster-sub-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    width: 50px;
+    height: 30px;
+    border-radius: 0;
+    background: linear-gradient(180deg, #d31212, #a80404);
+    color: #ffffff;
+    line-height: 1;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    transition: filter 0.15s ease;
+    cursor: default;
+}
+.lifeline-views .lv-poster-sub-badge:hover {
+    filter: brightness(1.12);
+}
+.lifeline-views .lv-poster-since {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    width: 50px;
+    height: 30px;
+    border-radius: 0;
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+    color: var(--text-muted);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.03em;
+    transition: color 0.15s ease, border-color 0.15s ease,
+        background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.lifeline-views .lv-poster-since svg {
+    flex: 0 0 auto;
+    display: block;
+}
+/* The calendar sits dim-white until hover, when it turns YouTube red. The
+   internal-link form answers the theme's own :hover styling, which would
+   otherwise win the color fight against a plain class:hover. */
+.lifeline-views a.lv-poster-since svg {
+    fill: rgba(255, 255, 255, 0.85);
+}
+.lifeline-views a.internal-link.lv-poster-since:hover {
+    color: #cc0000;
+    background: var(--interactive-hover);
+    border-color: rgba(255, 255, 255, 0.35);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+.lifeline-views a.lv-poster-since:hover svg {
+    fill: #cc0000;
+}
+/* The same button without a daily note behind it: plain text, no link. */
+.lifeline-views span.lv-poster-since svg {
+    fill: var(--text-faint);
+}
+.lifeline-views span.lv-poster-since:hover {
+    transform: none;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+/* The open-external arrow pinned to the banner's top right corner: bare
+   icon on a light-black scrim that reads on any artwork. */
+.lifeline-views .lv-poster-banner-link {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+    border-radius: 0;
+    background: rgba(0, 0, 0, 0.35);
+    color: #ffffff;
+    text-decoration: none;
+    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.7));
+    transition: color 0.18s ease, background 0.18s ease, filter 0.18s ease,
+        transform 0.18s ease;
+}
+.lifeline-views .lv-poster-banner-link:hover {
+    color: #ff4d4d;
+    background: rgba(0, 0, 0, 0.55);
+    filter: drop-shadow(0 1px 5px rgba(204, 0, 0, 0.55))
+        drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6));
+    transform: translateY(-1px);
+}
+/* Poster with a banner: the head hides (the strip carries the identity) and
+   the strip's avatar drops to its badge size on the gradient. */
+.lifeline-views .lv-poster-card .lv-poster-head {
+    display: none;
+}
+.lifeline-views .lv-poster-strip .lv-poster-avatar {
+    width: 72px;
+    height: 72px;
+    margin: 0;
+    border-width: 3px;
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.lifeline-views .lv-poster-strip .lv-poster-avatar:hover {
+    transform: scale(1.06);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.28);
+}
+.lifeline-views .lv-poster-strip .lv-poster-id {
+    flex: 0 1 auto;
+    min-width: 0;
+    background: none;
+    border: none;
+    padding: 0;
+    opacity: 0;
+    transform: translateX(-8px);
+    transition: opacity 0.22s ease, transform 0.22s ease;
+    pointer-events: none;
+}
+/* The name and handle hide themselves by default and show up when the
+   pointer rests on the avatar circle: they slide in from its right, and
+   the circle lifts a little as an invitation. */
+.lifeline-views .lv-poster-strip .lv-poster-avatar:hover + .lv-poster-id {
+    opacity: 1;
+    transform: none;
+}
+.lifeline-views .lv-poster-strip .lv-poster-name {
+    color: #ffffff;
+    font-size: 1.1em;
+}
+.lifeline-views .lv-poster-strip .lv-poster-handle {
+    color: rgba(255, 255, 255, 0.72);
+}
+/* Poster without a banner: fall back to a plain head, a smaller avatar, and
+   the capsule back on, so the card stays a channel identity either way. */
+.lifeline-views .lv-poster-card--bare .lv-poster-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 12px 16px 0;
+}
+.lifeline-views .lv-poster-card--bare .lv-poster-avatar {
+    width: 56px;
+    height: 56px;
+    margin: 0;
+    border-width: 3px;
+}
+.lifeline-views .lv-poster-card--bare .lv-poster-id {
+    background: none;
+    border: none;
+    padding: 0;
+    min-width: 0;
+}
+`;
+
 /** One stylesheet per note kind: each script bakes its own file's path and
- *  reads it at view time. */
+ *  reads it at view time. The channels sheet additionally carries the poster
+ *  chrome, since only the channels layout picker offers Poster. */
 export const NOTE_VIEWS_CSS_BY_KIND: Record<NoteViewKind, string> = {
-	channels: NOTE_VIEWS_CSS_SHARED + NOTE_VIEWS_CSS_LISTS,
+	channels: NOTE_VIEWS_CSS_SHARED + NOTE_VIEWS_CSS_LISTS + NOTE_VIEWS_CSS_POSTER,
 	playlists: NOTE_VIEWS_CSS_SHARED + NOTE_VIEWS_CSS_LISTS,
 	watchlater: NOTE_VIEWS_CSS_SHARED + NOTE_VIEWS_CSS_LISTS,
 };
+
+/**
+ * The poster card's builder, embedded verbatim (escapes included) into the
+ * channels script only. Like the rest of the generated code it uses string
+ * concatenation and no backticks. Image data comes off the bullet's own
+ * fields through the shared helpers; the only network request an <img> ever
+ * makes is for a remote *_url avatar or banner the user chose not to
+ * download.
+ */
+const NOTE_VIEWS_POSTER_JS = `
+// ---------------------------------------------------------------------------
+// Poster layout: a YouTube-style channel card
+// ---------------------------------------------------------------------------
+
+// The avatar as its own ringed circle; with no image it carries the initial.
+const posterAvatar = (item, label) => {
+  const badge = el("div", "lv-poster-avatar");
+  const src = imageSrc(mdImage(item));
+  if (src) {
+    const img = document.createElement("img");
+    img.src = src;
+    img.alt = label == null ? "" : String(label);
+    img.loading = "lazy";
+    img.addEventListener("error", () => {
+      badge.textContent = initialOf(label);
+    });
+    badge.appendChild(img);
+  } else {
+    badge.textContent = initialOf(label);
+  }
+  return badge;
+};
+
+// Name plus handle, the identity stack: capsule in the bare head,
+// white-on-gradient labels inside the banner strip (CSS does the switch).
+const posterIdStack = (item, link) => {
+  const box = el("div", "lv-poster-id");
+  box.appendChild(linkNode(link.label, link.href, "lv-poster-name"));
+  if (item.handle) box.appendChild(el("div", "lv-poster-handle", String(item.handle)));
+  return box;
+};
+
+// The identity laid onto the banner's lower gradient. The hover reveal
+// (avatar circle slides the name in, circle lifts) is pure CSS:
+// avatar:hover + id.
+const posterIdentity = (item, link) => {
+  const row = el("div", "lv-poster-strip");
+  row.appendChild(posterAvatar(item, link.label));
+  row.appendChild(posterIdStack(item, link));
+  return row;
+};
+
+// Stat tiles: subscribers, videos, views, in one hairline-divided strip.
+const posterStats = (item) => {
+  const strip = el("div", "lv-poster-stats");
+  const tile = (num, label) => {
+    if (typeof num !== "number") return;
+    const box = el("div", "lv-poster-stat");
+    box.appendChild(el("div", "lv-poster-stat-num", fmtShort(num)));
+    box.appendChild(el("div", "lv-poster-stat-label", label));
+    strip.appendChild(box);
+  };
+  tile(item.subscribers, "subscribers");
+  tile(item.videos, "videos");
+  tile(item.views, "views");
+  return strip.childElementCount ? strip : null;
+};
+
+// The old YouTube subscribe button's bell, drawn inline so the script never
+// fetches anything; it inherits the badge's white.
+const bellNode = () => {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const bell = document.createElementNS(svgNS, "svg");
+  bell.setAttribute("viewBox", "0 -960 960 960");
+  bell.setAttribute("width", "24");
+  bell.setAttribute("height", "24");
+  bell.setAttribute("aria-hidden", "true");
+  bell.setAttribute("fill", "currentColor");
+  const shape = document.createElementNS(svgNS, "path");
+  shape.setAttribute(
+    "d",
+    "M80-560q0-100 44.5-183.5T244-882l47 64q-60 44-95.5 111T160-560H80Zm720 0q0-80-35.5-147T669-818l47-64q75 55 119.5 138.5T880-560h-80ZM160-200v-80h80v-280q0-83 50-147.5T420-792v-28q0-25 17.5-42.5T480-880q25 0 42.5 17.5T540-820v28q80 20 130 84.5T720-560v280h80v80H160Zm320-300Zm0 420q-33 0-56.5-23.5T400-160h160q0 33-23.5 56.5T480-80ZM320-280h320v-280q0-66-47-113t-113-47q-66 0-113 47t-47 113v280Z",
+  );
+  bell.appendChild(shape);
+  // The bell's cavity punches through to whatever sits behind it; fill it
+  // white explicitly so it never takes on the badge or artwork color.
+  const inner = document.createElementNS(svgNS, "path");
+  inner.setAttribute("fill", "#ffffff");
+  inner.setAttribute(
+    "d",
+    "M320-280h320v-280q0-66-47-113t-113-47q-66 0-113 47t-47 113v280Z",
+  );
+  bell.appendChild(inner);
+  return bell;
+};
+
+// A small calendar icon, matching the bell's Material icon family.
+const calendarNode = () => {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const cal = document.createElementNS(svgNS, "svg");
+  cal.setAttribute("viewBox", "0 -960 960 960");
+  cal.setAttribute("width", "24");
+  cal.setAttribute("height", "24");
+  cal.setAttribute("aria-hidden", "true");
+  cal.setAttribute("fill", "currentColor");
+  const shape = document.createElementNS(svgNS, "path");
+  shape.setAttribute(
+    "d",
+    "M200-80q-33 0-56.5-23.5T120-160v-560q0-33 23.5-56.5T200-800h40v-80h80v80h320v-80h80v80h40q33 0 56.5 23.5T840-720v560q0 33-23.5 56.5T760-80H200Zm0-80h560v-400H200v400Zm0-480h560v-80H200v80Zm0 0v-80 80Zm280 240q-17 0-28.5-11.5T440-440q0-17 11.5-28.5T480-480q17 0 28.5 11.5T520-440q0 17-11.5 28.5T480-400Zm-188.5-11.5Q280-423 280-440t11.5-28.5Q303-480 320-480t28.5 11.5Q360-457 360-440t-11.5 28.5Q337-400 320-400t-28.5-11.5ZM640-400q-17 0-28.5-11.5T600-440q0-17 11.5-28.5T640-480q17 0 28.5 11.5T680-440q0 17-11.5 28.5T640-400ZM480-240q-17 0-28.5-11.5T440-280q0-17 11.5-28.5T480-320q17 0 28.5 11.5T520-280q0 17-11.5 28.5T480-240Zm-188.5-11.5Q280-263 280-280t11.5-28.5Q303-320 320-320t28.5 11.5Q360-297 360-280t-11.5 28.5Q337-240 320-240t-28.5-11.5ZM640-240q-17 0-28.5-11.5T600-280q0-17 11.5-28.5T640-320q17 0 28.5 11.5T680-280q0 17-11.5 28.5T640-240Z",
+  );
+  cal.appendChild(shape);
+  return cal;
+};
+
+// Resolves the daily note behind a subscribed-on date, through this note's
+// own path like every other wikilink. A date with no journal entry renders
+// as plain text rather than as a link to a note that does not exist.
+const journalDest = (iso) => {
+  try {
+    const current = dv.current();
+    const from = current && current.file ? current.file.path : "";
+    return app.metadataCache.getFirstLinkpathDest(iso, from) ? from : null;
+  } catch (err) {
+    return null;
+  }
+};
+
+const posterCard = (item) => {
+  const link = mdLink(item.channel);
+  const node = el("article", "lv-poster-card");
+  const info = el("div", "lv-poster-info");
+  const bannerSrc = imageSrc(mdBanner(item));
+  if (!bannerSrc) node.classList.add("lv-poster-card--bare");
+
+  // Banner with the identity strip at its foot and the open-external arrow
+  // pinned to the top right corner (a plain anchor, the same way the title
+  // links are handed to Obsidian, which routes external hrefs itself).
+  // A dead or missing banner drops the strip entirely (bare card), so a
+  // square avatar is never force-cropped into a wide band.
+  if (bannerSrc) {
+    const strip = el("div", "lv-poster-banner");
+    const img = document.createElement("img");
+    img.src = bannerSrc;
+    img.alt = "";
+    img.loading = "lazy";
+    img.addEventListener("error", () => {
+      img.style.display = "none";
+    });
+    strip.appendChild(img);
+    if (link.href) {
+      const corner = document.createElement("a");
+      corner.className = "lv-poster-banner-link";
+      corner.href = link.href;
+      corner.target = "_blank";
+      corner.rel = "noopener";
+      corner.setAttribute("aria-label", "Open on YouTube");
+      const svgNS = "http://www.w3.org/2000/svg";
+      const icon = document.createElementNS(svgNS, "svg");
+      icon.setAttribute("viewBox", "0 -960 960 960");
+      icon.setAttribute("width", "18");
+      icon.setAttribute("height", "18");
+      icon.setAttribute("aria-hidden", "true");
+      icon.setAttribute("fill", "currentColor");
+      const path = document.createElementNS(svgNS, "path");
+      path.setAttribute(
+        "d",
+        "M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h280v80H200v560h560v-280h80v280q0 33-23.5 56.5T760-120H200Zm188-212-56-56 372-372H560v-80h280v280h-80v-144L388-332Z",
+      );
+      icon.appendChild(path);
+      corner.appendChild(icon);
+      strip.appendChild(corner);
+    }
+    strip.appendChild(posterIdentity(item, link));
+    node.appendChild(strip);
+  } else {
+    // A banner-less card is a plain head: avatar + name, no forced art.
+    const head = el("div", "lv-poster-head");
+    head.appendChild(posterAvatar(item, link.label));
+    head.appendChild(posterIdStack(item, link));
+    node.appendChild(head);
+  }
+
+  const stats = posterStats(item);
+  if (stats) info.appendChild(stats);
+
+  // The subscription facts, the way YouTube draws them: a red bell badge,
+  // then the since date as a framed calendar button that opens that day's
+  // journal note. Both buttons are icon-only; their labels live in
+  // (single) aria-label tooltips, and the country rides on the since one.
+  const footrow = el("div", "lv-poster-footrow");
+  if (item.subscribed_on) {
+    const iso = fmtDate(item.subscribed_on);
+    if (iso && iso !== "-") {
+      const where = item.country ? " \\u00b7 " + String(item.country) : "";
+      // The badge is icon-only; the label lives in the aria-label tooltip.
+      const badge = el("span", "lv-poster-sub-badge");
+      badge.appendChild(bellNode());
+      badge.setAttribute("aria-label", "Subscribed");
+      footrow.appendChild(badge);
+      const from = journalDest(iso);
+      let since;
+      if (from) {
+        since = document.createElement("a");
+        since.className = "internal-link lv-poster-since";
+        since.dataset.href = iso;
+        since.addEventListener("click", (evt) => {
+          evt.preventDefault();
+          app.workspace.openLinkText(iso, from, false);
+        });
+      } else {
+        since = document.createElement("span");
+        since.className = "lv-poster-since";
+      }
+      since.appendChild(calendarNode());
+      since.setAttribute("aria-label", "Subscribed since " + iso + where);
+      footrow.appendChild(since);
+    }
+  }
+  if (footrow.childElementCount) info.appendChild(footrow);
+
+  node.appendChild(info);
+  return node;
+};
+`;
 
 /**
  * The full source of one generated view script (lifeline-channels.js,
@@ -487,8 +1032,8 @@ export function renderNoteViewScript(kind: NoteViewKind, stylesFolder: string): 
  *
  * The note invokes this file once:
  *   dv.view("98 - Organize/Scripts/lifeline-${kind}", { layout: "${kind === 'channels' ? 'chips' : 'cards'}"${kind === 'channels' ? ', fields: {...}' : ''} })
- * Layouts: chips, cards, table. Every layout reads the calling
- * list entries (dv.current().file.lists), so the view mirrors the
+ * Layouts: ${kind === 'channels' ? 'poster, chips, cards, table' : 'chips, cards, table'}. Every layout reads the calling
+ * note's own list entries (dv.current().file.lists), so the view mirrors the
  * inline-field entries below it. Regenerated on every sync while "Views in
  * notes" is on; hand edits are overwritten.
  *
@@ -975,12 +1520,14 @@ const card = (item, section) => {
   node.appendChild(body);
   return node;
 };
-
+${kind === 'channels' ? NOTE_VIEWS_POSTER_JS : ""}
 // ---------------------------------------------------------------------------
 // Toolbar: search, scope, layout, refresh
 // ---------------------------------------------------------------------------
 
-const KNOWN_LAYOUTS = ["table", "mixed", "chips", "cards"];
+const KNOWN_LAYOUTS = ${JSON.stringify(
+      kind === 'channels' ? ['table', 'mixed', 'chips', 'cards', 'poster'] : ['table', 'mixed', 'chips', 'cards'],
+    )};
 // Which note shape this file serves; baked per script ("channels" in
 // lifeline-channels.js, "playlist" in the other two) rather than passed in.
 const section = ${JSON.stringify(section)};
@@ -1062,10 +1609,15 @@ const state = {
   scope: "all",
 };
 
-// "mixed" is per section: chips suit the flat alphabetical channel list, cards
-// suit ordered video lists.
-const resolveLayout = (requested) =>
-  requested === "mixed" ? (section === "channels" ? "chips" : "cards") : requested;
+// "mixed" is per section: chips suit the flat alphabetical channel list,
+// cards suit ordered video lists. A poster value can only exist in the
+// channels script (the other kinds never offer or persist it), but the guard
+// keeps a stray stored value from reaching posterCard anyway.
+const resolveLayout = (requested) => {
+  if (requested === "mixed") return section === "channels" ? "chips" : "cards";
+  if (requested === "poster" && section !== "channels") return "cards";
+  return requested;
+};
 
 // Channels.md bullets carry a channel link and never a title; playlist bullets
 // carry a title (and a channel). The title check keeps playlist entries out of
@@ -1138,12 +1690,22 @@ toolbarRow.appendChild(scope);
 const layoutSelect = document.createElement("select");
 layoutSelect.className = "lv-select";
 layoutSelect.setAttribute("aria-label", "Layout");
-// Three concrete choices only. "mixed" used to stand for "chips for channels,
-// cards for the video lists", which the per-kind settings rows now say
-// directly, so it survives only as a value an old note can still bake in;
-// resolveLayout turns that into the real starting value rather than leaving
-// the select blank.
-for (const option of [["chips", "Chips"], ["cards", "Cards"], ["table", "Table"]]) {
+// The layout choices, per note type: the video lists keep chips, cards, and
+// table; Channels adds the poster card.
+for (const option of ${JSON.stringify(
+      kind === 'channels'
+        ? [
+            ['poster', 'Poster'],
+            ['chips', 'Chips'],
+            ['cards', 'Cards'],
+            ['table', 'Table'],
+          ]
+        : [
+            ['chips', 'Chips'],
+            ['cards', 'Cards'],
+            ['table', 'Table'],
+          ],
+    )}) {
   const opt = document.createElement("option");
   opt.value = option[0];
   opt.textContent = option[1];
@@ -1175,9 +1737,12 @@ const render = () => {
   clear(host);
   // The rows are appended straight into the host, so the container class has
   // to be applied here: .lv-chips and .lv-cards carry the gap (and the card
-  // grid) that keeps entries from running together into one joined block.
+  // grid), .lv-posters the channel-photo grid, that keeps entries from
+  // running together into one joined block.
   const resolved = resolveLayout(state.layout);
-  host.className = "lv-results" + (resolved === "table" ? "" : " lv-" + resolved);
+  host.className =
+    "lv-results" +
+    (resolved === "table" ? "" : " lv-" + (resolved === "poster" ? "posters" : resolved));
   const visible = rows.filter(matches);
   if (visible.length === 0) {
     host.appendChild(el("div", "lv-empty", rows.length === 0 ? "No " + noun + " synced yet." : "No entries match your search."));
@@ -1197,7 +1762,15 @@ const render = () => {
     renderTable(host, built);
     setStats(visible.length);
   } else {
-    mount(host, visible, (item) => (resolved === "cards" ? card(item, section) : chipRow(item, section)), setStats);
+    mount(
+      host,
+      visible,
+      (item) =>
+        resolved === "poster"
+          ? posterCard(item)
+          : resolved === "cards" ? card(item, section) : chipRow(item, section),
+      setStats,
+    );
   }
 };
 
