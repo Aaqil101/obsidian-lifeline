@@ -15,6 +15,7 @@ import { writeNoteViewScripts } from '../sync';
 import { DEFAULT_CHANNELS_FIELDS } from '../types';
 import { folderSetting } from './folderPicker';
 import {
+	DEFAULT_JOURNAL_FOLDER,
 	DEFAULT_NOTE_LAYOUTS,
 	FIELD_ROWS,
 	LAYOUT_ROWS,
@@ -38,6 +39,30 @@ export function renderNotesGroup(host: SettingsHost, containerEl: HTMLElement): 
 		normalize: (raw) => normalizeFolder(raw) || DEFAULT_OUTPUT_FOLDER,
 		commit: async (path) => {
 			settings.outputFolder = path;
+			await plugin.saveSettings();
+		},
+	});
+
+	// Daily journal notes: dated bullets (the playlist and Watch Later `date`
+	// field, and Channels `subscribed_on`) wikilink a day only when the note
+	// for that day lives here, or when the date is today or later; a folder
+	// that holds no daily notes leaves every date plain, including the
+	// playlist date that used to link unconditionally. Blank commits to the
+	// default rather than storing an "off" state: the strict rule already
+	// degrades to plain dates by itself, so no separate off value is needed.
+	// The check happens at sync time, so the next run after the folder is
+	// picked (or after a daily note comes to exist) rewrites the notes to
+	// match; the empty data.json value older builds could save is filled by
+	// the onload migration instead.
+	folderSetting(card, {
+		app: plugin.app,
+		name: 'Journal folder',
+		desc: 'Daily notes that bullet dates link into. A date links only when its note exists here, or when it is today or later. Blank falls back to the default.',
+		value: settings.journalFolder,
+		placeholder: DEFAULT_JOURNAL_FOLDER,
+		normalize: (raw) => normalizeFolder(raw) || DEFAULT_JOURNAL_FOLDER,
+		commit: async (path) => {
+			settings.journalFolder = path;
 			await plugin.saveSettings();
 		},
 	});

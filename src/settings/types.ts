@@ -144,6 +144,9 @@ export const DASHBOARD_ROWS: Array<{ key: keyof DashboardSections; name: string 
 	{ key: 'attention', name: 'Needs attention card' },
 ];
 
+/** Daily-notes folder dated bullets wikilink into by default. */
+export const DEFAULT_JOURNAL_FOLDER = '01 - Journal/Daily';
+
 export interface LifelineSettings {
 	/** Keychain *name* of the secret holding the OAuth client ID. */
 	clientIdName: string;
@@ -151,6 +154,14 @@ export interface LifelineSettings {
 	clientSecretName: string;
 	/** Vault-relative folder that receives the generated notes. */
 	outputFolder: string;
+	/** Vault folder holding the daily journal notes that dated bullets
+	 *  ([date:: ...], [subscribed_on:: ...]) wikilink into. A date links only
+	 *  when that day's note exists, or when it is today or later; a folder
+	 *  missing from the vault means nothing links, so every date prints
+	 *  plain. Notes are matched anywhere under the folder, so subfolder
+	 *  daily-note layouts work. A saved '' is filled with the default by the
+	 *  onload migration, so the setting always names a folder. */
+	journalFolder: string;
 	/** Which fields render on each Channels.md entry (Manage sub-page). */
 	channelsFields: ChannelsFieldSettings;
 	/** Opt-in Dashboard.md note (requires the community Dataview plugin). */
@@ -207,6 +218,7 @@ export const DEFAULT_SETTINGS: LifelineSettings = {
 	clientIdName: 'lifeline-client-id',
 	clientSecretName: 'lifeline-client-secret',
 	outputFolder: DEFAULT_OUTPUT_FOLDER,
+	journalFolder: DEFAULT_JOURNAL_FOLDER,
 	channelsFields: { ...DEFAULT_CHANNELS_FIELDS },
 	dashboardNote: false,
 	dashboardSections: { ...DEFAULT_DASHBOARD_SECTIONS },

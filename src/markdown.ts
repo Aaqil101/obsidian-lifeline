@@ -166,6 +166,31 @@ function bulletImageFields(
 	return fields;
 }
 
+/**
+ * Journal-folder context, handed in by sync.ts (which owns the vault reads).
+ * `names` holds the base names of the notes sitting in the configured journal
+ * folder; `today` is the sync day, YYYY-MM-DD, so a date on or after it links
+ * even though that daily note does not exist yet.
+ */
+export interface JournalDates {
+	names: ReadonlySet<string>;
+	today: string;
+}
+
+/**
+ * One datable bullet field: a `[[YYYY-MM-DD]]` wikilink when the day's note
+ * exists in the journal folder, or when the date is today or later (the daily
+ * note will exist when it comes around, and Obsidian resolves the link then).
+ * Plain ISO text otherwise, and always plain with no journal configured, so a
+ * date never dangles as a link without something to open. Both inputs are
+ * YYYY-MM-DD, so ordering compares as strings.
+ */
+export function journalDate(value: string, journal: JournalDates | undefined): string {
+	if (!journal) return value;
+	if (value >= journal.today || journal.names.has(value)) return `[[${value}]]`;
+	return value;
+}
+
 /** Filesystem-safe note name (kept to 120 characters). */
 export function sanitizeFileName(title: string, fallback: string): string {
 	const cleaned = title
@@ -222,6 +247,11 @@ export function viewCall(viewName: string, options: Record<string, string | bool
  * channel banner. Each pair is also gated on its own `fields` toggle, so the
  * checkbox can drop one without the other. Omitted or `off`, the output is
  * unchanged.
+ *
+ * When `journal` is provided, `subscribed_on` wikilinks that day's journal
+ * note when it exists (or when the date is today or later) and prints plain
+ * otherwise; `first_seen` and `last_seen` are sync bookkeeping and always
+ * stay plain. Omitted, `subscribed_on` is plain ISO text.
  */
 export function renderChannelsNote(
 	state: SyncState,
@@ -229,6 +259,7 @@ export function renderChannelsNote(
 	fields: ChannelsFieldSettings,
 	viewBlock?: string,
 	images?: BulletImages,
+	journal?: JournalDates,
 ): string {
 	const entries = Object.entries(state.channels).sort(([, a], [, b]) => a.title.localeCompare(b.title));
 	const lines: string[] = [
@@ -246,7 +277,7 @@ export function renderChannelsNote(
 		const parts = [`[channel:: [${labelText(channel.title)}](${channel.url})]`];
 		if (fields.channelId) parts.push(`[id:: ${id}]`);
 		if (fields.subscribedOn && channel.subscribedOn) {
-			parts.push(`[subscribed_on:: ${channel.subscribedOn}]`);
+			parts.push(`[subscribed_on:: ${journalDate(channel.subscribedOn, journal)}]`);
 		}
 		if (fields.syncDates) {
 			parts.push(`[first_seen:: ${channel.firstSeen}]`, `[last_seen:: ${channel.lastSeen}]`);
@@ -282,7 +313,8 @@ export function renderChannelsNote(
  * One note per playlist. The frontmatter carries a `url` that opens the
  * playlist on YouTube (Watch Later included). Each video is a single list
  * item so Dataview sees one record per video: title and channel as plain
- * Markdown links, and the date-added as a `[[YYYY-MM-DD]]` link.
+ * Markdown links, and the date-added as a `[[YYYY-MM-DD]]` link when the
+ * journal rule allows it (see the `journal` param below).
  *
  * Only watchable videos get a bullet: entries flagged unavailable (private
  * or deleted) or removed from the playlist upstream are skipped. They stay
@@ -301,6 +333,13 @@ export function renderChannelsNote(
  * When `images` is provided (and its mode is not `off`), each bullet ends
  * with that video's thumbnail as fields (`thumbnail_url`, plus `thumbnail`
  * when the local file exists). Omitted or `off`, the output is unchanged.
+ *
+ * `date-added` behaves the same for `journal` as `subscribed_on` does for
+ * Channels: the `date` field wikilinks that day's journal note when it
+ * exists, or when the date is today or later; plain ISO text otherwise. This
+ * supersedes the old unconditional `[[date]]`, so a date whose note has not
+ * been journalled stops linking until it is (or until the next sync after
+ * the note appears), keeping every note type under one rule.
  */
 export function renderPlaylistNote(
 	playlistId: string,
@@ -309,6 +348,7 @@ export function renderPlaylistNote(
 	syncedAt: Date,
 	viewBlock?: string,
 	images?: BulletImages,
+	journal?: JournalDates,
 ): string {
 	const entries = Object.entries(record.videos);
 	let unavailableCount = 0;
@@ -344,7 +384,7 @@ export function renderPlaylistNote(
 			? `[${labelText(video.channelTitle || 'unknown channel')}](https://www.youtube.com/channel/${video.channelId})`
 			: labelText(video.channelTitle || 'unknown channel');
 		const parts = [`[title:: [${labelText(video.title)}](${watchUrl})]`, `[channel:: ${channelValue}]`];
-		if (video.dateAdded) parts.push(`[date:: [[${video.dateAdded}]]]`);
+		if (video.dateAdded) parts.push(`[date:: ${journalDate(video.dateAdded, journal)}]`);
 		parts.push(
 			...bulletImageFields(
 				images,

@@ -21,6 +21,7 @@ import { addBackCrumb, type SettingsHost, type SubPage } from './ui';
 
 export {
 	DEFAULT_SETTINGS,
+	DEFAULT_JOURNAL_FOLDER,
 	DEFAULT_NOTE_LAYOUTS,
 	expandLegacyLayout,
 	type LifelineSettings,

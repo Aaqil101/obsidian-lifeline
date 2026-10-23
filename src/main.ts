@@ -11,7 +11,13 @@ import { SyncLogModal } from './ui/syncLogModal';
 import { readSyncLog, removeLegacySyncLog } from './syncLog';
 import { adoptCatalog, mergeCatalog, runSync, writeDashboardNote } from './sync';
 import { listOwnedPlaylists, listSubscriptions, QuotaTracker } from './youtubeApi';
-import { DEFAULT_SETTINGS, LifelineSettingTab, expandLegacyLayout, type LifelineSettings } from './settings';
+import {
+	DEFAULT_JOURNAL_FOLDER,
+	DEFAULT_SETTINGS,
+	LifelineSettingTab,
+	expandLegacyLayout,
+	type LifelineSettings,
+} from './settings';
 import { createDefaultState, type SyncRunResult, type SyncState } from './types';
 
 /** Delay before the startup auto-sync check fires, so the vault can settle. */
@@ -45,6 +51,13 @@ export default class LifelinePlugin extends Plugin {
 		const expandedLayout = hadStaleLayout ? expandLegacyLayout(staleLayout?.noteLayout) : null;
 		if (staleLayout) delete staleLayout.noteLayout;
 		if (expandedLayout && loaded && loaded.noteLayouts === undefined) loaded.noteLayouts = expandedLayout;
+		// The journal folder shipped with '' meaning "the rule is off"; it now
+		// always names a folder (the settings row falls back to the default on
+		// empty), so a saved empty string is a stale state rather than a
+		// choice: fill it with the default once, here, so the row shows it and
+		// dated bullets start linking without a settings visit.
+		const emptyJournal = loaded?.journalFolder === '';
+		if (emptyJournal && loaded) loaded.journalFolder = DEFAULT_JOURNAL_FOLDER;
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
 		// Per-key merge so field toggles added later still get their defaults.
 		this.settings.channelsFields = {
@@ -59,7 +72,7 @@ export default class LifelinePlugin extends Plugin {
 		// found. Startup stays read-only on every other load, and the stale
 		// noteTables and noteLayout keys are purged from data.json instead of
 		// waiting for some later settings change to happen to write them out.
-		if (hadLegacyTables || hadStaleLayout) await this.saveSettings();
+		if (hadLegacyTables || hadStaleLayout || emptyJournal) await this.saveSettings();
 		this.state = await this.loadState();
 		this.auth = new AuthManager(this);
 

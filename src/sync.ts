@@ -22,6 +22,7 @@ import {
 	channelImageBase,
 	dataviewBlock,
 	formatDate,
+	normalizeFolder,
 	outputPaths,
 	renderChannelsNote,
 	renderPlaylistNote,
@@ -30,6 +31,7 @@ import {
 	videoThumbnailUrl,
 	viewCall,
 	type BulletImages,
+	type JournalDates,
 	type OutputPaths,
 } from './markdown';
 import { appendSyncLogRun } from './syncLog';
@@ -511,6 +513,30 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 	const available = await collectThumbnails(plugin, ctx);
 	const channelImages: BulletImages = { mode: plugin.settings.channelAvatars, available };
 	const videoImages: BulletImages = { mode: plugin.settings.videoThumbnails, available };
+	// Journal dates: the base names of the notes already sitting in the
+	// configured daily-notes folder, matched once per run from the vault
+	// index with no extra reads. A dated bullet wikilinks a day only when
+	// that day's note really exists (today and later always link, since the
+	// daily note will exist when it comes around), and a folder missing from
+	// the vault means nothing can exist, so every date prints plain. The
+	// saved empty value older builds could store is migrated to the default
+	// at load, so the setting always names a folder after onload. Recursion
+	// is free: basenames are vault-wide-wikilinkable either way, and
+	// year/month daily-note layouts get picked up as well.
+	const journalFolder = normalizeFolder(plugin.settings.journalFolder);
+	let journal: JournalDates | undefined;
+	if (journalFolder) {
+		// A vault-root journal ('/') holds files with no separator in the
+		// path; any other folder is a plain path prefix.
+		const root = journalFolder === '/';
+		const names = new Set<string>();
+		for (const file of vault.getMarkdownFiles()) {
+			if (root ? !file.path.includes('/') : file.path.startsWith(`${journalFolder}/`)) {
+				names.add(file.basename);
+			}
+		}
+		journal = { names, today: formatDate(ctx.now) };
+	}
 	// Where the error list stands before any note write: the legacy-script
 	// cleanup below may only run once every note has been rewritten onto the
 	// current view names, and a failed write leaves its note pointing at the
@@ -529,6 +555,7 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 					plugin.settings.channelsFields,
 					channelsView,
 					channelImages,
+					journal,
 				),
 			);
 		} catch (err) {
@@ -543,14 +570,14 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 				await writeNote(
 					vault,
 					ctx.paths.watchLater,
-					renderPlaylistNote(playlistId, record.title, record, ctx.now, watchLaterView, videoImages),
+					renderPlaylistNote(playlistId, record.title, record, ctx.now, watchLaterView, videoImages, journal),
 				);
 			} else {
 				const path = `${ctx.paths.playlistsFolder}/${record.fileName}.md`;
 				await writeNote(
 					vault,
 					path,
-					renderPlaylistNote(playlistId, record.title, record, ctx.now, playlistView, videoImages),
+					renderPlaylistNote(playlistId, record.title, record, ctx.now, playlistView, videoImages, journal),
 				);
 				const previous = ctx.previousFiles.get(playlistId);
 				if (previous && previous !== record.fileName) {
