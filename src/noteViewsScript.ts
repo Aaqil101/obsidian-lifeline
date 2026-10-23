@@ -904,19 +904,6 @@ const calendarNode = () => {
   return cal;
 };
 
-// Resolves the daily note behind a subscribed-on date, through this note's
-// own path like every other wikilink. A date with no journal entry renders
-// as plain text rather than as a link to a note that does not exist.
-const journalDest = (iso) => {
-  try {
-    const current = dv.current();
-    const from = current && current.file ? current.file.path : "";
-    return app.metadataCache.getFirstLinkpathDest(iso, from) ? from : null;
-  } catch (err) {
-    return null;
-  }
-};
-
 const posterCard = (item) => {
   const link = mdLink(item.channel);
   const node = el("article", "lv-poster-card");
@@ -989,20 +976,25 @@ const posterCard = (item) => {
       badge.appendChild(bellNode());
       badge.setAttribute("aria-label", "Subscribed");
       footrow.appendChild(badge);
-      const from = journalDest(iso);
-      let since;
-      if (from) {
-        since = document.createElement("a");
-        since.className = "internal-link lv-poster-since";
-        since.dataset.href = iso;
-        since.addEventListener("click", (evt) => {
-          evt.preventDefault();
-          app.workspace.openLinkText(iso, from, false);
-        });
-      } else {
-        since = document.createElement("span");
-        since.className = "lv-poster-since";
-      }
+      // The since date as a plain internal-link anchor, the same way the
+      // test note's button worked: hand Obsidian the date and let it resolve
+      // (or create-and-open) the note, whatever the vault holds. The source
+      // path is this note's, like every other wikilink.
+      const from = (() => {
+        try {
+          const current = dv.current();
+          return current && current.file ? current.file.path : "";
+        } catch (err) {
+          return "";
+        }
+      })();
+      const since = document.createElement("a");
+      since.className = "internal-link lv-poster-since";
+      since.dataset.href = iso;
+      since.addEventListener("click", (evt) => {
+        evt.preventDefault();
+        app.workspace.openLinkText(iso, from, false);
+      });
       since.appendChild(calendarNode());
       since.setAttribute("aria-label", "Subscribed since " + iso + where);
       footrow.appendChild(since);
