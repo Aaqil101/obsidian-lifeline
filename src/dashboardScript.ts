@@ -341,7 +341,18 @@ const playlistPages = (all) => {
 
 const listItems = (page) => toArr(page.file?.lists ?? page.lists);
 
-const itemDate = (item) => String(item?.date?.path ?? item?.date ?? "");
+// The playlist date field arrives three ways: a wikilink (bullet dates were
+// written unconditionally as [[YYYY-MM-DD]] once), a bare ISO string (the
+// journal rule prints plain), and the Luxon DateTime Dataview parses out of
+// that bare string, whose String() is the long offset form
+// (2026-10-22T00:00:00.000+05:30). Pull the yyyy-MM-dd out of whatever it
+// is: both the >= since check and the Newest column want the day, and
+// lexicographic order works once the value has that shape.
+const itemDate = (item) => {
+  const raw = String(item?.date?.path ?? item?.date ?? "");
+  const found = /(\\d{4}-\\d{2}-\\d{2})/.exec(raw);
+  return found ? found[1] : raw;
+};
 
 // Inline-field values can be Dataview links ([Title](url) or [[Note]]); render
 // them as real anchors, everything else as plain text.
