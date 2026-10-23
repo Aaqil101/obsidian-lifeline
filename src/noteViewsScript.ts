@@ -1032,7 +1032,7 @@ export function renderNoteViewScript(kind: NoteViewKind, stylesFolder: string): 
  *
  * The note invokes this file once:
  *   dv.view("98 - Organize/Scripts/lifeline-${kind}", { layout: "${kind === 'channels' ? 'chips' : 'cards'}"${kind === 'channels' ? ', fields: {...}' : ''} })
- * Layouts: ${kind === 'channels' ? 'poster, chips, cards, table' : 'chips, cards, table'}. Every layout reads the calling
+ * Layouts: ${kind === 'channels' ? 'poster, chips, table' : 'chips, cards, table'}. Every layout reads the calling
  * note's own list entries (dv.current().file.lists), so the view mirrors the
  * inline-field entries below it. Regenerated on every sync while "Views in
  * notes" is on; hand edits are overwritten.
@@ -1526,7 +1526,7 @@ ${kind === 'channels' ? NOTE_VIEWS_POSTER_JS : ""}
 // ---------------------------------------------------------------------------
 
 const KNOWN_LAYOUTS = ${JSON.stringify(
-      kind === 'channels' ? ['table', 'mixed', 'chips', 'cards', 'poster'] : ['table', 'mixed', 'chips', 'cards'],
+      kind === 'channels' ? ['table', 'chips', 'poster'] : ['table', 'chips', 'cards'],
     )};
 // Which note shape this file serves; baked per script ("channels" in
 // lifeline-channels.js, "playlist" in the other two) rather than passed in.
@@ -1602,19 +1602,21 @@ const STASH = (() => {
 })();
 const viewKey = String(dv.currentFilePath || "");
 
-const baked = String(input.layout == null ? "mixed" : input.layout);
+const DEFAULT_LAYOUT = ${JSON.stringify(kind === 'channels' ? 'chips' : 'cards')};
+const baked = String(input.layout == null ? DEFAULT_LAYOUT : input.layout);
 const state = {
-  layout: liveLayout() || (KNOWN_LAYOUTS.indexOf(baked) >= 0 ? baked : "mixed"),
+  layout: liveLayout() || (KNOWN_LAYOUTS.indexOf(baked) >= 0 ? baked : DEFAULT_LAYOUT),
   query: "",
   scope: "all",
 };
 
-// "mixed" is per section: chips suit the flat alphabetical channel list,
-// cards suit ordered video lists. A poster value can only exist in the
-// channels script (the other kinds never offer or persist it), but the guard
-// keeps a stray stored value from reaching posterCard anyway.
+// Values outside this script's own list (a layout a kind no longer offers, a
+// value an old note baked in) already fell back to the default above, so
+// what reaches the branches below is always renderable. One extra guard: a
+// poster value can only exist in the channels script (the other kinds never
+// offer or persist it), and the check keeps a stray stored value from
+// reaching posterCard anyway.
 const resolveLayout = (requested) => {
-  if (requested === "mixed") return section === "channels" ? "chips" : "cards";
   if (requested === "poster" && section !== "channels") return "cards";
   return requested;
 };
@@ -1691,13 +1693,14 @@ const layoutSelect = document.createElement("select");
 layoutSelect.className = "lv-select";
 layoutSelect.setAttribute("aria-label", "Layout");
 // The layout choices, per note type: the video lists keep chips, cards, and
-// table; Channels adds the poster card.
+// table; Channels offers the poster card and chips and table, the old cards
+// view having retired in the poster's favor (a stored cards value falls back
+// to chips).
 for (const option of ${JSON.stringify(
       kind === 'channels'
         ? [
             ['poster', 'Poster'],
             ['chips', 'Chips'],
-            ['cards', 'Cards'],
             ['table', 'Table'],
           ]
         : [
@@ -1789,7 +1792,7 @@ scope.addEventListener("change", () => {
 });
 
 layoutSelect.addEventListener("change", () => {
-  state.layout = KNOWN_LAYOUTS.indexOf(layoutSelect.value) >= 0 ? layoutSelect.value : "mixed";
+  state.layout = KNOWN_LAYOUTS.indexOf(layoutSelect.value) >= 0 ? layoutSelect.value : DEFAULT_LAYOUT;
   persistLayout(state.layout);
   // Stash the search for the re-render the refresh below triggers, then
   // apply locally (instant, and the fallback when that refresh does not

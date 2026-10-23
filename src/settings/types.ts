@@ -20,13 +20,11 @@ import {
 	type PlaylistSummary,
 } from '../types';
 
-/** Layout of one opt-in note view. `mixed` is legacy only: it was the value
- *  the single setting used to hold, meaning "chips for Channels.md, cards for
- *  playlist notes", a choice the three per-kind rows below now express
- *  directly. Still understood wherever an old note or an unmigrated data.json
- *  can supply it (the view script resolves it, onload expands it), but no
- *  dropdown offers it. */
-export type NoteLayout = 'table' | 'mixed' | 'cards' | 'chips' | 'poster';
+/** Layout of one opt-in note view. The old `mixed` value is gone entirely:
+ *  the migration lands it (and anything unrecognized) on the kinds' defaults,
+ *  and a stale value an old note can still bake in falls back the same way at
+ *  render time. No dropdown ever offered it. */
+export type NoteLayout = 'table' | 'cards' | 'chips' | 'poster';
 
 /** One choice in a layout dropdown, in menu order. Deliberately no Mixed:
  *  within one note type it is just a slower way of naming the other value. */
@@ -46,7 +44,6 @@ export const NOTE_LAYOUT_OPTIONS_BY_KIND: Record<
 	channels: [
 		{ value: 'poster', label: 'Poster' },
 		{ value: 'chips', label: 'Chips' },
-		{ value: 'cards', label: 'Cards' },
 		{ value: 'table', label: 'Table' },
 	],
 	playlists: NOTE_LAYOUT_OPTIONS,
@@ -76,7 +73,7 @@ export const LAYOUT_ROWS: Array<{ key: NoteViewKind; name: string; desc: string 
 	{
 		key: 'channels',
 		name: 'Channels layout',
-		desc: 'How the view above Channels.md renders. Poster draws a YouTube-style channel card (banner, subscribe badge, journal link); chips keep the long list compact; cards add the avatar and banner.',
+		desc: 'How the view above Channels.md renders. Poster draws a YouTube-style channel card (banner, subscribe badge, journal link); chips keep the long list compact.',
 	},
 	{
 		key: 'playlists',
@@ -135,7 +132,7 @@ export const FIELD_ROWS: FieldRow[] = [
 	{
 		key: 'banner',
 		name: 'Banner',
-		desc: 'Writes banner_url and banner, drawn as the top strip of a channel card or the poster card. Chips and the table never show a banner.',
+		desc: 'Writes banner_url and banner, drawn as the top strip of the poster card. Chips and the table never show a banner.',
 	},
 ];
 
