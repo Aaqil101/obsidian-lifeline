@@ -40,6 +40,17 @@ export function renderNotesGroup(host: SettingsHost, containerEl: HTMLElement): 
 		commit: async (path) => {
 			settings.outputFolder = path;
 			await plugin.saveSettings();
+			// The two video view scripts bake Channels.md's vault path so they
+			// can join channel avatars from it, so a moved output folder has to
+			// re-point them.
+			if (settings.noteViews) {
+				try {
+					await writeNoteViewScripts(plugin);
+				} catch (err) {
+					console.error('Lifeline: could not rewrite the note-view scripts for the new output folder', err);
+					new Notice('Could not write the view scripts.');
+				}
+			}
 		},
 	});
 
@@ -105,8 +116,8 @@ export function renderNotesGroup(host: SettingsHost, containerEl: HTMLElement): 
 	// the next re-render of an open note picks the new value up with no sync
 	// and no regenerated script. The note's baked layout is only a fallback.
 	for (const row of LAYOUT_ROWS) {
-		// Per-kind choice lists: the poster card is a channel shape, so only
-		// the Channels row offers it.
+		// Every kind offers the same three layouts; the lists stay per kind so
+		// the value written is always one this kind's script can render.
 		const options = NOTE_LAYOUT_OPTIONS_BY_KIND[row.key];
 		new Setting(card)
 			.setName(row.name)
