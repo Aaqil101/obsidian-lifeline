@@ -16,6 +16,7 @@ import {
 	DEFAULT_SETTINGS,
 	LifelineSettingTab,
 	expandLegacyLayout,
+	normalizeStoredLayouts,
 	type LifelineSettings,
 } from './settings';
 import { createDefaultState, type SyncRunResult, type SyncState } from './types';
@@ -41,11 +42,11 @@ export default class LifelinePlugin extends Plugin {
 		}
 		if (legacy) delete legacy.noteTables;
 		// One `noteLayout` for all three notes became one per note type, so the
-		// old value is expanded rather than dropped. An existing choice maps to
-		// what it resolved to before (mixed: chips for channels, cards for the
-		// video lists), which leaves every note looking the same after an
-		// upgrade. The stale key is purged here rather than waiting for some
-		// later settings change to happen to write it out.
+		// old value is expanded rather than dropped. Any value the dropdowns no
+		// longer offer (mixed, cards, anything unrecognized) expands to the
+		// defaults, which are poster for every kind, so the stale key never
+		// reaches a renderer. The key is purged here rather than waiting for
+		// some later settings change to happen to write it out.
 		const staleLayout = loaded as { noteLayout?: unknown } | null;
 		const hadStaleLayout = staleLayout?.noteLayout !== undefined;
 		const expandedLayout = hadStaleLayout ? expandLegacyLayout(staleLayout?.noteLayout) : null;
@@ -59,6 +60,13 @@ export default class LifelinePlugin extends Plugin {
 		const emptyJournal = loaded?.journalFolder === '';
 		if (emptyJournal && loaded) loaded.journalFolder = DEFAULT_JOURNAL_FOLDER;
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
+		// The retired cards layout is the poster card's forerunner, so a stored
+		// `cards` is rewritten to poster once here instead of only at render
+		// time: the settings rows and the generated scripts then never see a
+		// value no dropdown offers. Null means every stored value was already
+		// valid, so an ordinary startup still writes nothing.
+		const normalizedLayouts = normalizeStoredLayouts(this.settings.noteLayouts);
+		if (normalizedLayouts) this.settings.noteLayouts = normalizedLayouts;
 		// Per-key merge so field toggles added later still get their defaults.
 		this.settings.channelsFields = {
 			...DEFAULT_SETTINGS.channelsFields,
@@ -68,11 +76,11 @@ export default class LifelinePlugin extends Plugin {
 			...DEFAULT_SETTINGS.dashboardSections,
 			...(loaded?.dashboardSections ?? {}),
 		};
-		// Persist both renames once, and only when a legacy key was actually
-		// found. Startup stays read-only on every other load, and the stale
-		// noteTables and noteLayout keys are purged from data.json instead of
-		// waiting for some later settings change to happen to write them out.
-		if (hadLegacyTables || hadStaleLayout || emptyJournal) await this.saveSettings();
+		// Persist the migrations once, and only when a legacy or retired key was
+		// actually found. Startup stays read-only on every other load, and the
+		// stale noteTables and noteLayout keys are purged from data.json instead
+		// of waiting for some later settings change to happen to write them out.
+		if (hadLegacyTables || hadStaleLayout || emptyJournal || normalizedLayouts) await this.saveSettings();
 		this.state = await this.loadState();
 		this.auth = new AuthManager(this);
 

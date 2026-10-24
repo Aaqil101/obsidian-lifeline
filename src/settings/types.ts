@@ -20,32 +20,31 @@ import {
 	type PlaylistSummary,
 } from '../types';
 
-/** Layout of one opt-in note view. The old `mixed` value is gone entirely:
- *  the migration lands it (and anything unrecognized) on the kinds' defaults,
- *  and a stale value an old note can still bake in falls back the same way at
- *  render time. No dropdown ever offered it. */
-export type NoteLayout = 'table' | 'cards' | 'chips' | 'poster';
+/** Layout of one opt-in note view. The old `mixed` value is gone entirely,
+ *  and so is `cards`: the poster card superseded it on every note type. The
+ *  migration lands `cards`, `mixed`, and anything unrecognized on poster, and
+ *  a stale value an old note can still bake in falls back the same way at
+ *  render time. */
+export type NoteLayout = 'table' | 'chips' | 'poster';
 
-/** One choice in a layout dropdown, in menu order. Deliberately no Mixed:
- *  within one note type it is just a slower way of naming the other value. */
+/** One choice in a layout dropdown, in menu order (the same order the
+ *  segmented control in the note shows). Deliberately no Mixed: within one
+ *  note type it is just a slower way of naming the other value. */
 export const NOTE_LAYOUT_OPTIONS: Array<{ value: NoteLayout; label: string }> = [
+	{ value: 'poster', label: 'Poster' },
 	{ value: 'chips', label: 'Chips' },
-	{ value: 'cards', label: 'Cards' },
 	{ value: 'table', label: 'Table' },
 ];
 
-/** The same dropdown per note type: the poster card is a channel shape
- *  (banner, subscribe badge, journal link), so only the Channels row offers
- *  it; the video lists stay on chips, cards, and table. */
+/** The same dropdown per note type. Every kind offers the same three layouts;
+ *  the key stays per kind because the value itself is per kind, and the
+ *  Channels poster is a channel shape (banner backdrop, avatar, counts) while
+ *  the video poster is a thumbnail card. */
 export const NOTE_LAYOUT_OPTIONS_BY_KIND: Record<
 	NoteViewKind,
 	Array<{ value: NoteLayout; label: string }>
 > = {
-	channels: [
-		{ value: 'poster', label: 'Poster' },
-		{ value: 'chips', label: 'Chips' },
-		{ value: 'table', label: 'Table' },
-	],
+	channels: NOTE_LAYOUT_OPTIONS,
 	playlists: NOTE_LAYOUT_OPTIONS,
 	watchlater: NOTE_LAYOUT_OPTIONS,
 };
@@ -53,16 +52,16 @@ export const NOTE_LAYOUT_OPTIONS_BY_KIND: Record<
 /** Layout of each note type's view, one row per type in the Notes group.
  *  Split per type because the notes are read differently: a long Watch Later
  *  queue scans better as a dense table while a curated playlist shows off
- *  its thumbnail as cards, and one shared row could never say that. */
+ *  its thumbnail as posters, and one shared row could never say that. */
 export type NoteLayouts = Record<NoteViewKind, NoteLayout>;
 
-/** Defaults: chips for the flat channel list, cards for the video lists,
- *  which is exactly what the retired `mixed` resolved to, so an upgrade
- *  leaves every note looking the same. */
+/** Defaults: the poster card for every kind, which is what the retired cards
+ *  layout resolved to. The migration rewrites an existing `cards`, so an
+ *  upgrade changes nothing on screen either. */
 export const DEFAULT_NOTE_LAYOUTS: NoteLayouts = {
-	channels: 'chips',
-	playlists: 'cards',
-	watchlater: 'cards',
+	channels: 'poster',
+	playlists: 'poster',
+	watchlater: 'poster',
 };
 
 /** The three layout rows, in render order and in the order the notes appear
@@ -73,12 +72,12 @@ export const LAYOUT_ROWS: Array<{ key: NoteViewKind; name: string; desc: string 
 	{
 		key: 'channels',
 		name: 'Channels layout',
-		desc: 'How the view above Channels.md renders. Poster draws a YouTube-style channel card (banner, subscribe badge, journal link); chips keep the long list compact.',
+		desc: 'How the view above Channels.md renders. Poster draws an Ambient card over the channel banner; chips and table fit more channels on screen.',
 	},
 	{
 		key: 'playlists',
 		name: 'Playlists layout',
-		desc: 'How the view above every playlist note renders. Cards lead with the video thumbnail; table fits more rows on screen.',
+		desc: 'How the view above every playlist note renders. Poster leads with the video thumbnail; chips and table fit more rows on screen.',
 	},
 	{
 		key: 'watchlater',
@@ -89,20 +88,45 @@ export const LAYOUT_ROWS: Array<{ key: NoteViewKind; name: string; desc: string 
 
 /**
  * Expand the pre-split `noteLayout` key, one layout for all three notes, into
- * the per-kind `noteLayouts` object. `mixed` expands to what it used to resolve
- * to at view time, so an upgrade leaves every note looking the same. Returns
- * null when there is no legacy key to migrate, so the caller can leave
- * data.json untouched on every ordinary load.
+ * the per-kind `noteLayouts` object. `mixed`, `cards`, and anything else the
+ * dropdowns no longer offer expand to the defaults, which are poster for every
+ * kind. Returns null when there is no legacy key to migrate, so the caller can
+ * leave data.json untouched on every ordinary load.
  */
 export function expandLegacyLayout(legacy: unknown): NoteLayouts | null {
 	if (typeof legacy !== 'string') return null;
-	// Anything that is not one of the three concrete layouts lands on the
-	// defaults: that covers "mixed", which was chips for Channels.md and cards
-	// for the video lists, and any unrecognized value, which used to fall back
-	// to it as well. Either way the migrated object never carries a value no
-	// dropdown offers any more.
-	if (legacy !== 'chips' && legacy !== 'cards' && legacy !== 'table') return { ...DEFAULT_NOTE_LAYOUTS };
-	return { channels: legacy, playlists: legacy, watchlater: legacy };
+	if (legacy === 'chips' || legacy === 'table' || legacy === 'poster') {
+		return { channels: legacy, playlists: legacy, watchlater: legacy };
+	}
+	return { ...DEFAULT_NOTE_LAYOUTS };
+}
+
+const LAYOUT_KINDS: NoteViewKind[] = ['channels', 'playlists', 'watchlater'];
+
+/**
+ * Bring a stored `noteLayouts` object up to date: `cards` becomes poster, a
+ * missing or unrecognized value becomes that kind's default, and a value that
+ * is already valid is kept. Returns the corrected object, or null when the
+ * stored value was already exactly right, so the caller only writes data.json
+ * when something actually changed.
+ */
+export function normalizeStoredLayouts(stored: unknown): NoteLayouts | null {
+	const source =
+		stored != null && typeof stored === 'object' ? (stored as Record<string, unknown>) : null;
+	const next: NoteLayouts = { ...DEFAULT_NOTE_LAYOUTS };
+	let changed = source === null;
+	for (const kind of LAYOUT_KINDS) {
+		const value = source?.[kind];
+		const layout: NoteLayout =
+			value === 'cards'
+				? 'poster'
+				: value === 'poster' || value === 'chips' || value === 'table'
+					? value
+					: DEFAULT_NOTE_LAYOUTS[kind];
+		if (layout !== value) changed = true;
+		next[kind] = layout;
+	}
+	return changed ? next : null;
 }
 
 /** One row of the Channels.md fields checklist, in render order. */

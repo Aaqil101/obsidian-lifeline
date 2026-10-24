@@ -24,6 +24,7 @@ export {
 	DEFAULT_JOURNAL_FOLDER,
 	DEFAULT_NOTE_LAYOUTS,
 	expandLegacyLayout,
+	normalizeStoredLayouts,
 	type LifelineSettings,
 	type NoteLayout,
 	type NoteLayouts,
