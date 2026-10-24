@@ -87,7 +87,10 @@ Whichever route you use, imported IDs land in `data.json`, appear on the same se
 └── lifeline-watchlater.js # generated DataviewJS that draws the Watch Later.md view (opt-in)
 
 98 - Organize/Styles/    # default Styles folder (configurable in settings)
-└── lifeline-views.css     # generated stylesheet read by the note views (opt-in)
+├── lifeline-channels.css  # generated stylesheet read by the Channels.md view (opt-in)
+├── lifeline-playlists.css # generated stylesheet read by the playlist-note views (opt-in)
+├── lifeline-watchlater.css # generated stylesheet read by the Watch Later.md view (opt-in)
+└── lifeline-dashboard.css  # generated stylesheet read by Dashboard.md (opt-in)
 
 .obsidian/plugins/lifeline/
 └── sync-log.json        # the last 200 sync runs (opened from the status bar)
@@ -126,26 +129,26 @@ Turning the toggle on requires the community [Dataview](https://github.com/black
 
 Each view can render in three layouts, and you pick one per note type under **Notes** (three dropdowns, right under the **Views in notes** toggle: **Channels layout**, **Playlists layout**, and **Watch Later layout**):
 
-- **Chips**: one compact row per entry with the title and a muted meta line, plus the avatar on the left when **Channel avatars and banners** (or **Video thumbnails**) is on.
-- **Cards** (default): a bordered card per entry with the accent on the left edge. Channel cards put the banner across the top (when the channel has one) with the avatar as a round badge half over its lower-left edge, the way a channel header sits on YouTube; a channel with no banner simply leads the card with the avatar, so nothing is ever force-cropped. Playlist and watch-later cards put the video thumbnail across the top. Labeled rows sit underneath.
-- **Table**: the original grid, best when you want to scan several columns at once.
+- **Poster** (default): the card grid. On Channels.md each card is *Ambient*: the channel banner as a blurred backdrop, the avatar and name centred over it, and the subscriber, video, and view counts as small glass chips. On playlist notes and Watch Later.md each card is *Cinema*: a 16:9 thumbnail with the date in a corner pill, the title and channel over a gradient at its foot, and a play button on hover. A video with no thumbnail keeps the frame and shows the title's first letter instead of an empty box.
+- **Chips**: one compact row per entry. On Channels.md each row is *Split*: the avatar and name on the left, and a tinted pane on the right holding the counts and `subscribed since 2024-05-06`. On the video lists each row is a *Ticket*: the thumbnail and a two-line title, the channel with the avatar it carries in Channels.md underneath, and the date on a tear-off stub.
+- **Table**: the dense grid. On Channels.md each row leads with a *Cover* crop (the banner, softly blurred, with the avatar over it), the handle and channel details under the name, and a Tracked column holding the subscribe, first seen, and last seen dates. On the video lists it is a *Ledger*: thumbnail and title, channel, and date added.
 
-Channels default to **Chips**, and playlists and Watch Later default to **Cards**. The three are separate on purpose: a long Watch Later queue usually reads best as a **Table** while a curated playlist shows off its thumbnails as **Cards**, and one shared dropdown could never say that. (Older versions had a single **Mixed** option standing in for this; your existing choice is carried over automatically.)
+All three layouts are available on every note type, and **Poster** is the default for all three. The old **Cards** layout is gone: **Poster** is its successor, so an existing Cards choice (or the even older **Mixed**) becomes Poster automatically at the next load.
 
-Whatever the layout, the Channels.md columns and card rows follow your **Channels.md fields** checkboxes, so turning a field off removes it everywhere. To keep things narrow, dates render as `YYYY-MM-DD`, the channel ID shows a short prefix (hover for the full 24-character value), and Subscribers/Videos/Views render YouTube-style (`4.67K`, `109M`; hover for the full value, select it to flip between short and full).
+Whatever the layout, the Channels.md fields follow your **Channels.md fields** checkboxes, so turning a field off removes it everywhere. Dates render as `YYYY-MM-DD`, the Cover rows table shortens the channel ID to a prefix (hover for the full 24-character value), and Subscribers/Videos/Views render YouTube-style (`4.67K`, `109M`; hover for the full value). When a date in the note is a `[[2026-10-20]]` wiki link to your journal, the same date in the view is a link too: the Cinema pill, the Ticket stub, the Ledger Added column, the Split `subscribed since` date, and the Cover rows Tracked dates all open that note, with the usual modifier-click and hover preview. A plain date in the note stays plain text.
 
-Every view opens with a toolbar:
+Every view opens with a glass pill toolbar:
 
-- A **search box** that filters the entries as you type (search covers the name or title, handle, ID, country, status, channel, or date, whichever you pick in the box beside it).
-- A **Layout** select that switches between Chips, Cards, and Table immediately, with no sync needed. The choice is saved as that note type's default, the same slot the settings dropdowns write to, so every note of that type follows it, including any other view already open. It only changes the note type you are looking at: switching in a playlist note leaves Channels.md alone.
-- A **Refresh** button that re-reads the note's bullets, for when you edited them by hand.
-- A count line, for example `Showing 60 of 412 channels`, or `Found 3 of 412 channels` while searching.
+- A **search pill** that filters the entries as you type, with the result count inside its right edge: it reads `60 / 76` while you work and expands to `Showing 60 of 76 channels` while you point at it. Search covers the name or title, handle, ID, country, status, channel, or date, whichever you pick in the box beside it, and the placeholder names the field being searched.
+- A **segmented layout control** (Poster, Chips, Table) that switches the view immediately, with no sync needed. The choice is saved as that note type's default, the same slot the settings dropdowns write to, so every note of that type follows it, including any other view already open. It only changes the note type you are looking at: switching in a playlist note leaves Channels.md alone.
+- An icon-only **Refresh** button that re-reads the note's bullets, for when you edited them by hand.
+- The count, for example `Showing 60 of 412 channels`, or `Found 3 of 412 channels` while searching.
 
-Chips and cards paint the first 60 entries when the note opens and put the rest behind a **Show more** button, so a 900-entry Watch Later does not build 900 nodes before you can read it.
+Poster and chips paint the first 60 entries when the note opens and put the rest behind a **Show more** button, so a 900-entry Watch Later does not build 900 nodes before you can read it. Table paints every match at once.
 
 The view reads the note's own list entries (`dv.current().file.lists`), so it always matches the bullets directly below it. The bullets stay: the view is purely additive, and your `file.lists` Dataview queries are unaffected. Turning the toggle on requires the community [Dataview](https://github.com/blacksmithgu/obsidian-dataview) plugin (Lifeline checks and tells you to install it if it's missing); the scripts are written immediately, and the notes pick up the view on the next sync. If Dataview is missing or the toggle is off, the notes carry no `dataviewjs` block at all. Changing **Script folder** moves these scripts alongside the dashboard one, and the old copies are cleaned up. Zero API quota cost.
 
-The styling lives in its own file, `lifeline-views.css`, written to the **Styles folder** (default `98 - Organize/Styles`, changeable under **Notes**, the same idea as quotebook.css for the quotebook script). Each script reads that file when it renders, so restyling the views is a matter of editing the CSS, and moving the folder moves the file with it. The file is regenerated on every sync while the views are on, so hand edits to it are overwritten; if it is missing, the views still work, just unstyled. No network request is involved: the CSS is read from your vault.
+The styling lives in one file per note type, `lifeline-channels.css`, `lifeline-playlists.css`, and `lifeline-watchlater.css`, written to the **Styles folder** (default `98 - Organize/Styles`, changeable under **Notes**, the same idea as quotebook.css for the quotebook script). Each script reads its own file when it renders, so restyling one kind of view does not touch the others, and moving the folder moves all three files with it. The files are regenerated on every sync while the views are on, so hand edits to them are overwritten; if one is missing, that view still works, just unstyled. No network request is involved: the CSS is read from your vault.
 
 ### Images in notes
 
@@ -236,7 +239,7 @@ npm run lint     # eslint (obsidianmd plugin rules)
 npm run deploy   # build, then copy artifacts into <GITHUB_DIR>/Obsidian/Zettelkasten/.obsidian/plugins/lifeline (set GITHUB_DIR to your GitHub root)
 ```
 
-Source layout: `src/main.ts` (lifecycle only) delegates to `auth.ts` (OAuth loopback), `youtubeApi.ts` (quota-aware client), `sync.ts` (orchestration + state diffing + opt-in thumbnail downloads), `markdown.ts` (renderers, the image fields they append, and the folder path helpers), `dashboard.ts` (Dashboard.md renderer + Dataview capability check), `dashboardScript.ts` (generator for `lifeline-dashboard.js` + script-folder helpers), `noteViewsScript.ts` (generators for the three note-view scripts, `lifeline-channels.js`, `lifeline-playlists.js`, and `lifeline-watchlater.js`, plus the `lifeline-views.css` stylesheet and its styles-folder helpers), `collector.ts`/`playlistIds.ts`/`webviewCompat.ts` (saved-playlist ID collection), and `settings/` (settings tab: `index.ts` routes and holds the five landing groups, each group and sub-page has its own file, `types.ts` carries the settings shape, `ui.ts` the shared row builders, and `folderPicker.ts` the typeahead-plus-browse folder rows). Sync state persists in `state.json` next to `data.json`; the sync log lives beside them in the plugin folder. Neither holds secrets.
+Source layout: `src/main.ts` (lifecycle only) delegates to `auth.ts` (OAuth loopback), `youtubeApi.ts` (quota-aware client), `sync.ts` (orchestration + state diffing + opt-in thumbnail downloads), `markdown.ts` (renderers, the image fields they append, and the folder path helpers), `dashboard.ts` (Dashboard.md renderer + Dataview capability check), `dashboardScript.ts` (generator for `lifeline-dashboard.js` + script-folder helpers), `noteViewsScript.ts` (generators for the three note-view scripts, `lifeline-channels.js`, `lifeline-playlists.js`, and `lifeline-watchlater.js`, plus the three per-kind stylesheets and their styles-folder helpers), `collector.ts`/`playlistIds.ts`/`webviewCompat.ts` (saved-playlist ID collection), and `settings/` (settings tab: `index.ts` routes and holds the five landing groups, each group and sub-page has its own file, `types.ts` carries the settings shape, `ui.ts` the shared row builders, and `folderPicker.ts` the typeahead-plus-browse folder rows). Sync state persists in `state.json` next to `data.json`; the sync log lives beside them in the plugin folder. Neither holds secrets.
 
 Progress is tracked in [GitHub issues](https://github.com/Aaqil101/obsidian-lifeline/issues): open issues are the roadmap, closed issues are what shipped.
 
