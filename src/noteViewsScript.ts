@@ -4,23 +4,25 @@
  * Later.md. One generated script per note type, so each note calls its own
  * file once:
  *
- *   dv.view("<scriptsFolder>/lifeline-channels", { layout: "chips", fields: {...} })
- *   dv.view("<scriptsFolder>/lifeline-playlists", { layout: "cards" })
- *   dv.view("<scriptsFolder>/lifeline-watchlater", { layout: "cards" })
+ *   dv.view("<scriptsFolder>/lifeline-channels", { layout: "poster", fields: {...} })
+ *   dv.view("<scriptsFolder>/lifeline-playlists", { layout: "poster" })
+ *   dv.view("<scriptsFolder>/lifeline-watchlater", { layout: "poster" })
  *
  * The section (channels or playlist) is baked into each script rather than
  * passed in, along with the note type, which is the key each view reads and
- * writes its layout under. Layouts: chips, cards, and table, plus the
- * YouTube-style poster card on Channels only. Every layout reads the calling
- * note's own list entries via dv.current().file.lists, so the view always
- * mirrors the bullets below it and needs no vault-wide query.
+ * writes its layout under. Layouts: poster, chips, and table on every kind of
+ * note. The old cards layout is gone; Channels draws Ambient as its poster
+ * and Split as its chips, while the video lists draw Cinema and Ticket, and
+ * each kind has its own table (Cover rows and Ledger). Every layout reads the
+ * calling note's own list entries via dv.current().file.lists, so the view
+ * always mirrors the bullets below it and needs no vault-wide query.
  *
- * Each view opens with a toolbar in the spirit of the quotebook DataviewJS
- * script: one bordered container holding the search row (search box, a
- * "search in" scope select, a Layout select, a Refresh button) with the
- * result count in a bar beneath it. The Layout select switches the rendering
- * immediately and writes the choice back into the plugin's settings under
- * this note type's own key, the same slot the three settings rows edit, then
+ * Each view opens with a glass pill toolbar: the search box with the result
+ * count inside it, a "search in" scope select, a segmented Layout control,
+ * and an icon-only Refresh button. The segmented control drives a hidden
+ * native select, which stays the single value source, switches the rendering
+ * immediately, writes the choice back into the plugin's settings under this
+ * note type's own key (the same slot the three settings rows edit), and then
  * refreshes every open view the way Dataview's own force-refresh command
  * does, so no sync is needed: the script prefers the live setting over the
  * layout baked into the note, and the baked value is only a fallback for
@@ -37,12 +39,13 @@
  * The view chrome lives in per-kind vault files: lifeline-channels.css,
  * lifeline-playlists.css, and lifeline-watchlater.css in the configured
  * styles folder, exactly like quotebook and its quotebook.css. Sync writes
- * one file per kind (the channels sheet additionally carries the poster
- * chrome), and each generated script caches its own file's path and reads it
- * at view time with app.vault.cachedRead, injecting it once under its own
- * style id, so the CSS can be themed, overridden, or updated without
- * regenerating the scripts. With the file missing the view still works, just
- * unstyled. The superseded single lifeline-views.css is cleaned up by sync.
+ * one file per kind, each sheet carrying that kind's three designs plus the
+ * shared glass toolbar, and each generated script caches its own file's path
+ * and reads it at view time with app.vault.cachedRead, injecting it once
+ * under its own style id, so the CSS can be themed, overridden, or updated
+ * without regenerating the scripts. With the file missing the view still
+ * works, just unstyled. The superseded single lifeline-views.css is cleaned
+ * up by sync.
  *
  * The scripts make no network request of their own. They read the image
  * fields the sync appended to the bullet (thumbnail/avatar for a local vault
@@ -157,7 +160,7 @@ export function dashboardStylesheetPath(folder: string): string {
 	return `${normalizeStylesFolder(folder)}/${DASHBOARD_STYLESHEET_FILE}`;
 }
 
-/** How many entries a chips or cards view paints before it needs a click. */
+/** How many entries a chips or poster view paints before it needs a click. */
 const PAGE_SIZE = 60;
 
 /** Debounce for the toolbar search box, matching the quotebook script. */
@@ -165,52 +168,181 @@ const SEARCH_DEBOUNCE_MS = 250;
 
 /**
  * View chrome shared by every note view, scoped under the `.lifeline-views`
- * class that the script adds to its container: the toolbar (search, scope,
- * layout select, refresh) and the count bar. Table rules preserve Dataview's
- * default table and just frame it; chips and cards are drawn from scratch
- * with theme variables only, so every accent follows the user's theme.
+ * class that the script adds to its container: the glass toolbar (search pill
+ * with the count inside it, scope select, segmented layout control, icon-only
+ * refresh), plus the pieces every design shares (chips row, poster card,
+ * thumbnail, Show more button).
  *
- * The per-kind sheets (NOTE_VIEWS_CSS_BY_KIND) assemble this plus the pieces
- * a kind can select; sync writes one file per kind into the styles folder and
- * the generated script reads that file at view time and injects it, so
- * restyling never needs a code change here.
+ * The per-kind sheets (NOTE_VIEWS_CSS_BY_KIND) assemble this plus the three
+ * designs a kind can select; sync writes one file per kind into the styles
+ * folder and the generated script reads that file at view time and injects
+ * it, so restyling never needs a code change here.
  */
-/**
- * The list layouts the layout select offers on every kind of note: Dataview's
- * framed table, chips, and the thumbnail cards.
- */
-const NOTE_VIEWS_CSS_LISTS = `
-.lifeline-views table.dataview.table-view-table {
+const NOTE_VIEWS_CSS_SHARED = `
+.lifeline-views .lv-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 2px 0 12px;
+    padding: 0;
+}
+.lifeline-views .lv-toolbar-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+/* The search pill and its count are one object: the input owns the shape,
+   the stats sit inside its right edge. */
+.lifeline-views .lv-glass-wrap {
+    position: relative;
+    flex: 1 1 300px;
+    min-width: 220px;
+}
+.lifeline-views .lv-search {
+    width: 100%;
+    flex: none;
+    min-height: 36px;
+    padding: 0 96px 0 38px;
     border: 1px solid var(--background-modifier-border);
-    border-radius: var(--radius-m, 8px);
-    overflow: hidden;
-    margin: 4px 0 8px;
+    border-radius: 999px;
+    background-color: var(--background-primary);
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round'%3e%3ccircle cx='11' cy='11' r='7'/%3e%3cpath d='m20 20-3.5-3.5'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: 16px center;
+    background-size: 15px;
+    color: var(--text-normal);
+    font-size: 13px;
 }
-.lifeline-views table.dataview.table-view-table thead > tr > th {
-    background: var(--background-secondary);
-    color: var(--text-muted);
-    font-weight: 600;
-    font-size: 0.85em;
-    text-align: left;
-    border-bottom: 1px solid var(--background-modifier-border);
+.lifeline-views .lv-search:focus {
+    outline: none;
+    border-color: var(--background-modifier-border-hover, var(--text-muted));
+    box-shadow: none;
 }
-.lifeline-views table.dataview.table-view-table tbody > tr > td {
-    border-bottom: 1px solid var(--background-modifier-border);
+.lifeline-views .lv-search::placeholder {
+    color: var(--text-faint);
+    font-style: normal;
 }
-.lifeline-views table.dataview.table-view-table tbody > tr:last-child > td {
-    border-bottom: none;
-}
-.lifeline-views table.dataview.table-view-table tbody > tr:hover > td {
+.lifeline-views .lv-stats {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 3px 9px;
+    border-radius: 999px;
     background: var(--background-modifier-hover);
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    cursor: help;
 }
-.lifeline-views .lv-chips,
-.lifeline-views .lv-cards {
-    margin: 8px 0 14px;
+.lifeline-views .lv-stats:empty {
+    display: none;
 }
+.lifeline-views .lv-select {
+    min-height: 36px;
+    padding: 0 14px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 999px;
+    background-color: var(--background-primary);
+    color: var(--text-muted);
+    font-size: 13px;
+    max-width: none;
+    box-shadow: none;
+}
+.lifeline-views .lv-select option {
+    background-color: var(--background-secondary);
+    color: var(--text-normal);
+}
+.lifeline-views .lv-select:focus,
+.lifeline-views .lv-select:hover {
+    outline: none;
+    box-shadow: none;
+    color: var(--text-normal);
+    border-color: var(--background-modifier-border-hover, var(--background-modifier-border));
+}
+/* Segmented layout control: three real buttons over the native select, which
+   stays in the DOM (hidden) as the single value source. */
+.lifeline-views .lv-seg {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    min-height: 36px;
+    padding: 3px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 999px;
+    background: var(--background-primary);
+}
+.lifeline-views .lv-seg-btn {
+    padding: 6px 14px;
+    border: none;
+    border-radius: 999px;
+    background: none;
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1.2;
+    white-space: nowrap;
+    cursor: pointer;
+    box-shadow: none;
+}
+.lifeline-views .lv-seg-btn:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+.lifeline-views .lv-seg-btn.on {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.lifeline-views .lv-refresh {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 999px;
+    background: var(--background-primary);
+    color: var(--text-muted);
+    cursor: pointer;
+    box-shadow: none;
+}
+.lifeline-views .lv-refresh:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+.lifeline-views .lv-refresh svg {
+    display: block;
+    width: 17px;
+    height: 17px;
+    fill: currentColor;
+}
+.lifeline-views .lv-empty {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 14px;
+}
+/* A date that is a wiki link opens its journal note from any layout. It keeps
+   the layout's own date look, with the underline reserved for hover, so the
+   only visual change is the pointer. */
+.lifeline-views a.internal-link {
+    text-decoration: none;
+    cursor: pointer;
+}
+.lifeline-views a.internal-link:hover {
+    text-decoration: underline;
+}
+/* Chips: the base row both chip designs start from. */
 .lifeline-views .lv-chips {
     display: flex;
     flex-direction: column;
     gap: 14px;
+    margin: 8px 0 14px;
 }
 .lifeline-views .lv-chip {
     display: flex;
@@ -225,34 +357,6 @@ const NOTE_VIEWS_CSS_LISTS = `
 .lifeline-views .lv-chip:hover {
     background: var(--background-modifier-hover);
 }
-.lifeline-views .lv-cards {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: 16px;
-}
-.lifeline-views .lv-card {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    border: 1px solid var(--background-modifier-border);
-    border-left: 3px solid var(--text-accent, var(--interactive-accent));
-    border-radius: var(--radius-s, 6px);
-    background: var(--background-secondary);
-    overflow: hidden;
-}
-.lifeline-views .lv-card:hover {
-    background: var(--background-modifier-hover);
-}
-.lifeline-views .lv-card-body {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 16px;
-}
-.lifeline-views .lv-card .lv-title {
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--background-modifier-border);
-}
 .lifeline-views .lv-thumb {
     flex: 0 0 auto;
     display: flex;
@@ -266,61 +370,11 @@ const NOTE_VIEWS_CSS_LISTS = `
     color: var(--text-muted);
     font-weight: 600;
 }
-.lifeline-views .lv-card .lv-thumb {
-    width: 100%;
-    height: 110px;
-    border-radius: 0;
-}
 .lifeline-views .lv-thumb img {
     display: block;
     width: 100%;
     height: 100%;
     object-fit: cover;
-}
-.lifeline-views .lv-banner {
-    position: relative;
-    width: 100%;
-    height: 110px;
-    background: var(--background-modifier-border);
-}
-.lifeline-views .lv-banner img {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-.lifeline-views .lv-avatar {
-    box-sizing: border-box;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 68px;
-    height: 68px;
-    border-radius: 50%;
-    overflow: hidden;
-    background: var(--background-modifier-border);
-    color: var(--text-muted);
-    font-weight: 600;
-}
-.lifeline-views .lv-avatar img {
-    display: block;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-/* Inside a strip the badge straddles the banner's lower-left edge, the way a
-   channel header sits on YouTube; the ring in the card's background color
-   separates it from the artwork behind it. */
-.lifeline-views .lv-banner .lv-avatar {
-    position: absolute;
-    left: 16px;
-    bottom: -24px;
-    border: 3px solid var(--background-secondary);
-    z-index: 1;
-}
-.lifeline-views .lv-card--banner .lv-card-body {
-    /* The badge's lower half hangs into the body, so the title clears it. */
-    padding-top: 20px;
 }
 .lifeline-views .lv-body {
     min-width: 0;
@@ -337,17 +391,8 @@ const NOTE_VIEWS_CSS_LISTS = `
     color: var(--text-muted);
     font-size: 0.85em;
 }
-.lifeline-views .lv-meta-row {
-    display: flex;
-    gap: 6px;
-    font-size: 0.85em;
-}
-.lifeline-views .lv-meta-label {
-    color: var(--text-muted);
-}
 .lifeline-views .lv-more {
     width: 100%;
-    /* The container gap already separates it from the last row. */
     margin-top: 0;
     padding: 10px 16px;
     cursor: pointer;
@@ -358,121 +403,14 @@ const NOTE_VIEWS_CSS_LISTS = `
     font-size: 14px;
     font-weight: 500;
 }
-.lifeline-views .lv-cards > .lv-more {
-    grid-column: 1 / -1;
-}
 .lifeline-views .lv-more:hover {
     background: var(--background-modifier-hover);
 }
-`;
-
-/**
- * View chrome shared by every note view, scoped under the `.lifeline-views`
- * class that the script adds to its container: the toolbar (search, scope,
- * layout select, refresh) and the count bar.
- */
-const NOTE_VIEWS_CSS_SHARED = `
-.lifeline-views .lv-toolbar {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    margin: 4px 0 16px;
-    padding: 20px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--radius-m, 8px);
-    background: var(--background-secondary);
+/* In a grid the Show more button takes a whole row rather than a cell. */
+.lifeline-views .lv-posters .lv-more {
+    grid-column: 1 / -1;
 }
-.lifeline-views .lv-toolbar-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-}
-.lifeline-views .lv-search {
-    flex: 1 1 300px;
-    min-width: 220px;
-    min-height: 44px;
-    padding: 0 16px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--radius-s, 6px);
-    background: var(--background-primary);
-    color: var(--text-normal);
-    font-size: 14px;
-}
-.lifeline-views .lv-search:focus {
-    outline: none;
-    border-color: var(--interactive-accent);
-    box-shadow: 0 0 0 2px
-        var(
-            --background-modifier-border-focus,
-            var(--background-modifier-border)
-        );
-}
-.lifeline-views .lv-search::placeholder {
-    color: var(--text-muted);
-    font-style: normal;
-}
-.lifeline-views .lv-select {
-    min-height: 44px;
-    padding: 0 12px;
-    line-height: normal;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: var(--radius-s, 6px);
-    background: var(--background-primary);
-    color: var(--text-normal);
-    font-size: 14px;
-    max-width: 190px;
-}
-.lifeline-views .lv-refresh {
-    padding: 12px 20px;
-    cursor: pointer;
-    border: none;
-    border-radius: var(--radius-s, 6px);
-    background: var(--interactive-accent);
-    color: var(--text-on-accent, var(--text-normal));
-    font-size: 14px;
-    font-weight: 500;
-    white-space: nowrap;
-}
-.lifeline-views .lv-refresh:hover {
-    background: var(--interactive-accent-hover, var(--interactive-hover));
-}
-.lifeline-views .lv-stats {
-    padding: 10px 16px;
-    border-radius: var(--radius-s, 6px);
-    background: var(--background-primary);
-    color: var(--text-accent, var(--interactive-accent));
-    font-size: 14px;
-    font-weight: 500;
-}
-.lifeline-views .lv-empty {
-    text-align: center;
-    color: var(--text-muted);
-    padding: 14px;
-}
-@media (max-width: 600px) {
-    .lifeline-views .lv-toolbar-row {
-        flex-direction: column;
-        align-items: stretch;
-    }
-    .lifeline-views .lv-search,
-    .lifeline-views .lv-select {
-        max-width: unset;
-        width: 100%;
-    }
-}
-`;
-
-/**
- * The poster layout, a Channels-only card drawn the way YouTube draws a
- * channel page: the banner fills the top with the identity strip (avatar,
- * name, handle) laid onto a gradient at its foot, stat tiles run under a
- * hairline, and a red subscribe badge plus a calendar button close the card.
- * The classes carry the lv-poster- prefix so they never meet the shipped
- * chips/cards chrome (lv-banner, lv-avatar, lv-card) even though the two
- * never render into the same container.
- */
-const NOTE_VIEWS_CSS_POSTER = `
+/* Poster: the card shell both poster designs share. */
 .lifeline-views .lv-posters {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
@@ -480,6 +418,7 @@ const NOTE_VIEWS_CSS_POSTER = `
     margin: 8px 0 16px;
 }
 .lifeline-views .lv-poster-card {
+    position: relative;
     display: flex;
     flex-direction: column;
     border: 1px solid var(--background-modifier-border);
@@ -502,49 +441,17 @@ const NOTE_VIEWS_CSS_POSTER = `
     height: 100%;
     object-fit: cover;
 }
-/* Identity strip: avatar circle, name, and handle laid onto a gradient at
-   the banner's foot, the way a channel page header reads on YouTube. */
-.lifeline-views .lv-poster-strip {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 1;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 18px 14px 10px;
-    background: linear-gradient(transparent, rgba(0, 0, 0, 0.82));
-}
-.lifeline-views .lv-poster-head {
-    position: relative;
-    z-index: 1;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin: 0 16px;
-}
-/* The avatar is its own circle: standalone size, its own ring, pulled over
-   the banner's lower edge like a channel badge. */
 .lifeline-views .lv-poster-avatar {
     box-sizing: border-box;
     flex: 0 0 auto;
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 76px;
-    height: 76px;
-    margin-top: -22px;
-    border: 4px solid var(--background-secondary);
     border-radius: 50%;
     overflow: hidden;
-    background: var(--background-modifier-border);
-    color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
     font-weight: 600;
-    z-index: 1;
-}
-.lifeline-views .lv-poster-card--bare .lv-poster-avatar {
-    margin-top: 0;
 }
 .lifeline-views .lv-poster-avatar img {
     display: block;
@@ -552,256 +459,834 @@ const NOTE_VIEWS_CSS_POSTER = `
     height: 100%;
     object-fit: cover;
 }
-/* Name and handle as a capsule beside the avatar circle, ending where the
-   text ends. Inside the banner strip the same classes strip their capsule
-   down and pick up the white-on-gradient colors instead. */
-.lifeline-views .lv-poster-id {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    min-width: 0;
-    max-width: 100%;
-    padding: 5px 12px 6px 10px;
-    border: 1px solid var(--background-modifier-border);
-    border-left: 3px solid var(--text-accent, var(--interactive-accent));
-    border-radius: 8px;
-    background: var(--background-secondary);
+@media (max-width: 700px) {
+    .lifeline-views .lv-glass-wrap {
+        flex-basis: 100%;
+    }
+    .lifeline-views .lv-glass-wrap .lv-search {
+        padding-right: 16px;
+    }
+    .lifeline-views .lv-glass-wrap .lv-stats {
+        display: none;
+    }
 }
-.lifeline-views .lv-poster-handle {
-    color: var(--text-muted);
-    font-size: 0.75em;
-    white-space: nowrap;
+`;
+
+/**
+ * Channels chips: Split. Identity on the left, a tinted pane on the right
+ * holding the counts and the subscribe date.
+ */
+const NOTE_VIEWS_CSS_CHANNELS_CHIPS = `
+.lifeline-views .lv-chip--split {
+    padding: 0;
+    gap: 0;
+    align-items: stretch;
+    flex-wrap: wrap;
     overflow: hidden;
-    text-overflow: ellipsis;
 }
-.lifeline-views .lv-poster-name {
-    display: block;
-    flex: 0 1 auto;
-    min-width: 0;
-    font-size: 1.05em;
-    font-weight: 700;
-    color: var(--text-normal);
-    text-decoration: none;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+.lifeline-views .lv-chip--split .lv-thumb {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
 }
-.lifeline-views .lv-poster-name:hover {
-    text-decoration: underline;
-}
-/* Everything under the head, full width now. */
-.lifeline-views .lv-poster-info {
-    min-width: 0;
-    padding: 12px 16px 16px;
-}
-/* Stat tiles: subscribers, videos, views, in one hairline-divided strip. */
-.lifeline-views .lv-poster-stats {
-    display: flex;
-    padding: 9px 0;
-    border-top: 1px solid var(--background-modifier-border);
-}
-.lifeline-views .lv-poster-stat {
-    flex: 1 1 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    min-width: 0;
-}
-.lifeline-views .lv-poster-stat + .lv-poster-stat {
-    border-left: 1px solid var(--background-modifier-border);
-}
-.lifeline-views .lv-poster-stat-num {
-    font-weight: 700;
-    font-size: 1.05em;
-}
-.lifeline-views .lv-poster-stat-label {
-    color: var(--text-muted);
-    font-size: 0.68em;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-/* The subscribed badge: YouTube red, bell in front, the subscribed-since
-   date on the calendar button beside it as a tooltip. */
-.lifeline-views .lv-poster-footrow {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-top: 10px;
-}
-.lifeline-views .lv-poster-sub-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    width: 50px;
-    height: 30px;
-    border-radius: 0;
-    background: linear-gradient(180deg, #d31212, #a80404);
-    color: #ffffff;
-    line-height: 1;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-    transition: filter 0.15s ease;
-    cursor: default;
-}
-.lifeline-views .lv-poster-sub-badge:hover {
-    filter: brightness(1.12);
-}
-.lifeline-views .lv-poster-since {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    width: 50px;
-    height: 30px;
-    border-radius: 0;
-    background: var(--background-secondary);
-    border: 1px solid var(--background-modifier-border);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-    color: var(--text-muted);
-    line-height: 1;
-    font-variant-numeric: tabular-nums;
-    letter-spacing: 0.03em;
-    transition: color 0.15s ease, border-color 0.15s ease,
-        background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
-}
-.lifeline-views .lv-poster-since svg {
-    flex: 0 0 auto;
-    display: block;
-}
-/* The calendar sits dim-white until hover, when it turns YouTube red. The
-   internal-link form answers the theme's own :hover styling, which would
-   otherwise win the color fight against a plain class:hover. */
-.lifeline-views a.lv-poster-since svg {
-    fill: rgba(255, 255, 255, 0.85);
-}
-.lifeline-views a.internal-link.lv-poster-since:hover {
-    color: #cc0000;
-    background: var(--interactive-hover);
-    border-color: rgba(255, 255, 255, 0.35);
-    transform: translateY(-1px);
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-}
-.lifeline-views a.lv-poster-since:hover svg {
-    fill: #cc0000;
-}
-/* The same button without a daily note behind it: plain text, no link. */
-.lifeline-views span.lv-poster-since svg {
-    fill: var(--text-faint);
-}
-.lifeline-views span.lv-poster-since:hover {
-    transform: none;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
-}
-/* The open-external arrow pinned to the banner's top right corner: bare
-   icon on a light-black scrim that reads on any artwork. */
-.lifeline-views .lv-poster-banner-link {
-    position: absolute;
-    top: 10px;
-    right: 12px;
-    z-index: 2;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 6px;
-    border-radius: 0;
-    background: rgba(0, 0, 0, 0.35);
-    color: #ffffff;
-    text-decoration: none;
-    filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.7));
-    transition: color 0.18s ease, background 0.18s ease, filter 0.18s ease,
-        transform 0.18s ease;
-}
-.lifeline-views .lv-poster-banner-link:hover {
-    color: #ff4d4d;
-    background: rgba(0, 0, 0, 0.55);
-    filter: drop-shadow(0 1px 5px rgba(204, 0, 0, 0.55))
-        drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6));
-    transform: translateY(-1px);
-}
-/* Poster with a banner: the head hides (the strip carries the identity) and
-   the strip's avatar drops to its badge size on the gradient. */
-.lifeline-views .lv-poster-card .lv-poster-head {
-    display: none;
-}
-.lifeline-views .lv-poster-strip .lv-poster-avatar {
-    width: 72px;
-    height: 72px;
-    margin: 0;
-    border-width: 3px;
-    transition: transform 0.18s ease, box-shadow 0.18s ease;
-}
-.lifeline-views .lv-poster-strip .lv-poster-avatar:hover {
-    transform: scale(1.06);
-    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.28);
-}
-.lifeline-views .lv-poster-strip .lv-poster-id {
-    flex: 0 1 auto;
-    min-width: 0;
-    background: none;
-    border: none;
-    padding: 0;
-    opacity: 0;
-    transform: translateX(-8px);
-    transition: opacity 0.22s ease, transform 0.22s ease;
-    pointer-events: none;
-}
-/* The name and handle hide themselves by default and show up when the
-   pointer rests on the avatar circle: they slide in from its right, and
-   the circle lifts a little as an invitation. */
-.lifeline-views .lv-poster-strip .lv-poster-avatar:hover + .lv-poster-id {
-    opacity: 1;
-    transform: none;
-}
-.lifeline-views .lv-poster-strip .lv-poster-name {
-    color: #ffffff;
-    font-size: 1.1em;
-}
-.lifeline-views .lv-poster-strip .lv-poster-handle {
-    color: rgba(255, 255, 255, 0.72);
-}
-/* Poster without a banner: fall back to a plain head, a smaller avatar, and
-   the capsule back on, so the card stays a channel identity either way. */
-.lifeline-views .lv-poster-card--bare .lv-poster-head {
+.lifeline-views .lv-chip--split .lv-chip-main {
+    flex: 1 1 220px;
     display: flex;
     align-items: center;
     gap: 12px;
-    margin: 12px 16px 0;
-}
-.lifeline-views .lv-poster-card--bare .lv-poster-avatar {
-    width: 56px;
-    height: 56px;
-    margin: 0;
-    border-width: 3px;
-}
-.lifeline-views .lv-poster-card--bare .lv-poster-id {
-    background: none;
-    border: none;
-    padding: 0;
     min-width: 0;
+    padding: 11px 16px;
+}
+.lifeline-views .lv-chip--split .lv-chip-pane {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    min-width: 0;
+    padding: 9px 14px;
+    border-left: 1px solid var(--background-modifier-border);
+    background: var(--background-secondary-alt, var(--background-modifier-hover));
+}
+.lifeline-views .lv-chip--split .lv-chip-stats {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+}
+.lifeline-views .lv-chip--split .lv-chip-stat {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.lifeline-views .lv-chip--split .lv-chip-stat-v {
+    font-weight: 700;
+    font-size: 0.86em;
+}
+.lifeline-views .lv-chip--split .lv-chip-stat-l {
+    color: var(--text-muted);
+    font-size: 0.6em;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+.lifeline-views .lv-chip--split .lv-chip-since {
+    color: var(--text-muted);
+    font-size: 0.68em;
+    font-variant-numeric: tabular-nums;
+}
+.lifeline-views .lv-chip--split .lv-chip-since .lv-chip-since-date {
+    color: var(--text-accent, var(--link-color));
+    font-weight: 600;
+}
+@media (max-width: 700px) {
+    .lifeline-views .lv-chip--split .lv-chip-pane {
+        flex: 1 1 100%;
+        border-left: none;
+        border-top: 1px solid var(--background-modifier-border);
+    }
+}
+`;
+
+/**
+ * Channels table: Cover rows. The banner leads each row as a small blurred
+ * crop with the avatar over it, the identity meta sits under the name, and
+ * the dates stack in a tracked column.
+ */
+const NOTE_VIEWS_CSS_CHANNELS_TABLE = `
+.lifeline-views .lv-cover {
+    display: flex;
+    flex-direction: column;
+    overflow-x: auto;
+}
+.lifeline-views .lv-cover-table {
+    width: 100%;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 12px;
+    border-collapse: separate;
+    border-spacing: 0;
+    overflow: hidden;
+    background: var(--background-secondary);
+    font-size: 0.88em;
+}
+.lifeline-views .lv-cover-table th {
+    padding: 8px 12px;
+    text-align: left;
+    color: var(--text-faint);
+    font-size: 0.66em;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    background: var(--background-secondary-alt, var(--background-modifier-hover));
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+.lifeline-views .lv-cover-table td {
+    padding: 9px 12px;
+    vertical-align: middle;
+}
+.lifeline-views .lv-cover-table th.lv-cover-num,
+.lifeline-views .lv-cover-table td.lv-cover-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.lifeline-views .lv-cover-table tbody tr + tr td {
+    border-top: 1px solid var(--background-modifier-border);
+}
+.lifeline-views .lv-cover-table tbody tr:hover td {
+    background: var(--background-modifier-hover);
+}
+.lifeline-views .lv-cover-who {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+.lifeline-views .lv-cover-art {
+    position: relative;
+    flex: 0 0 auto;
+    width: 124px;
+    height: 64px;
+    border-radius: 10px;
+    overflow: hidden;
+    background: linear-gradient(
+        135deg,
+        var(--background-modifier-border),
+        var(--background-secondary-alt, var(--background-secondary))
+    );
+}
+.lifeline-views .lv-cover-art > img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    /* Soft focus on the banner so the sharp avatar badge sits in front of it. */
+    filter: blur(2px) brightness(0.7) saturate(1.05);
+    transform: scale(1.06);
+    transition: transform 0.35s ease, filter 0.35s ease;
+}
+.lifeline-views .lv-cover-table tbody tr:hover .lv-cover-art > img {
+    filter: blur(1.2px) brightness(0.74) saturate(1.05);
+    transform: scale(1.12);
+}
+.lifeline-views .lv-cover-av {
+    position: absolute;
+    left: 10px;
+    bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border: 3px solid var(--background-secondary);
+    border-radius: 50%;
+    overflow: hidden;
+    background: var(--background-modifier-border);
+    color: var(--text-muted);
+    font-size: 1.2em;
+    font-weight: 700;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
+}
+.lifeline-views .lv-cover-av img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.lifeline-views .lv-cover-name {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.lifeline-views .lv-cover-name a {
+    color: var(--text-normal);
+    font-weight: 650;
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.lifeline-views .lv-cover-name a:hover {
+    color: var(--link-color, var(--text-accent));
+    text-decoration: underline;
+}
+.lifeline-views .lv-cover-handle {
+    color: var(--text-muted);
+    font-size: 0.78em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.lifeline-views .lv-cover-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    color: var(--text-muted);
+    font-size: 0.72em;
+}
+.lifeline-views .lv-cover-dot {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.4;
+}
+.lifeline-views .lv-cover-id {
+    color: var(--text-faint);
+    font-family: var(--font-monospace, monospace);
+    font-size: 1em;
+    white-space: nowrap;
+    cursor: help;
+}
+.lifeline-views .lv-cover-country {
+    display: inline-block;
+    padding: 1px 6px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 5px;
+    font-size: 0.95em;
+    letter-spacing: 0.06em;
+}
+.lifeline-views .lv-cover-status {
+    display: inline-flex;
+    align-items: center;
+    font-size: 1em;
+    white-space: nowrap;
+}
+.lifeline-views .lv-cover-table th.lv-cover-track-h,
+.lifeline-views .lv-cover-table td.lv-cover-track {
+    text-align: right;
+    white-space: nowrap;
+}
+.lifeline-views .lv-cover-track-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 7px;
+    line-height: 1.45;
+}
+.lifeline-views .lv-cover-track-l {
+    color: var(--text-faint);
+    font-size: 0.62em;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+}
+.lifeline-views .lv-cover-track-v {
+    color: var(--text-muted);
+    font-size: 0.76em;
+    font-variant-numeric: tabular-nums;
+}
+.lifeline-views .lv-cover-track-row:first-child .lv-cover-track-v {
+    color: var(--text-normal);
+}
+`;
+
+/**
+ * Channels poster: Ambient. The banner becomes a blurred backdrop behind a
+ * centred identity, with the counts as glass chips. No subscribe badge and no
+ * journal button: the date lives in the Split chips row and the Cover rows
+ * table instead.
+ */
+const NOTE_VIEWS_CSS_CHANNELS_POSTER = `
+.lifeline-views .lv-amb {
+    position: relative;
+    min-height: 224px;
+    justify-content: flex-end;
+    border: none;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #4a3a55, #1f2229);
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.lifeline-views .lv-amb:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.32);
+}
+.lifeline-views .lv-amb-bg {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+}
+.lifeline-views .lv-amb-bg img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: blur(5px) brightness(0.62) saturate(1.1);
+    transform: scale(1.06);
+}
+.lifeline-views .lv-amb-bg::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+        ellipse at 50% 30%,
+        transparent 20%,
+        rgba(0, 0, 0, 0.45)
+    );
+}
+.lifeline-views .lv-amb-body {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    max-width: 100%;
+    padding: 22px 16px 18px;
+    text-align: center;
+}
+.lifeline-views .lv-amb .lv-poster-avatar {
+    width: 66px;
+    height: 66px;
+    margin: 0;
+    border: 2px solid rgba(255, 255, 255, 0.55);
+    box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.22), 0 6px 16px rgba(0, 0, 0, 0.35);
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+    font-size: 1.5em;
+}
+.lifeline-views .lv-amb-name {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #ffffff;
+    font-size: 1.04em;
+    font-weight: 700;
+    line-height: 1.25;
+    text-decoration: none;
+    text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+}
+.lifeline-views .lv-amb-name:hover {
+    color: #ffffff;
+    text-decoration: underline;
+}
+.lifeline-views .lv-amb-handle {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 0.78em;
+}
+.lifeline-views .lv-amb-chips {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 7px;
+}
+.lifeline-views .lv-amb-chip {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    padding: 4px 9px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.13);
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 0.68em;
+    transition: border-color 0.18s ease, background 0.18s ease;
+}
+.lifeline-views .lv-amb:hover .lv-amb-chip {
+    background: rgba(255, 255, 255, 0.18);
+}
+.lifeline-views .lv-amb-chip b {
+    color: #ffffff;
+    font-variant-numeric: tabular-nums;
+}
+`;
+
+/**
+ * Video chips: Ticket. A thumbnail and two-line title on the left, the
+ * channel with its joined avatar underneath, and a date stub behind a dashed
+ * tear line on the right.
+ */
+const NOTE_VIEWS_CSS_VIDEO_CHIPS = `
+.lifeline-views .lv-chip--ticket {
+    padding: 0;
+    gap: 0;
+    align-items: stretch;
+    overflow: hidden;
+    border-left: 1px solid var(--background-modifier-border);
+    border-radius: 12px;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.lifeline-views .lv-chip--ticket:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.2);
+}
+.lifeline-views .lv-chip--ticket .lv-chip-main {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    padding: 9px 12px;
+}
+.lifeline-views .lv-chip--ticket .lv-thumb {
+    width: 88px;
+    height: 50px;
+    border-radius: 8px;
+}
+.lifeline-views .lv-chip--ticket .lv-thumb img {
+    transition: transform 0.3s ease;
+}
+.lifeline-views .lv-chip--ticket:hover .lv-thumb img {
+    transform: scale(1.06);
+}
+.lifeline-views .lv-chip--ticket .lv-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+.lifeline-views .lv-chip--ticket .lv-title {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-height: 1.3;
+    color: var(--text-normal);
+}
+.lifeline-views .lv-chip--ticket .lv-title:hover {
+    color: var(--link-color, var(--text-accent));
+}
+.lifeline-views .lv-chip--ticket .lv-meta--ticket {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+.lifeline-views .lv-ticket-face {
+    flex: 0 0 auto;
+    display: inline-flex;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: var(--background-modifier-border);
+}
+.lifeline-views .lv-ticket-face img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.lifeline-views .lv-ticket-chan {
+    color: inherit;
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.lifeline-views .lv-ticket-chan:hover {
+    color: var(--text-normal);
+    text-decoration: underline;
+}
+.lifeline-views .lv-ticket-stub {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 88px;
+    padding: 8px 10px;
+    border-left: 1px dashed var(--background-modifier-border);
+    background: var(--background-secondary-alt, var(--background-modifier-hover));
+}
+.lifeline-views .lv-ticket-mon {
+    color: var(--text-muted);
+    font-size: 0.62em;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+/* A linked stub (the day's journal note): the whole tear-off is the target, so
+   brighten it on hover instead of underlining three stacked lines. */
+.lifeline-views a.lv-ticket-stub:hover {
+    text-decoration: none;
+    background: var(--background-modifier-hover);
+}
+.lifeline-views a.lv-ticket-stub:hover .lv-ticket-day {
+    color: var(--link-color, var(--text-accent));
+}
+.lifeline-views .lv-ticket-day {
+    color: var(--text-normal);
+    font-size: 1.24em;
+    font-weight: 700;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+.lifeline-views .lv-ticket-yr {
+    color: var(--text-faint);
+    font-size: 0.62em;
+    font-variant-numeric: tabular-nums;
+}
+`;
+
+/**
+ * Video table: Ledger. The plain directory table with the thumbnail and title
+ * in the first column, the channel next to it, and the date at the right edge.
+ */
+const NOTE_VIEWS_CSS_VIDEO_TABLE = `
+.lifeline-views .lv-ledger {
+    display: flex;
+    flex-direction: column;
+    overflow-x: auto;
+}
+.lifeline-views .lv-ledger-table {
+    width: 100%;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 12px;
+    border-collapse: separate;
+    border-spacing: 0;
+    overflow: hidden;
+    background: var(--background-secondary);
+    font-size: 0.88em;
+}
+.lifeline-views .lv-ledger-table th {
+    padding: 8px 12px;
+    text-align: left;
+    color: var(--text-faint);
+    font-size: 0.66em;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    background: var(--background-secondary-alt, var(--background-modifier-hover));
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+.lifeline-views .lv-ledger-table td {
+    padding: 9px 12px;
+    vertical-align: middle;
+}
+.lifeline-views .lv-ledger-table th.lv-r,
+.lifeline-views .lv-ledger-table td.lv-r {
+    text-align: right;
+}
+.lifeline-views .lv-ledger-table tbody tr + tr td {
+    border-top: 1px solid var(--background-modifier-border);
+}
+.lifeline-views .lv-ledger-table tbody tr:hover td {
+    background: var(--background-modifier-hover);
+}
+.lifeline-views .lv-ledger-thumb {
+    flex: 0 0 auto;
+    width: 72px;
+    height: 40px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--background-modifier-border);
+}
+.lifeline-views .lv-ledger-thumb img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.lifeline-views .lv-ledger-who {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+.lifeline-views .lv-ledger-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.lifeline-views .lv-ledger-title {
+    color: var(--text-normal);
+    font-weight: 600;
+    line-height: 1.3;
+    text-decoration: none;
+    overflow-wrap: break-word;
+    white-space: normal;
+}
+.lifeline-views .lv-ledger-title:hover {
+    color: var(--link-color, var(--text-accent));
+    text-decoration: underline;
+}
+.lifeline-views .lv-ledger-chan {
+    color: var(--text-muted);
+    font-size: 0.8em;
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.lifeline-views .lv-ledger-chan:hover {
+    color: var(--text-normal);
+    text-decoration: underline;
+}
+.lifeline-views .lv-ledger-date {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+`;
+
+/**
+ * Video poster: Cinema. The thumbnail is full-bleed 16:9, a date pill and a
+ * hover play button sit on it, and the title and channel ride a gradient veil
+ * at its foot. A video with no thumbnail keeps the frame and shows the title's
+ * initial instead of an empty box.
+ */
+const NOTE_VIEWS_CSS_VIDEO_POSTER = `
+.lifeline-views .lv-poster-cinema .lv-poster-banner {
+    height: auto;
+    aspect-ratio: 16 / 9;
+}
+.lifeline-views .lv-poster-cinema .lv-poster-banner img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.4s ease;
+}
+.lifeline-views .lv-poster-cinema:hover .lv-poster-banner img {
+    transform: scale(1.045);
+}
+.lifeline-views .lv-cine-pill {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 4;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.55);
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 0.68em;
+    font-variant-numeric: tabular-nums;
+    backdrop-filter: blur(6px);
+}
+.lifeline-views a.lv-cine-pill:hover {
+    color: #ffffff;
+}
+.lifeline-views .lv-cine-play {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: auto;
+    height: auto;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: none;
+    box-sizing: border-box;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+}
+.lifeline-views .lv-poster-cinema:hover .lv-cine-play,
+.lifeline-views .lv-cine-play:focus-visible {
+    opacity: 1;
+}
+.lifeline-views .lv-cine-play-circle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 46px;
+    height: 46px;
+    border: 2px solid rgba(255, 255, 255, 0.85);
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.62);
+}
+.lifeline-views .lv-cine-play svg {
+    display: block;
+    width: 20px;
+    height: 20px;
+    margin-left: 2px;
+    fill: #ffffff;
+}
+/* The veil sits above the play overlay so the title and channel links stay
+   clickable; it steps aside on hover to expose the play button. */
+.lifeline-views .lv-cine-veil {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 30px 12px 11px;
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.88));
+    transition: opacity 0.18s ease;
+}
+.lifeline-views .lv-poster-cinema:hover .lv-cine-veil {
+    opacity: 0;
+    pointer-events: none;
+}
+.lifeline-views .lv-cine-title {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    color: #ffffff;
+    font-size: 0.95em;
+    font-weight: 650;
+    line-height: 1.3;
+    text-decoration: none;
+}
+.lifeline-views .lv-cine-title:hover {
+    color: #ffffff;
+    text-decoration: underline;
+}
+.lifeline-views .lv-cine-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    color: rgba(255, 255, 255, 0.78);
+    font-size: 0.72em;
+}
+.lifeline-views .lv-cine-channel {
+    color: inherit;
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.lifeline-views .lv-cine-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    overflow: hidden;
+    color: #ffffff;
+    font-size: 0.62em;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+.lifeline-views .lv-cine-badge img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.lifeline-views .lv-cine-badge--img {
+    background: rgba(255, 255, 255, 0.15);
+}
+.lifeline-views .lv-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+/* No thumbnail (or a dead one): the frame stays, and the title's initial sits
+   centred in it, dim enough to read as art rather than as a label. */
+.lifeline-views .lv-cine-fallback {
+    display: none;
+    position: absolute;
+    inset: 0;
+    align-items: center;
+    justify-content: center;
+    font-size: 2.2em;
+    font-weight: 800;
+    color: rgba(255, 255, 255, 0.22);
+}
+.lifeline-views .lv-cine-noimg .lv-cine-fallback {
+    display: flex;
+}
+.lifeline-views .lv-cine-noimg {
+    background: linear-gradient(135deg, var(--background-modifier-border), var(--background-secondary-alt, var(--background-secondary)));
 }
 `;
 
 /** One stylesheet per note kind: each script bakes its own file's path and
- *  reads it at view time. The channels sheet additionally carries the poster
- *  chrome, since only the channels layout picker offers Poster. */
+ *  reads it at view time. Every kind offers Poster, Chips, and Table, so each
+ *  sheet carries the three designs for its own note shape and nothing else. */
 export const NOTE_VIEWS_CSS_BY_KIND: Record<NoteViewKind, string> = {
-	channels: NOTE_VIEWS_CSS_SHARED + NOTE_VIEWS_CSS_LISTS + NOTE_VIEWS_CSS_POSTER,
-	playlists: NOTE_VIEWS_CSS_SHARED + NOTE_VIEWS_CSS_LISTS,
-	watchlater: NOTE_VIEWS_CSS_SHARED + NOTE_VIEWS_CSS_LISTS,
+	channels: NOTE_VIEWS_CSS_SHARED + NOTE_VIEWS_CSS_CHANNELS_CHIPS + NOTE_VIEWS_CSS_CHANNELS_TABLE + NOTE_VIEWS_CSS_CHANNELS_POSTER,
+	playlists: NOTE_VIEWS_CSS_SHARED + NOTE_VIEWS_CSS_VIDEO_CHIPS + NOTE_VIEWS_CSS_VIDEO_TABLE + NOTE_VIEWS_CSS_VIDEO_POSTER,
+	watchlater: NOTE_VIEWS_CSS_SHARED + NOTE_VIEWS_CSS_VIDEO_CHIPS + NOTE_VIEWS_CSS_VIDEO_TABLE + NOTE_VIEWS_CSS_VIDEO_POSTER,
 };
 
 /**
- * The poster card's builder, embedded verbatim (escapes included) into the
- * channels script only. Like the rest of the generated code it uses string
- * concatenation and no backticks. Image data comes off the bullet's own
- * fields through the shared helpers; the only network request an <img> ever
- * makes is for a remote *_url avatar or banner the user chose not to
- * download.
+ * Channels layout builders, embedded verbatim into the channels script only.
+ * Like the rest of the generated code it uses string concatenation and no
+ * backticks. Image data comes off the bullet's own fields through the shared
+ * helpers; the only network request an <img> ever makes is for a remote
+ * *_url avatar or banner the user chose not to download.
  */
-const NOTE_VIEWS_POSTER_JS = `
+const NOTE_VIEWS_CHANNELS_JS = `
 // ---------------------------------------------------------------------------
-// Poster layout: a YouTube-style channel card
+// Channels layouts: Ambient poster, Split chips, Cover rows table
 // ---------------------------------------------------------------------------
 
 // The avatar as its own ringed circle; with no image it carries the initial.
@@ -823,202 +1308,475 @@ const posterAvatar = (item, label) => {
   return badge;
 };
 
-// Name plus handle, the identity stack: capsule in the bare head,
-// white-on-gradient labels inside the banner strip (CSS does the switch).
-const posterIdStack = (item, link) => {
-  const box = el("div", "lv-poster-id");
-  box.appendChild(linkNode(link.label, link.href, "lv-poster-name"));
-  if (item.handle) box.appendChild(el("div", "lv-poster-handle", String(item.handle)));
-  return box;
-};
-
-// The identity laid onto the banner's lower gradient. The hover reveal
-// (avatar circle slides the name in, circle lifts) is pure CSS:
-// avatar:hover + id.
-const posterIdentity = (item, link) => {
-  const row = el("div", "lv-poster-strip");
-  row.appendChild(posterAvatar(item, link.label));
-  row.appendChild(posterIdStack(item, link));
-  return row;
-};
-
-// Stat tiles: subscribers, videos, views, in one hairline-divided strip.
-const posterStats = (item) => {
-  const strip = el("div", "lv-poster-stats");
-  const tile = (num, label) => {
-    if (typeof num !== "number") return;
-    const box = el("div", "lv-poster-stat");
-    box.appendChild(el("div", "lv-poster-stat-num", fmtShort(num)));
-    box.appendChild(el("div", "lv-poster-stat-label", label));
-    strip.appendChild(box);
-  };
-  tile(item.subscribers, "subscribers");
-  tile(item.videos, "videos");
-  tile(item.views, "views");
-  return strip.childElementCount ? strip : null;
-};
-
-// The old YouTube subscribe button's bell, drawn inline so the script never
-// fetches anything; it inherits the badge's white.
-const bellNode = () => {
-  const svgNS = "http://www.w3.org/2000/svg";
-  const bell = document.createElementNS(svgNS, "svg");
-  bell.setAttribute("viewBox", "0 -960 960 960");
-  bell.setAttribute("width", "24");
-  bell.setAttribute("height", "24");
-  bell.setAttribute("aria-hidden", "true");
-  bell.setAttribute("fill", "currentColor");
-  const shape = document.createElementNS(svgNS, "path");
-  shape.setAttribute(
-    "d",
-    "M80-560q0-100 44.5-183.5T244-882l47 64q-60 44-95.5 111T160-560H80Zm720 0q0-80-35.5-147T669-818l47-64q75 55 119.5 138.5T880-560h-80ZM160-200v-80h80v-280q0-83 50-147.5T420-792v-28q0-25 17.5-42.5T480-880q25 0 42.5 17.5T540-820v28q80 20 130 84.5T720-560v280h80v80H160Zm320-300Zm0 420q-33 0-56.5-23.5T400-160h160q0 33-23.5 56.5T480-80ZM320-280h320v-280q0-66-47-113t-113-47q-66 0-113 47t-47 113v280Z",
-  );
-  bell.appendChild(shape);
-  // The bell's cavity punches through to whatever sits behind it; fill it
-  // white explicitly so it never takes on the badge or artwork color.
-  const inner = document.createElementNS(svgNS, "path");
-  inner.setAttribute("fill", "#ffffff");
-  inner.setAttribute(
-    "d",
-    "M320-280h320v-280q0-66-47-113t-113-47q-66 0-113 47t-47 113v280Z",
-  );
-  bell.appendChild(inner);
-  return bell;
-};
-
-// A small calendar icon, matching the bell's Material icon family.
-const calendarNode = () => {
-  const svgNS = "http://www.w3.org/2000/svg";
-  const cal = document.createElementNS(svgNS, "svg");
-  cal.setAttribute("viewBox", "0 -960 960 960");
-  cal.setAttribute("width", "24");
-  cal.setAttribute("height", "24");
-  cal.setAttribute("aria-hidden", "true");
-  cal.setAttribute("fill", "currentColor");
-  const shape = document.createElementNS(svgNS, "path");
-  shape.setAttribute(
-    "d",
-    "M200-80q-33 0-56.5-23.5T120-160v-560q0-33 23.5-56.5T200-800h40v-80h80v80h320v-80h80v80h40q33 0 56.5 23.5T840-720v560q0 33-23.5 56.5T760-80H200Zm0-80h560v-400H200v400Zm0-480h560v-80H200v80Zm0 0v-80 80Zm280 240q-17 0-28.5-11.5T440-440q0-17 11.5-28.5T480-480q17 0 28.5 11.5T520-440q0 17-11.5 28.5T480-400Zm-188.5-11.5Q280-423 280-440t11.5-28.5Q303-480 320-480t28.5 11.5Q360-457 360-440t-11.5 28.5Q337-400 320-400t-28.5-11.5ZM640-400q-17 0-28.5-11.5T600-440q0-17 11.5-28.5T640-480q17 0 28.5 11.5T680-440q0 17-11.5 28.5T640-400ZM480-240q-17 0-28.5-11.5T440-280q0-17 11.5-28.5T480-320q17 0 28.5 11.5T520-280q0 17-11.5 28.5T480-240Zm-188.5-11.5Q280-263 280-280t11.5-28.5Q303-320 320-320t28.5 11.5Q360-297 360-280t-11.5 28.5Q337-240 320-240t-28.5-11.5ZM640-240q-17 0-28.5-11.5T600-280q0-17 11.5-28.5T640-320q17 0 28.5 11.5T680-280q0 17-11.5 28.5T640-240Z",
-  );
-  cal.appendChild(shape);
-  return cal;
+// Poster layout: Ambient. The banner is a blurred backdrop behind a centred
+// identity, and the counts are glass chips. No subscribe badge and no journal
+// button: the date lives in the Split chips row and the Cover rows table.
+const ambientChip = (num, label) => {
+  if (typeof num !== "number") return null;
+  const chip = el("span", "lv-amb-chip");
+  chip.appendChild(el("b", null, fmtShort(num)));
+  chip.appendChild(el("span", null, label));
+  chip.title = Number(num).toLocaleString("en-US") + " " + label;
+  return chip;
 };
 
 const posterCard = (item) => {
   const link = mdLink(item.channel);
-  const node = el("article", "lv-poster-card");
-  const info = el("div", "lv-poster-info");
-  const bannerSrc = imageSrc(mdBanner(item));
-  if (!bannerSrc) node.classList.add("lv-poster-card--bare");
+  const node = el("article", "lv-poster-card lv-amb");
 
-  // Banner with the identity strip at its foot and the open-external arrow
-  // pinned to the top right corner (a plain anchor, the same way the title
-  // links are handed to Obsidian, which routes external hrefs itself).
-  // A dead or missing banner drops the strip entirely (bare card), so a
-  // square avatar is never force-cropped into a wide band.
+  const backdrop = el("div", "lv-amb-bg");
+  const bannerSrc = imageSrc(mdBanner(item));
   if (bannerSrc) {
-    const strip = el("div", "lv-poster-banner");
+    const img = document.createElement("img");
+    img.src = bannerSrc;
+    img.alt = "";
+    img.loading = "lazy";
+    // A dead banner link leaves the gradient backdrop behind, never a
+    // broken-image icon.
+    img.addEventListener("error", () => img.remove());
+    backdrop.appendChild(img);
+  }
+  node.appendChild(backdrop);
+
+  const body = el("div", "lv-amb-body");
+  body.appendChild(posterAvatar(item, link.label));
+  body.appendChild(linkNode(link.label, link.href, "lv-amb-name"));
+  if (item.handle) body.appendChild(el("div", "lv-amb-handle", String(item.handle)));
+  const chips = el("div", "lv-amb-chips");
+  const count = (key, num, label) => {
+    if (!want(key)) return;
+    const chip = ambientChip(num, label);
+    if (chip) chips.appendChild(chip);
+  };
+  count("subscribers", item.subscribers, "subs");
+  count("videos", item.videos, "videos");
+  count("views", item.views, "views");
+  if (chips.childElementCount) body.appendChild(chips);
+  node.appendChild(body);
+  return node;
+};
+
+// Chips layout: Split. Identity on the left, a tinted pane on the right with
+// the counts and the subscribe date.
+const chipRow = (item) => {
+  const link = mdLink(item.channel);
+  const row = el("div", "lv-chip lv-chip--split");
+  const main = el("div", "lv-chip-main");
+  const image = thumb(item, link.label);
+  if (image) main.appendChild(image);
+  const body = el("div", "lv-body");
+  body.appendChild(linkNode(link.label, link.href, "lv-title"));
+  if (want("handle") && item.handle) {
+    body.appendChild(el("div", "lv-meta", String(item.handle)));
+  }
+  main.appendChild(body);
+  row.appendChild(main);
+
+  const pane = el("div", "lv-chip-pane");
+  const stats = el("div", "lv-chip-stats");
+  const stat = (key, num, label) => {
+    if (!want(key) || typeof num !== "number") return;
+    const box = el("div", "lv-chip-stat");
+    const value = el("div", "lv-chip-stat-v", fmtShort(num));
+    value.title = Number(num).toLocaleString("en-US") + " " + label;
+    box.appendChild(value);
+    box.appendChild(el("div", "lv-chip-stat-l", label));
+    stats.appendChild(box);
+  };
+  stat("subscribers", item.subscribers, "subs");
+  stat("videos", item.videos, "videos");
+  stat("views", item.views, "views");
+  if (stats.childElementCount) pane.appendChild(stats);
+  // Always the compact yyyy-MM-dd form through fmtDate, never a raw ISO
+  // string and never the status field. A missing date or a field switched off
+  // simply leaves the pane to the counts.
+  if (want("subscribedOn")) {
+    const iso = fmtDate(item.subscribed_on);
+    if (iso && iso !== "-") {
+      const since = el("div", "lv-chip-since");
+      since.appendChild(document.createTextNode("subscribed since "));
+      since.appendChild(datePart(item.subscribed_on, "lv-chip-since-date"));
+      pane.appendChild(since);
+    }
+  }
+  if (pane.childElementCount) row.appendChild(pane);
+  return row;
+};
+
+// Table layout: Cover rows. The banner leads each row as a small blurred crop
+// with the avatar over it, the identity meta sits under the name, and the
+// dates stack in a Tracked column.
+const coverFace = (src, label) => {
+  const box = el("div", "lv-cover-av");
+  if (!src) {
+    box.textContent = initialOf(label);
+    return box;
+  }
+  const img = document.createElement("img");
+  img.src = src;
+  img.alt = "";
+  img.loading = "lazy";
+  img.addEventListener("error", () => {
+    img.remove();
+    box.textContent = initialOf(label);
+  });
+  box.appendChild(img);
+  return box;
+};
+const coverNum = (value) => {
+  const td = el("td", "lv-cover-num", typeof value === "number" ? fmtShort(value) : "-");
+  if (typeof value === "number") td.title = value.toLocaleString("en-US");
+  return td;
+};
+const coverTrack = (item) => {
+  const td = el("td", "lv-cover-track");
+  const line = (label, value) => {
+    const text = fmtDate(value);
+    if (!text || text === "-") return;
+    const row = el("div", "lv-cover-track-row");
+    row.appendChild(el("span", "lv-cover-track-l", label));
+    row.appendChild(datePart(value, "lv-cover-track-v"));
+    td.appendChild(row);
+  };
+  if (want("subscribedOn")) line("since", item.subscribed_on);
+  if (want("syncDates")) {
+    line("first", item.first_seen);
+    line("last", item.last_seen);
+  }
+  return td;
+};
+const coverRow = (item) => {
+  const link = mdLink(item.channel);
+  const row = document.createElement("tr");
+  const cell = document.createElement("td");
+  const who = el("div", "lv-cover-who");
+  const art = el("div", "lv-cover-art");
+  const banner = imageSrc(mdBanner(item));
+  if (banner) {
+    const img = document.createElement("img");
+    img.src = banner;
+    img.alt = "";
+    img.loading = "lazy";
+    img.addEventListener("error", () => img.remove());
+    art.appendChild(img);
+  }
+  art.appendChild(coverFace(imageSrc(mdImage(item)), link.label));
+  who.appendChild(art);
+  const stack = el("div", "lv-cover-name");
+  stack.appendChild(linkNode(link.label, link.href, ""));
+  if (want("handle") && item.handle) {
+    stack.appendChild(el("div", "lv-cover-handle", String(item.handle)));
+  }
+  const bits = [];
+  if (want("channelId") && item.id) {
+    const id = String(item.id);
+    const span = el("span", "lv-cover-id", id.length > 12 ? id.slice(0, 8) + "\\u2026" : id);
+    span.title = id;
+    bits.push(span);
+  }
+  if (want("country") && item.country) {
+    bits.push(el("span", "lv-cover-country", String(item.country)));
+  }
+  if (want("status") && item.status) {
+    bits.push(el("span", "lv-cover-status", String(item.status)));
+  }
+  if (bits.length) {
+    const meta = el("div", "lv-cover-meta");
+    bits.forEach((bit, index) => {
+      if (index) meta.appendChild(el("span", "lv-cover-dot"));
+      meta.appendChild(bit);
+    });
+    stack.appendChild(meta);
+  }
+  who.appendChild(stack);
+  cell.appendChild(who);
+  row.appendChild(cell);
+  return row;
+};
+const renderTableRows = (host, items) => {
+  host.classList.add("lv-cover");
+  const cols = [];
+  if (want("subscribers")) cols.push(["Subs", "lv-cover-num", (item) => coverNum(item.subscribers)]);
+  if (want("videos")) cols.push(["Videos", "lv-cover-num", (item) => coverNum(item.videos)]);
+  if (want("views")) cols.push(["Views", "lv-cover-num", (item) => coverNum(item.views)]);
+  if (want("subscribedOn") || want("syncDates")) cols.push(["Tracked", "lv-cover-track-h", coverTrack]);
+  const table = el("table", "lv-cover-table");
+  const thead = document.createElement("thead");
+  const head = document.createElement("tr");
+  head.appendChild(el("th", "", "Channel"));
+  for (const col of cols) head.appendChild(el("th", col[1], col[0]));
+  thead.appendChild(head);
+  table.appendChild(thead);
+  const tbody = document.createElement("tbody");
+  for (const item of items) {
+    const row = coverRow(item);
+    for (const col of cols) row.appendChild(col[2](item));
+    tbody.appendChild(row);
+  }
+  table.appendChild(tbody);
+  host.appendChild(table);
+};
+
+// The channels script draws no channel faces, so the refresh handler's cache
+// reset is a no-op here.
+const resetKindCache = () => {};
+`;
+
+/**
+ * Video layout builders, embedded into the two video scripts. `channelsPath`
+ * is the vault path of Channels.md: video bullets carry no avatar of their
+ * own, so the channel faces are joined from that note. As with the channels
+ * block, the generated code uses string concatenation and no backticks.
+ */
+function noteViewsVideoJs(channelsPath: string): string {
+	return `
+// ---------------------------------------------------------------------------
+// Video layouts: Cinema poster, Ticket chips, Ledger table
+// ---------------------------------------------------------------------------
+
+// Channel faces for video entries, joined from Channels.md by channel URL
+// and by lowercased name. Built on first render, so a text-heavy layout never
+// pays for the lookup, and reset by Refresh so newly synced avatars land.
+// A local avatar file belongs to Channels.md, not to the video note this view
+// reads, which is why the image resolves against CHANNELS_PATH.
+const CHANNELS_PATH = ${JSON.stringify(channelsPath)};
+let channelFaces = null;
+const channelFaceMap = () => {
+  if (channelFaces) return channelFaces;
+  channelFaces = new Map();
+  const faceSrc = (row) => imageSrc(mdImage(row), CHANNELS_PATH);
+  try {
+    const page = dv.page(CHANNELS_PATH);
+    const raw = page && page.file ? page.file.lists : null;
+    const rows = !raw ? [] : typeof raw.array === "function" ? raw.array() : Array.from(raw);
+    for (const row of rows) {
+      const src = faceSrc(row);
+      if (!src) continue;
+      const link = mdLink(row.channel);
+      if (link.href) channelFaces.set(link.href, src);
+      const key = link.label.trim().toLowerCase();
+      if (key) channelFaces.set(key, src);
+    }
+  } catch (err) {
+    // No Channels.md, or no avatar fields on it: rows keep the plain name.
+  }
+  return channelFaces;
+};
+const channelFace = (channel) => {
+  const map = channelFaceMap();
+  if (channel.href && map.has(channel.href)) return map.get(channel.href);
+  const key = (channel.label || "").trim().toLowerCase();
+  return key && map.has(key) ? map.get(key) : "";
+};
+const resetKindCache = () => {
+  channelFaces = null;
+};
+
+// A lettered gradient for a channel with no joined avatar: distinct, stable,
+// and no image request.
+const tint = (node, label) => {
+  let h = 0;
+  for (let i = 0; i < label.length; i += 1) h = (h * 31 + label.charCodeAt(i)) % 360;
+  node.style.background =
+    "linear-gradient(135deg, hsl(" + h + ", 62%, 50%), hsl(" + ((h + 40) % 360) + ", 58%, 38%))";
+};
+const channelBadge = (channel) => {
+  const label = (channel.label || "?").trim();
+  const node = el("span", "lv-cine-badge");
+  const src = channelFace(channel);
+  if (src) {
+    node.classList.add("lv-cine-badge--img");
+    const img = document.createElement("img");
+    img.src = src;
+    img.alt = "";
+    img.loading = "lazy";
+    img.addEventListener("error", () => {
+      img.remove();
+      node.classList.remove("lv-cine-badge--img");
+      node.textContent = label.charAt(0).toUpperCase() || "?";
+      tint(node, label);
+    });
+    node.appendChild(img);
+    return node;
+  }
+  node.textContent = label.charAt(0).toUpperCase() || "?";
+  tint(node, label);
+  return node;
+};
+
+const playGlyph = () => {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const icon = document.createElementNS(svgNS, "svg");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS(svgNS, "path");
+  path.setAttribute("d", "M8 5v14l11-7z");
+  icon.appendChild(path);
+  return icon;
+};
+
+// Poster layout: Cinema. Full-bleed 16:9 art, a date pill, a hover play
+// button, and the title and channel on a gradient veil. A video with no
+// thumbnail (or a dead one) keeps the frame and shows the title's initial, so
+// the grid stays even and the entry still reads as a video card.
+const posterCard = (item) => {
+  const link = mdLink(item.title);
+  const channel = mdLink(item.channel);
+  const node = el("article", "lv-poster-card lv-poster-cinema");
+  const bannerSrc = imageSrc(mdImage(item));
+  const banner = el("div", "lv-poster-banner");
+  if (!bannerSrc) banner.classList.add("lv-cine-noimg");
+
+  if (bannerSrc) {
     const img = document.createElement("img");
     img.src = bannerSrc;
     img.alt = "";
     img.loading = "lazy";
     img.addEventListener("error", () => {
-      img.style.display = "none";
+      img.remove();
+      banner.classList.add("lv-cine-noimg");
     });
-    strip.appendChild(img);
-    if (link.href) {
-      const corner = document.createElement("a");
-      corner.className = "lv-poster-banner-link";
-      corner.href = link.href;
-      corner.target = "_blank";
-      corner.rel = "noopener";
-      corner.setAttribute("aria-label", "Open on YouTube");
-      const svgNS = "http://www.w3.org/2000/svg";
-      const icon = document.createElementNS(svgNS, "svg");
-      icon.setAttribute("viewBox", "0 -960 960 960");
-      icon.setAttribute("width", "18");
-      icon.setAttribute("height", "18");
-      icon.setAttribute("aria-hidden", "true");
-      icon.setAttribute("fill", "currentColor");
-      const path = document.createElementNS(svgNS, "path");
-      path.setAttribute(
-        "d",
-        "M200-120q-33 0-56.5-23.5T120-200v-560q0-33 23.5-56.5T200-840h280v80H200v560h560v-280h80v280q0 33-23.5 56.5T760-120H200Zm188-212-56-56 372-372H560v-80h280v280h-80v-144L388-332Z",
-      );
-      icon.appendChild(path);
-      corner.appendChild(icon);
-      strip.appendChild(corner);
-    }
-    strip.appendChild(posterIdentity(item, link));
-    node.appendChild(strip);
-  } else {
-    // A banner-less card is a plain head: avatar + name, no forced art.
-    const head = el("div", "lv-poster-head");
-    head.appendChild(posterAvatar(item, link.label));
-    head.appendChild(posterIdStack(item, link));
-    node.appendChild(head);
+    banner.appendChild(img);
+  }
+  banner.appendChild(el("span", "lv-cine-fallback", link.label.charAt(0).toUpperCase()));
+
+  const date = item.date == null || item.date === "" ? "" : fmtDate(item.date);
+  if (date && date !== "-") banner.appendChild(datePart(item.date, "lv-cine-pill"));
+
+  if (link.href) {
+    // A button, not an anchor: no link tooltip over the art. The accessible
+    // name is hidden text; Obsidian turns aria-label into a tooltip.
+    const play = el("button", "lv-cine-play");
+    play.type = "button";
+    play.appendChild(el("span", "lv-sr", "Open on YouTube"));
+    play.addEventListener("click", () => {
+      window.open(link.href, "_blank", "noopener");
+    });
+    const circle = el("span", "lv-cine-play-circle");
+    circle.appendChild(playGlyph());
+    play.appendChild(circle);
+    banner.appendChild(play);
   }
 
-  const stats = posterStats(item);
-  if (stats) info.appendChild(stats);
-
-  // The subscription facts, the way YouTube draws them: a red bell badge,
-  // then the since date as a framed calendar button that opens that day's
-  // journal note when the bullet's wikilink says one exists (or the date is
-  // still upcoming): passive calendar badge otherwise. Both buttons are
-  // icon-only; their labels live in (single) aria-label tooltips, and the
-  // country rides on the since one.
-  const footrow = el("div", "lv-poster-footrow");
-  if (item.subscribed_on) {
-    const iso = fmtDate(item.subscribed_on);
-    if (iso && iso !== "-") {
-      const where = item.country ? " \\u00b7 " + String(item.country) : "";
-      // The badge is icon-only; the label lives in the aria-label tooltip.
-      const badge = el("span", "lv-poster-sub-badge");
-      badge.appendChild(bellNode());
-      badge.setAttribute("aria-label", "Subscribed");
-      footrow.appendChild(badge);
-      // The click promise follows the bullet: sync wikilinks subscribed_on
-      // only when the day's journal note exists (or the date is today or
-      // later), so the button is a real internal link exactly then, and the
-      // passive calendar badge (span, no link) otherwise. Dataview hands a
-      // Link (with a path) for the wikilink and a bare Luxon DateTime for
-      // the plain ISO text, so the object shape tells the two apart. The
-      // source path is this note's, like every other wikilink.
-      const linked =
-        item.subscribed_on != null &&
-        typeof item.subscribed_on === "object" &&
-        typeof item.subscribed_on.path === "string";
-      const since = document.createElement(linked ? "a" : "span");
-      if (linked) {
-        since.className = "internal-link lv-poster-since";
-        since.dataset.href = iso;
-        since.addEventListener("click", (evt) => {
-          evt.preventDefault();
-          const from = (() => {
-            try {
-              const current = dv.current();
-              return current && current.file ? current.file.path : "";
-            } catch (err) {
-              return "";
-            }
-          })();
-          app.workspace.openLinkText(iso, from, false);
-        });
-      } else {
-        since.className = "lv-poster-since";
-      }
-      since.appendChild(calendarNode());
-      since.setAttribute("aria-label", "Subscribed since " + iso + where);
-      footrow.appendChild(since);
-    }
+  const veil = el("div", "lv-cine-veil");
+  veil.appendChild(linkNode(link.label, link.href, "lv-cine-title"));
+  if (channel.label) {
+    const meta = el("div", "lv-cine-meta");
+    meta.appendChild(channelBadge(channel));
+    meta.appendChild(linkNode(channel.label, channel.href, "lv-cine-channel"));
+    veil.appendChild(meta);
   }
-  if (footrow.childElementCount) info.appendChild(footrow);
+  banner.appendChild(veil);
 
-  node.appendChild(info);
+  node.appendChild(banner);
   return node;
 };
+
+// Chips layout: Ticket. A thumbnail and a two-line title on the left, the
+// channel with its joined avatar underneath, and a date stub behind a dashed
+// tear line on the right.
+const ticketDate = (iso) => {
+  const found = /^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(iso || "");
+  if (!found) return null;
+  const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+  return { year: found[1], month: months[Number(found[2]) - 1] || found[2], day: found[3] };
+};
+const chipRow = (item) => {
+  const link = mdLink(item.title);
+  const row = el("div", "lv-chip lv-chip--ticket");
+  const main = el("div", "lv-chip-main");
+  const image = thumb(item, link.label);
+  if (image) main.appendChild(image);
+  const body = el("div", "lv-body");
+  body.appendChild(linkNode(link.label, link.href, "lv-title"));
+
+  const channel = mdLink(item.channel);
+  const meta = el("div", "lv-meta lv-meta--ticket");
+  const face = channelFace(channel);
+  if (face) {
+    const ring = el("span", "lv-ticket-face");
+    const img = document.createElement("img");
+    img.src = face;
+    img.alt = "";
+    img.loading = "lazy";
+    img.addEventListener("error", () => ring.remove());
+    ring.appendChild(img);
+    meta.appendChild(ring);
+  }
+  if (channel.label) meta.appendChild(linkNode(channel.label, channel.href, "lv-ticket-chan"));
+  if (meta.childElementCount) body.appendChild(meta);
+  main.appendChild(body);
+  row.appendChild(main);
+
+  const parts = ticketDate(fmtDate(item.date));
+  if (parts) {
+    // The whole stub is the link, so the tear-off date is one big click target
+    // with the same internal-link behavior as the other date spots.
+    const stubTarget = dateTarget(item.date);
+    const stub = document.createElement(stubTarget ? "a" : "div");
+    stub.className = "lv-ticket-stub";
+    if (stubTarget) {
+      stub.classList.add("internal-link");
+      stub.setAttribute("href", stubTarget);
+      stub.setAttribute("data-href", stubTarget);
+    }
+    stub.appendChild(el("div", "lv-ticket-mon", parts.month));
+    stub.appendChild(el("div", "lv-ticket-day", parts.day));
+    stub.appendChild(el("div", "lv-ticket-yr", parts.year));
+    row.appendChild(stub);
+  }
+  return row;
+};
+
+// Table layout: Ledger. The thumbnail and title in the first column, the
+// channel next to it, and the date added at the right edge.
+const renderTableRows = (host, items) => {
+  host.classList.add("lv-ledger");
+  const table = el("table", "lv-ledger-table");
+  const thead = document.createElement("thead");
+  const head = document.createElement("tr");
+  head.appendChild(el("th", "", "Video"));
+  head.appendChild(el("th", "", "Channel"));
+  head.appendChild(el("th", "lv-r", "Added"));
+  thead.appendChild(head);
+  table.appendChild(thead);
+  const tbody = document.createElement("tbody");
+  for (const item of items) {
+    const title = mdLink(item.title);
+    const channel = mdLink(item.channel);
+    const row = document.createElement("tr");
+    const first = document.createElement("td");
+    const who = el("div", "lv-ledger-who");
+    const src = imageSrc(mdImage(item));
+    if (src) {
+      const frame = el("div", "lv-ledger-thumb");
+      const img = document.createElement("img");
+      img.src = src;
+      img.alt = "";
+      img.loading = "lazy";
+      img.addEventListener("error", () => img.remove());
+      frame.appendChild(img);
+      who.appendChild(frame);
+    }
+    const stack = el("div", "lv-ledger-stack");
+    stack.appendChild(linkNode(title.label || "-", title.href, "lv-ledger-title"));
+    who.appendChild(stack);
+    first.appendChild(who);
+    row.appendChild(first);
+    const chan = document.createElement("td");
+    if (channel.label) chan.appendChild(linkNode(channel.label, channel.href, "lv-ledger-chan"));
+    else chan.appendChild(el("span", "lv-ledger-date", "-"));
+    row.appendChild(chan);
+    const added = el("td", "lv-r");
+    added.appendChild(datePart(item.date, "lv-ledger-date"));
+    row.appendChild(added);
+    tbody.appendChild(row);
+  }
+  table.appendChild(tbody);
+  host.appendChild(table);
+};
 `;
+}
 
 /**
  * The full source of one generated view script (lifeline-channels.js,
@@ -1028,26 +1786,32 @@ const posterCard = (item) => {
  * itself is read from that file at view time (the quotebook.css pattern), so
  * restyling never regenerates the scripts. String building inside the script
  * uses concatenation rather than template literals for the same reason.
+ * `channelsPath` is baked into the two video scripts, which join the channel
+ * faces for their chips and poster cards from Channels.md.
  */
-export function renderNoteViewScript(kind: NoteViewKind, stylesFolder: string): string {
+export function renderNoteViewScript(
+	kind: NoteViewKind,
+	stylesFolder: string,
+	channelsPath: string,
+): string {
 	const section = NOTE_VIEW_SECTIONS[kind];
 	const note = NOTE_VIEW_NOTES[kind];
 	return `/**
  * Lifeline note-view script for ${note} (generated).
  *
  * The note invokes this file once:
- *   dv.view("98 - Organize/Scripts/lifeline-${kind}", { layout: "${kind === 'channels' ? 'chips' : 'cards'}"${kind === 'channels' ? ', fields: {...}' : ''} })
- * Layouts: ${kind === 'channels' ? 'poster, chips, table' : 'chips, cards, table'}. Every layout reads the calling
- * note's own list entries (dv.current().file.lists), so the view mirrors the
+ *   dv.view("98 - Organize/Scripts/lifeline-${kind}", { layout: "poster"${kind === 'channels' ? ', fields: {...}' : ''} })
+ * Layouts: poster, chips, table. Every layout reads the calling note's own
+ * list entries (dv.current().file.lists), so the view mirrors the
  * inline-field entries below it. Regenerated on every sync while "Views in
  * notes" is on; hand edits are overwritten.
  *
- * The toolbar at the top offers search, a "search in" scope, a Layout select,
- * and Refresh, all inside one bordered container with the result count in a
- * bar beneath the controls. Layout changes are instant, are written back into
- * the plugin's settings under this note type's own key, so playlists and Watch
- * Later can differ, and refresh the other open views; the layout baked into
- * the note is only a fallback for when the plugin cannot be reached.
+ * The toolbar at the top is a glass pill: search with the result count inside
+ * it, a "search in" scope select, a segmented Layout control, and Refresh.
+ * Layout changes are instant, are written back into the plugin's settings
+ * under this note type's own key, so playlists and Watch Later can differ, and
+ * refresh the other open views; the layout baked into the note is only a
+ * fallback for when the plugin cannot be reached.
  *
  * Styling is NOT baked in: this script reads ${NOTE_VIEW_STYLESHEET_FILES[kind]} from
  * the vault's styles folder at view time and injects it, so hand edits to
@@ -1060,7 +1824,6 @@ export function renderNoteViewScript(kind: NoteViewKind, stylesFolder: string): 
 if (input == null) input = {};
 
 const toArr = (v) => (v == null ? [] : Array.isArray(v) ? v : typeof v.array === "function" ? v.array() : []);
-const dash = (v) => (v == null || v === "" ? "-" : v);
 
 const STYLE_ID = ${JSON.stringify("lifeline-views-style-" + kind)};
 const CSS_PATH = ${JSON.stringify(viewsStylesheetPath(kind, stylesFolder))};
@@ -1068,8 +1831,13 @@ const CSS_PATH = ${JSON.stringify(viewsStylesheetPath(kind, stylesFolder))};
 // the vault itself, once per render, so edits apply on the next re-render.
 // A missing file (views just enabled, folder moved) leaves the view
 // unstyled but fully functional rather than breaking it.
+//
+// An existing sheet is compared, not assumed: a script update or a sync can
+// change the file while Obsidian stays open, and the injected copy would
+// otherwise keep the old look until the whole app restarts (a hot reload of
+// the plugin does not empty document.head). Replacing the text in place means
+// new rules land on the next render.
 const ensureStyle = async () => {
-  if (document.getElementById(STYLE_ID)) return;
   let css = "";
   try {
     const file = app.vault.getAbstractFileByPath(CSS_PATH);
@@ -1077,7 +1845,15 @@ const ensureStyle = async () => {
   } catch (err) {
     css = "";
   }
-  if (!css) return;
+  const existing = document.getElementById(STYLE_ID);
+  if (!css) {
+    if (existing) existing.remove();
+    return;
+  }
+  if (existing) {
+    if (existing.textContent !== css) existing.textContent = css;
+    return;
+  }
   const el = document.createElement("style");
   el.id = STYLE_ID;
   el.textContent = css;
@@ -1085,6 +1861,11 @@ const ensureStyle = async () => {
 };
 
 dv.container.classList.add("lifeline-views");
+// One shared sheet became one per kind. A sheet injected by an older build
+// under the old id would otherwise keep competing with the new rules until the
+// app restarts, so drop it here.
+const legacyStyle = document.getElementById("lifeline-views-style");
+if (legacyStyle) legacyStyle.remove();
 await ensureStyle();
 
 // List entries of the calling note, in document order: channels are already
@@ -1095,34 +1876,61 @@ const listEntries = () => {
 };
 
 // Bare ISO dates (subscribed_on:: 2026-10-20) come back from Dataview as Luxon
-// DateTimes, which dv.table would render long ("October 20, 2026") and wrap to
-// two lines. Force the compact yyyy-MM-dd form so date columns stay one line.
-// The playlist date field is written as a wiki link ([[2026-10-20]]), so
-// Dataview hands back a Link rather than a date: read the date back out of it.
-// The table column keeps passing the raw value to dv.table, which renders a
-// Link natively; chips and cards build their own DOM, so they need fmtDate.
+// DateTimes, which would otherwise render long ("October 20, 2026"). Force
+// the compact yyyy-MM-dd form so every date reads the same and stays on one
+// line. The playlist date field is written as a wiki link ([[2026-10-20]]),
+// so Dataview hands back a Link rather than a date: read the date back out of
+// it. A hand-edited bullet can also carry the wiki syntax as plain text, so
+// strip that form too rather than printing the brackets. Every layout builds
+// its own DOM, so every date goes through fmtDate.
 const fmtDate = (v) => {
   if (v == null || v === "") return "-";
   if (typeof v.toFormat === "function") return v.toFormat("yyyy-MM-dd");
   if (typeof v === "object" && (typeof v.path === "string" || typeof v.display === "string")) {
     const text = v.display != null ? String(v.display) : String(v.path);
-    const found = /(\\d{4}-\\d{2}-\\d{2})/.exec(text);
+    // The display text wins when it holds the date; an aliased link ([[date|Oct 20]])
+    // still has the date in its target.
+    const found = /(\\d{4}-\\d{2}-\\d{2})/.exec(text) || /(\\d{4}-\\d{2}-\\d{2})/.exec(String(v.path));
     return found ? found[1] : text;
   }
-  return String(v);
+  const raw = String(v).trim();
+  const wiki = /^\\[\\[([^\\]|]+)(?:\\|([^\\]]*))?\\]\\]$/.exec(raw);
+  if (wiki) {
+    const label = wiki[2] != null && wiki[2] !== "" ? wiki[2] : wiki[1];
+    const found = /(\\d{4}-\\d{2}-\\d{2})/.exec(label) || /(\\d{4}-\\d{2}-\\d{2})/.exec(wiki[1]);
+    return found ? found[1] : label;
+  }
+  return raw;
 };
 
-// A 24-char channel ID (UC...) is the widest column and the least scannable;
-// show a short prefix and keep the full value in the native hover tooltip
-// (dv.table renders an element cell as-is).
-const idCell = (v) => {
-  const full = String(v == null ? "" : v);
-  if (full === "") return "-";
-  const el = document.createElement("span");
-  el.textContent = full.length > 12 ? full.slice(0, 8) + "\\u2026" : full;
-  el.title = full;
-  el.style.cursor = "help";
-  return el;
+// A date is plain text unless the bullet wrote it as a wiki link (the day's
+// journal note), in which case the view renders it as an internal link so the
+// date opens that note from any layout. Only the link field earns this: the
+// sync bookkeeping fields (first_seen/last_seen) are written plain, so they
+// stay plain. The link target is the raw target, not the resolved path, so a
+// renamed or not-yet-created daily note behaves the way the note's own link
+// does.
+const dateTarget = (v) => {
+  if (v == null || v === "") return "";
+  if (typeof v === "object" && typeof v.path === "string") return v.path.trim();
+  const raw = String(v).trim();
+  const wiki = /^\\[\\[([^\\]|]+)(?:\\|[^\\]]*)?\\]\\]$/.exec(raw);
+  return wiki ? wiki[1].trim() : "";
+};
+// The date as a span, or as an internal link when it is a wiki link. The class
+// is the layout's own date class either way, so the two look identical apart
+// from the hover underline.
+const datePart = (v, cls) => {
+  const target = dateTarget(v);
+  const node = document.createElement(target ? "a" : "span");
+  if (cls) node.className = cls;
+  node.textContent = fmtDate(v);
+  if (target) {
+    node.classList.add("internal-link");
+    node.setAttribute("href", target);
+    node.setAttribute("data-href", target);
+  }
+  return node;
 };
 
 // YouTube-style compact numbers (109M, 4.67K), matching the dashboard: hover
@@ -1154,21 +1962,6 @@ const fmtShort = (n) => {
   }
   return String(v);
 };
-
-const numCell = (n) => {
-  const full = Number(n).toLocaleString("en-US");
-  const el = document.createElement("span");
-  el.textContent = fmtShort(n);
-  el.title = full;
-  el.style.cursor = "help";
-  el.addEventListener("click", () => {
-    el.textContent = el.textContent === full ? fmtShort(n) : full;
-  });
-  return el;
-};
-
-// Counts render compact when present, "-" when the field is off or missing.
-const numOrDash = (v) => (typeof v === "number" ? numCell(v) : dash(v));
 
 // Which columns and card rows to draw. Every value except Channel follows the
 // same toggle as the bullets, so one switch drives both the note and the view.
@@ -1237,9 +2030,9 @@ const mdImage = (item) => {
 };
 
 // The channel banner fields, the same local-first rule as mdImage under their
-// own names. Channels only, and only the card layout draws it: at chip width
-// a banner would be an unreadable sliver. No legacy-embed path, because
-// bullets never carried a banner embed.
+// own names. Channels only, and only two layouts draw it: the Ambient poster
+// (as a blurred backdrop) and the Cover rows table (as a small crop). No
+// legacy-embed path, because bullets never carried a banner embed.
 const mdBanner = (item) => {
   if (!item) return null;
   const local = imageField(item.banner);
@@ -1251,14 +2044,19 @@ const mdBanner = (item) => {
 
 // Resolve that image to something an <img> can load. A remote URL is used as
 // is; a local file is resolved the same way the note itself resolves it, from
-// the note's own path, so no folder setting has to be baked in. Both paths are
-// offline lookups: neither issues a network request.
-const imageSrc = (img) => {
+// the note's own path, so no folder setting has to be baked in. The optional
+// fromPath overrides that base for the channel faces joined from Channels.md,
+// whose local avatar files belong to that note rather than the video note. Both
+// paths are offline lookups: neither issues a network request.
+const imageSrc = (img, fromPath) => {
   if (!img) return null;
   if (!img.local) return img.target;
   try {
-    const current = dv.current();
-    const from = current && current.file ? current.file.path : "";
+    let from = fromPath;
+    if (from == null) {
+      const current = dv.current();
+      from = current && current.file ? current.file.path : "";
+    }
     const file = app.metadataCache.getFirstLinkpathDest(img.target, from);
     return file ? app.vault.getResourcePath(file) : null;
   } catch (err) {
@@ -1292,34 +2090,7 @@ const thumb = (item, label) => {
   return box;
 };
 
-// The channel avatar as a round badge, same lazy load and letter fallback as
-// the chip thumb. In a card it straddles the banner's lower edge; with no
-// banner it simply leads the body.
-const avatarBadge = (src, label) => {
-  const box = el("div", "lv-avatar");
-  const img = document.createElement("img");
-  img.src = src;
-  img.alt = label == null ? "" : String(label);
-  img.loading = "lazy";
-  img.addEventListener("error", () => {
-    box.textContent = initialOf(label);
-  });
-  box.appendChild(img);
-  return box;
-};
-
-const metaRow = (parent, label, value) => {
-  if (value == null || value === "") return;
-  const row = el("div", "lv-meta-row");
-  row.appendChild(el("span", "lv-meta-label", label));
-  const cell = el("span", "lv-meta-value");
-  if (typeof value === "string") cell.textContent = value;
-  else cell.appendChild(value);
-  row.appendChild(cell);
-  parent.appendChild(row);
-};
-
-// Chips and cards paint one page, then append the rest behind a button, so a
+// Chips and posters paint one page, then append the rest behind a button, so a
 // 900-video Watch Later builds 60 nodes on open instead of 900. onPaint runs
 // after every page so the toolbar count stays honest.
 const mount = (host, items, renderOne, onPaint) => {
@@ -1349,190 +2120,12 @@ const mount = (host, items, renderOne, onPaint) => {
   }
 };
 
-// ---------------------------------------------------------------------------
-// Table layout (phase 1 behavior; Dataview's own table when available)
-// ---------------------------------------------------------------------------
-
-// Build headers + values instead of calling dv.table directly, so the same
-// columns feed both the native table and the plain fallback below.
-const channelsTable = (rows) => {
-  const headers = ["Channel"];
-  const getters = [(item) => dash(item.channel)];
-  const add = (key, header, get) => {
-    if (want(key)) {
-      headers.push(header);
-      getters.push(get);
-    }
-  };
-  add("channelId", "ID", (item) => idCell(item.id));
-  add("subscribedOn", "Subscribed on", (item) => fmtDate(item.subscribed_on));
-  add("syncDates", "First seen", (item) => fmtDate(item.first_seen));
-  add("syncDates", "Last seen", (item) => fmtDate(item.last_seen));
-  add("status", "Status", (item) => dash(item.status));
-  add("handle", "Handle", (item) => dash(item.handle));
-  add("subscribers", "Subscribers", (item) => numOrDash(item.subscribers));
-  add("videos", "Videos", (item) => numOrDash(item.videos));
-  add("views", "Views", (item) => numOrDash(item.views));
-  add("country", "Country", (item) => dash(item.country));
-  return { headers, values: rows.map((item) => getters.map((get) => get(item))) };
-};
-
-const playlistTable = (rows) => ({
-  headers: ["Video", "Channel", "Date added"],
-  values: rows.map((item) => [dash(item.title), dash(item.channel), dash(item.date)]),
-});
-
-// Plain DOM fallback for when dv.api.table is unavailable. Same classes as
-// Dataview's table, so the injected CSS frames both identically. Values that
-// dv.table would render natively (a date Link, a Luxon DateTime) are not DOM
-// nodes here, so they go through fmtDate / String instead of appendChild.
-const domTable = (headers, values) => {
-  const table = el("table", "dataview table-view-table");
-  const thead = document.createElement("thead");
-  const headRow = document.createElement("tr");
-  for (const header of headers) headRow.appendChild(el("th", "", header));
-  thead.appendChild(headRow);
-  table.appendChild(thead);
-  const tbody = document.createElement("tbody");
-  for (const value of values) {
-    const row = document.createElement("tr");
-    for (const cell of value) {
-      const td = document.createElement("td");
-      if (cell != null && typeof cell.appendChild === "function") td.appendChild(cell);
-      else if (cell != null && typeof cell === "object") td.textContent = fmtDate(cell);
-      else td.textContent = String(cell == null ? "" : cell);
-      row.appendChild(td);
-    }
-    tbody.appendChild(row);
-  }
-  table.appendChild(tbody);
-  return table;
-};
-
-// dv.table renders into dv.container, which would stack one table per
-// re-render; the low-level api.table takes a container, so the table lands in
-// the same host the chips and cards use and can be cleared like them.
-const renderTable = (host, built) => {
-  if (dv.api && typeof dv.api.table === "function") {
-    dv.api.table(built.headers, built.values, host, dv.component, dv.currentFilePath);
-    return;
-  }
-  host.appendChild(domTable(built.headers, built.values));
-};
-
-// ---------------------------------------------------------------------------
-// Chips layout: one compact row per entry
-// ---------------------------------------------------------------------------
-
-const channelChipMeta = (item) => {
-  const bits = [];
-  if (want("handle") && item.handle) bits.push(String(item.handle));
-  if (want("subscribers") && typeof item.subscribers === "number") bits.push(fmtShort(item.subscribers) + " subscribers");
-  if (want("videos") && typeof item.videos === "number") bits.push(fmtShort(item.videos) + " videos");
-  if (want("status") && item.status) bits.push(String(item.status));
-  if (want("country") && item.country) bits.push(String(item.country));
-  return bits.join(" \\u00b7 ");
-};
-
-const playlistChipMeta = (item) => {
-  const bits = [];
-  const channel = mdLink(item.channel);
-  if (channel.label) bits.push(channel.label);
-  if (item.date != null && item.date !== "") bits.push(fmtDate(item.date));
-  return bits.join(" \\u00b7 ");
-};
-
-const chipRow = (item, section) => {
-  const link = section === "channels" ? mdLink(item.channel) : mdLink(item.title);
-  const row = el("div", "lv-chip");
-  const image = thumb(item, link.label);
-  if (image) row.appendChild(image);
-  const body = el("div", "lv-body");
-  body.appendChild(linkNode(link.label, link.href, "lv-title"));
-  const meta = section === "channels" ? channelChipMeta(item) : playlistChipMeta(item);
-  if (meta) body.appendChild(el("div", "lv-meta", meta));
-  row.appendChild(body);
-  return row;
-};
-
-// ---------------------------------------------------------------------------
-// Cards layout: a bordered card per entry, accent on the left edge
-// ---------------------------------------------------------------------------
-
-const channelCard = (body, item) => {
-  if (want("channelId") && item.id) metaRow(body, "ID", idCell(item.id));
-  if (want("subscribedOn") && item.subscribed_on) metaRow(body, "Subscribed on", fmtDate(item.subscribed_on));
-  if (want("syncDates") && item.first_seen) metaRow(body, "First seen", fmtDate(item.first_seen));
-  if (want("syncDates") && item.last_seen) metaRow(body, "Last seen", fmtDate(item.last_seen));
-  if (want("status") && item.status) metaRow(body, "Status", String(item.status));
-  if (want("handle") && item.handle) metaRow(body, "Handle", String(item.handle));
-  if (want("subscribers") && typeof item.subscribers === "number") metaRow(body, "Subscribers", numCell(item.subscribers));
-  if (want("videos") && typeof item.videos === "number") metaRow(body, "Videos", numCell(item.videos));
-  if (want("views") && typeof item.views === "number") metaRow(body, "Views", numCell(item.views));
-  if (want("country") && item.country) metaRow(body, "Country", String(item.country));
-};
-
-const playlistCard = (body, item) => {
-  const channel = mdLink(item.channel);
-  if (channel.label) metaRow(body, "Channel", linkNode(channel.label, channel.href, "lv-meta-link"));
-  if (item.date != null && item.date !== "") metaRow(body, "Date added", fmtDate(item.date));
-};
-
-// The channel header a card draws: the banner fills the top strip (the wide
-// shape it was drawn for) and the avatar becomes a round badge half over its
-// lower-left edge, the way a YouTube channel header sits. A channel with no
-// banner skips the strip entirely and the badge simply leads the body, so a
-// square avatar is never force-cropped into a wide band. Videos keep the
-// plain thumbnail strip.
-const cardHeader = (node, body, item, label) => {
-  const avatar = imageSrc(mdImage(item));
-  const banner = imageSrc(mdBanner(item));
-  const badge = avatar ? avatarBadge(avatar, label) : null;
-  if (banner) {
-    const strip = el("div", "lv-banner");
-    const img = document.createElement("img");
-    img.src = banner;
-    img.alt = "";
-    img.loading = "lazy";
-    // A dead banner link leaves the plain themed strip behind (the badge and
-    // the rows below still render), never a broken-image icon.
-    img.addEventListener("error", () => {
-      img.style.display = "none";
-    });
-    strip.appendChild(img);
-    if (badge) strip.appendChild(badge);
-    node.appendChild(strip);
-    // The class only means the badge overhangs the strip, so the body's top
-    // padding clears it; a banner with no avatar keeps its normal padding.
-    if (badge) node.classList.add("lv-card--banner");
-  } else if (badge) {
-    body.appendChild(badge);
-  }
-};
-
-const card = (item, section) => {
-  const link = section === "channels" ? mdLink(item.channel) : mdLink(item.title);
-  const node = el("article", "lv-card");
-  const body = el("div", "lv-card-body");
-  if (section === "channels") cardHeader(node, body, item, link.label);
-  else {
-    const image = thumb(item, link.label);
-    if (image) node.appendChild(image);
-  }
-  body.appendChild(linkNode(link.label, link.href, "lv-title"));
-  if (section === "channels") channelCard(body, item);
-  else playlistCard(body, item);
-  node.appendChild(body);
-  return node;
-};
-${kind === 'channels' ? NOTE_VIEWS_POSTER_JS : ""}
+${kind === 'channels' ? NOTE_VIEWS_CHANNELS_JS : noteViewsVideoJs(channelsPath)}
 // ---------------------------------------------------------------------------
 // Toolbar: search, scope, layout, refresh
 // ---------------------------------------------------------------------------
 
-const KNOWN_LAYOUTS = ${JSON.stringify(
-      kind === 'channels' ? ['table', 'chips', 'poster'] : ['table', 'chips', 'cards'],
-    )};
+const KNOWN_LAYOUTS = ["table", "chips", "poster"];
 // Which note shape this file serves; baked per script ("channels" in
 // lifeline-channels.js, "playlist" in the other two) rather than passed in.
 const section = ${JSON.stringify(section)};
@@ -1576,11 +2169,11 @@ const persistLayout = (value) => {
 
 // A layout switch here is a choice shared by every note of this type, so the
 // other open views follow it the way Dataview's own force-refresh command
-// makes them: bump the index
-// revision, then fire the refresh event (Dataview ignores the event unless
-// the revision moved). Our own view re-renders too, which is why the current
-// search is stashed below and restored by the next run instead of dropped.
-// Guarded: the local render in the change handler already applied either way.
+// makes them: bump the index revision, then fire the refresh event (Dataview
+// ignores the event unless the revision moved). Our own view re-renders too,
+// which is why the current search is stashed below and restored by the next
+// run instead of dropped. Guarded: the local render in the change handler
+// already applied either way.
 const refreshOtherViews = () => {
   try {
     const registry = app.plugins && app.plugins.plugins ? app.plugins.plugins : null;
@@ -1607,23 +2200,21 @@ const STASH = (() => {
 })();
 const viewKey = String(dv.currentFilePath || "");
 
-const DEFAULT_LAYOUT = ${JSON.stringify(kind === 'channels' ? 'chips' : 'cards')};
-const baked = String(input.layout == null ? DEFAULT_LAYOUT : input.layout);
+// Poster is the layout every kind opens on. The retired cards layout meant the
+// same card grid this poster now provides, so a stored or baked "cards" lands
+// on poster, and any other unrecognized value lands on the default too. The
+// migration runs at load time as well (the plugin normalizes settings once),
+// this is the fallback for a note that still bakes an old value.
+const DEFAULT_LAYOUT = "poster";
+const migrateLayout = (value) => {
+  if (value === "cards") return DEFAULT_LAYOUT;
+  return KNOWN_LAYOUTS.indexOf(value) >= 0 ? value : DEFAULT_LAYOUT;
+};
+const baked = migrateLayout(input.layout == null ? DEFAULT_LAYOUT : String(input.layout));
 const state = {
-  layout: liveLayout() || (KNOWN_LAYOUTS.indexOf(baked) >= 0 ? baked : DEFAULT_LAYOUT),
+  layout: migrateLayout(liveLayout() || baked),
   query: "",
   scope: "all",
-};
-
-// Values outside this script's own list (a layout a kind no longer offers, a
-// value an old note baked in) already fell back to the default above, so
-// what reaches the branches below is always renderable. One extra guard: a
-// poster value can only exist in the channels script (the other kinds never
-// offer or persist it), and the check keeps a stray stored value from
-// reaching posterCard anyway.
-const resolveLayout = (requested) => {
-  if (requested === "poster" && section !== "channels") return "cards";
-  return requested;
 };
 
 // Channels.md bullets carry a channel link and never a title; playlist bullets
@@ -1673,12 +2264,53 @@ const noun = section === "channels" ? "channels" : "videos";
 const toolbar = el("div", "lv-toolbar");
 const toolbarRow = el("div", "lv-toolbar-row");
 
+// The search box and its count are one object: the input owns the pill shape,
+// the count sits inside its right edge. The placeholder names the field the
+// scope select is narrowed to, so a scoped search says what it searches.
+const glass = el("div", "lv-glass-wrap");
 const search = document.createElement("input");
 search.type = "text";
 search.className = "lv-search";
-search.placeholder = "Search " + noun + "...";
 search.setAttribute("aria-label", "Search " + noun);
-toolbarRow.appendChild(search);
+glass.appendChild(search);
+const stats = el("div", "lv-stats");
+glass.appendChild(stats);
+toolbarRow.appendChild(glass);
+
+// The count reads "60 / 76" so the pill stays narrow, and expands to the full
+// sentence ("Showing 60 of 76 channels") while the pointer is over it, which
+// is also where the words were before. Every render writes through
+// setStatsText, so a repaint while hovered keeps the expanded form.
+let statsFull = "";
+let statsHovered = false;
+const statsShort = () => {
+  const found = /([0-9]+) of ([0-9]+)/.exec(statsFull);
+  return found ? found[1] + " / " + found[2] : statsFull;
+};
+const paintStats = () => {
+  stats.textContent = statsFull === "" ? "" : statsHovered ? statsFull : statsShort();
+};
+const setStatsText = (text) => {
+  statsFull = text;
+  paintStats();
+};
+stats.addEventListener("mouseenter", () => {
+  statsHovered = true;
+  paintStats();
+});
+stats.addEventListener("mouseleave", () => {
+  statsHovered = false;
+  paintStats();
+});
+
+// The placeholder names the scoped field: the scope option's own label,
+// lowercased, or the plural noun for All fields. Derived from the option list
+// so adding a scope cannot leave the placeholder lying about what it searches.
+const syncPlaceholder = () => {
+  const found = scopeOptions.filter((option) => option[0] === scope.value)[0];
+  const label = !found || found[0] === "all" ? noun : found[1].toLowerCase();
+  search.placeholder = "Search " + label + "...";
+};
 
 const scope = document.createElement("select");
 scope.className = "lv-select";
@@ -1692,46 +2324,87 @@ for (const option of scopeOptions) {
   opt.textContent = option[1];
   scope.appendChild(opt);
 }
+scope.value = state.scope;
 toolbarRow.appendChild(scope);
+syncPlaceholder();
 
+// The layout choices every kind offers, in the same order in the segmented
+// control, the settings rows, and the note's own dv.view call.
+const LAYOUT_CHOICES = [
+  ["poster", "Poster"],
+  ["chips", "Chips"],
+  ["table", "Table"],
+];
+
+// The native select stays in the DOM, hidden, as the single value source: the
+// segmented buttons only set its value and fire its change event.
 const layoutSelect = document.createElement("select");
 layoutSelect.className = "lv-select";
 layoutSelect.setAttribute("aria-label", "Layout");
-// The layout choices, per note type: the video lists keep chips, cards, and
-// table; Channels offers the poster card and chips and table, the old cards
-// view having retired in the poster's favor (a stored cards value falls back
-// to chips).
-for (const option of ${JSON.stringify(
-      kind === 'channels'
-        ? [
-            ['poster', 'Poster'],
-            ['chips', 'Chips'],
-            ['table', 'Table'],
-          ]
-        : [
-            ['chips', 'Chips'],
-            ['cards', 'Cards'],
-            ['table', 'Table'],
-          ],
-    )}) {
+for (const option of LAYOUT_CHOICES) {
   const opt = document.createElement("option");
   opt.value = option[0];
   opt.textContent = option[1];
   layoutSelect.appendChild(opt);
 }
-layoutSelect.value = resolveLayout(state.layout);
-toolbarRow.appendChild(layoutSelect);
+layoutSelect.value = state.layout;
+layoutSelect.style.display = "none";
 
+const seg = el("div", "lv-seg");
+seg.setAttribute("role", "group");
+seg.setAttribute("aria-label", "Layout");
+const segButtons = [];
+for (const option of LAYOUT_CHOICES) {
+  const btn = el("button", "lv-seg-btn", option[1]);
+  btn.type = "button";
+  btn.dataset.layout = option[0];
+  btn.addEventListener("click", () => {
+    if (layoutSelect.value === option[0]) return;
+    layoutSelect.value = option[0];
+    layoutSelect.dispatchEvent(new Event("change"));
+  });
+  segButtons.push(btn);
+  seg.appendChild(btn);
+}
+seg.appendChild(layoutSelect);
+toolbarRow.appendChild(seg);
+
+const syncSeg = () => {
+  for (const btn of segButtons) {
+    const on = btn.dataset.layout === state.layout;
+    btn.classList.toggle("on", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+};
+syncSeg();
+
+// Icon-only: the accessible name is the tooltip (aria-label), so there is no
+// second, native title tooltip competing with it.
 const refresh = document.createElement("button");
 refresh.type = "button";
 refresh.className = "lv-refresh";
-refresh.textContent = "Refresh";
-refresh.setAttribute("aria-label", "Re-read the entries in this note");
+refresh.setAttribute("aria-label", "Refresh entries");
+const refreshIcon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+refreshIcon.setAttribute("viewBox", "0 0 24 24");
+// Explicit size and paint as well as the stylesheet rule: a theme that resets
+// svg sizing, or a stale sheet from before the toolbar redesign, would
+// otherwise leave the button an empty block.
+refreshIcon.setAttribute("width", "17");
+refreshIcon.setAttribute("height", "17");
+refreshIcon.setAttribute("fill", "currentColor");
+refreshIcon.setAttribute("aria-hidden", "true");
+refreshIcon.setAttribute("focusable", "false");
+const refreshPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+refreshPath.setAttribute(
+  "d",
+  "M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z",
+);
+refreshPath.setAttribute("fill", "currentColor");
+refreshIcon.appendChild(refreshPath);
+refresh.appendChild(refreshIcon);
 toolbarRow.appendChild(refresh);
 
-const stats = el("div", "lv-stats");
 toolbar.appendChild(toolbarRow);
-toolbar.appendChild(stats);
 dv.container.appendChild(toolbar);
 
 const host = el("div", "lv-results");
@@ -1744,41 +2417,33 @@ const clear = (node) => {
 const render = () => {
   clear(host);
   // The rows are appended straight into the host, so the container class has
-  // to be applied here: .lv-chips and .lv-cards carry the gap (and the card
-  // grid), .lv-posters the channel-photo grid, that keeps entries from
-  // running together into one joined block.
-  const resolved = resolveLayout(state.layout);
+  // to be applied here: .lv-chips and .lv-posters carry the gap (and the
+  // poster grid), which keeps entries from running together into one block.
+  const resolved = state.layout;
   host.className =
     "lv-results" +
     (resolved === "table" ? "" : " lv-" + (resolved === "poster" ? "posters" : resolved));
   const visible = rows.filter(matches);
   if (visible.length === 0) {
     host.appendChild(el("div", "lv-empty", rows.length === 0 ? "No " + noun + " synced yet." : "No entries match your search."));
-    stats.textContent = rows.length === 0 ? "" : "Found 0 of " + rows.length + " " + noun;
+    setStatsText(rows.length === 0 ? "" : "Found 0 of " + rows.length + " " + noun);
     return;
   }
   // Unfiltered mirrors quotebook ("Showing 60 of 120 channels"); filtered
-  // states the hit count, and the Show more button carries the paging.
+  // states the hit count, and the Show more button carries the paging. The
+  // pill shows only the numbers until hovered (see statsShort above).
   const setStats = (shown) => {
     const filtered = state.query.trim() !== "";
-    stats.textContent = filtered
+    const text = filtered
       ? "Found " + visible.length + " of " + rows.length + " " + noun
       : "Showing " + shown + " of " + rows.length + " " + noun;
+    setStatsText(text);
   };
   if (resolved === "table") {
-    const built = section === "channels" ? channelsTable(visible) : playlistTable(visible);
-    renderTable(host, built);
+    renderTableRows(host, visible);
     setStats(visible.length);
   } else {
-    mount(
-      host,
-      visible,
-      (item) =>
-        resolved === "poster"
-          ? posterCard(item)
-          : resolved === "cards" ? card(item, section) : chipRow(item, section),
-      setStats,
-    );
+    mount(host, visible, resolved === "poster" ? posterCard : chipRow, setStats);
   }
 };
 
@@ -1793,11 +2458,14 @@ search.addEventListener("input", () => {
 
 scope.addEventListener("change", () => {
   state.scope = scope.value;
+  syncPlaceholder();
   render();
 });
 
-layoutSelect.addEventListener("change", () => {
-  state.layout = KNOWN_LAYOUTS.indexOf(layoutSelect.value) >= 0 ? layoutSelect.value : DEFAULT_LAYOUT;
+const applyLayout = (value) => {
+  state.layout = migrateLayout(value);
+  layoutSelect.value = state.layout;
+  syncSeg();
   persistLayout(state.layout);
   // Stash the search for the re-render the refresh below triggers, then
   // apply locally (instant, and the fallback when that refresh does not
@@ -1810,11 +2478,14 @@ layoutSelect.addEventListener("change", () => {
   window.setTimeout(() => {
     if (STASH) delete STASH[viewKey];
   }, 0);
-});
+};
+layoutSelect.addEventListener("change", () => applyLayout(layoutSelect.value));
 
 refresh.addEventListener("click", () => {
-  // Re-read the note's own bullets (Dataview's index is current by the time a
-  // view renders) and keep any active search across the refresh.
+  // Joined channel faces are cached on first render; drop them so newly
+  // synced avatars land. Then re-read the note's own bullets (Dataview's
+  // index is current by the time a view renders) and keep any active search.
+  resetKindCache();
   rows = readRows();
   state.query = search.value;
   render();
@@ -1840,6 +2511,7 @@ if (STASH && STASH[viewKey]) {
       }
     }
   }
+  syncPlaceholder();
 }
 
 // The toolbar stays even on an empty note, so the layout can still be
@@ -1847,3 +2519,4 @@ if (STASH && STASH[viewKey]) {
 render();
 `;
 }
+

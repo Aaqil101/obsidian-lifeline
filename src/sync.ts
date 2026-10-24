@@ -776,13 +776,17 @@ export async function writeNoteViewScripts(
 		() => writeViewStylesheets(plugin),
 		dashboardStylesheetPath(plugin.settings.stylesFolder),
 	);
+	// The two video scripts join channel avatars from Channels.md, so the note's
+	// vault path is baked in beside the script: a local avatar belongs to that
+	// note, not to the playlist note the view is reading.
+	const channelsPath = outputPaths(plugin.settings.outputFolder).channels;
 	for (const kind of NOTE_VIEW_KINDS) {
 		await step(
 			() =>
 				writeGeneratedScript(
 					plugin,
 					(folder) => noteViewScriptPath(kind, folder),
-					renderNoteViewScript(kind, plugin.settings.stylesFolder),
+					renderNoteViewScript(kind, plugin.settings.stylesFolder, channelsPath),
 				),
 			noteViewScriptPath(kind, plugin.settings.dashboardScriptsFolder),
 		);
