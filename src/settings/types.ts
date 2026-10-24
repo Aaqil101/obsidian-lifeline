@@ -10,7 +10,11 @@
  */
 import { DEFAULT_SCRIPTS_FOLDER } from '../dashboardScript';
 import { DEFAULT_OUTPUT_FOLDER } from '../markdown';
-import { DEFAULT_STYLES_FOLDER, type NoteViewKind } from '../noteViewsScript';
+import {
+	DEFAULT_STYLES_FOLDER,
+	DEFAULT_VIEW_PAGE_SIZE,
+	type NoteViewKind,
+} from '../noteViewsScript';
 import {
 	DEFAULT_CHANNELS_FIELDS,
 	DEFAULT_DASHBOARD_SECTIONS,
@@ -206,6 +210,12 @@ export interface LifelineSettings {
 	 *  back by each note's toolbar Layout select too, so switching there needs
 	 *  no sync. Ignored while `noteViews` is off. */
 	noteLayouts: NoteLayouts;
+	/** How many entries the poster and chips views on Channels.md, playlist
+	 *  notes, and Watch Later.md paint before a Show more button; the table
+	 *  layout always draws every row. Read live at render time, so changing it
+	 *  needs no sync and no regenerated script. Ignored while `noteViews` is
+	 *  off. */
+	viewPageSize: number;
 	/** Vault folder holding the per-view stylesheets (lifeline-channels.css,
 	 *  lifeline-playlists.css, lifeline-watchlater.css, and the dashboard's
 	 *  lifeline-dashboard.css) that the view scripts read at view time. */
@@ -250,6 +260,7 @@ export const DEFAULT_SETTINGS: LifelineSettings = {
 	dashboardScriptsFolderWritten: null,
 	noteViews: false,
 	noteLayouts: { ...DEFAULT_NOTE_LAYOUTS },
+	viewPageSize: DEFAULT_VIEW_PAGE_SIZE,
 	stylesFolder: DEFAULT_STYLES_FOLDER,
 	stylesFolderWritten: null,
 	channelAvatars: 'off',

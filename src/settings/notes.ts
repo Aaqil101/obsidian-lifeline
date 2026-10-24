@@ -1,7 +1,7 @@
 /**
- * Notes: where the notes go, the Dataview view rows (the toggle plus the two
- * folders its generated files land in), and the doors to the Channels.md
- * fields and Dashboard sub-pages.
+ * Notes: where the notes go, the Dataview view rows (the toggle, the layout
+ * dropdowns, items per page, and the two folders its generated files land in),
+ * and the doors to the Channels.md fields and Dashboard sub-pages.
  *
  * The image rows deliberately live in their own group (images.ts): they are
  * content decisions with a folder of their own, not note structure.
@@ -10,7 +10,13 @@ import { Notice, Setting } from 'obsidian';
 import { DATAVIEW_REQUIRED_NOTICE, isDataviewEnabled } from '../dashboard';
 import { DEFAULT_SCRIPTS_FOLDER, normalizeScriptsFolder } from '../dashboardScript';
 import { DEFAULT_OUTPUT_FOLDER, normalizeFolder } from '../markdown';
-import { DEFAULT_STYLES_FOLDER, normalizeStylesFolder } from '../noteViewsScript';
+import {
+	DEFAULT_STYLES_FOLDER,
+	MAX_VIEW_PAGE_SIZE,
+	MIN_VIEW_PAGE_SIZE,
+	normalizeStylesFolder,
+	normalizeViewPageSize,
+} from '../noteViewsScript';
 import { writeNoteViewScripts } from '../sync';
 import { DEFAULT_CHANNELS_FIELDS } from '../types';
 import { folderSetting } from './folderPicker';
@@ -132,6 +138,43 @@ export function renderNotesGroup(host: SettingsHost, containerEl: HTMLElement): 
 				});
 			});
 	}
+
+	// How many entries the poster and chips views paint before a Show more
+	// button. Read live from settings at render time, the same way the layout
+	// is, so changing it needs no sync and no regenerated script. Committed on
+	// blur or Enter rather than per keystroke, so a half-typed number never
+	// becomes the page size; the value is clamped and written back into the
+	// field either way. The table layout paints every match at once, which is
+	// why the description says so.
+	new Setting(card)
+		.setName('Items per page')
+		.setDesc(
+			settings.noteViews
+				? 'How many channels or videos the poster and chips views draw before a Show more button. The table layout always draws every row. Applies on the next view render.'
+				: 'How many channels or videos the poster and chips views draw before a Show more button. The table layout always draws every row. Only applies while Views in notes is on.',
+		)
+		.addText((text) => {
+			text.inputEl.type = 'number';
+			text.inputEl.min = String(MIN_VIEW_PAGE_SIZE);
+			text.inputEl.max = String(MAX_VIEW_PAGE_SIZE);
+			text.inputEl.step = '1';
+			text.setValue(String(normalizeViewPageSize(settings.viewPageSize)));
+			const commit = async (): Promise<void> => {
+				const next = normalizeViewPageSize(text.getValue());
+				text.setValue(String(next));
+				if (next === settings.viewPageSize) return;
+				settings.viewPageSize = next;
+				await plugin.saveSettings();
+			};
+			text.inputEl.addEventListener('blur', () => {
+				void commit();
+			});
+			text.inputEl.addEventListener('keydown', (event) => {
+				if (event.key !== 'Enter') return;
+				event.preventDefault();
+				text.inputEl.blur();
+			});
+		});
 
 	// Folder for the per-view stylesheets the view scripts read at render
 	// time (the quotebook.css pattern): lifeline-channels.css,

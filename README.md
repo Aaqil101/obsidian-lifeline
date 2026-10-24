@@ -139,12 +139,12 @@ Whatever the layout, the Channels.md fields follow your **Channels.md fields** c
 
 Every view opens with a glass pill toolbar:
 
-- A **search pill** that filters the entries as you type, with the result count inside its right edge: it reads `60 / 76` while you work and expands to `Showing 60 of 76 channels` while you point at it. Search covers the name or title, handle, ID, country, status, channel, or date, whichever you pick in the box beside it, and the placeholder names the field being searched.
+- A **search pill** that filters the entries as you type, with the result count inside its right edge: it reads `10 / 76` while you work and expands to `Showing 10 of 76 channels` while you point at it. Search covers the name or title, handle, ID, country, status, channel, or date, whichever you pick in the box beside it, and the placeholder names the field being searched.
 - A **segmented layout control** (Poster, Chips, Table) that switches the view immediately, with no sync needed. The choice is saved as that note type's default, the same slot the settings dropdowns write to, so every note of that type follows it, including any other view already open. It only changes the note type you are looking at: switching in a playlist note leaves Channels.md alone.
 - An icon-only **Refresh** button that re-reads the note's bullets, for when you edited them by hand.
-- The count, for example `Showing 60 of 412 channels`, or `Found 3 of 412 channels` while searching.
+- The count, for example `Showing 10 of 412 channels`, or `Found 3 of 412 channels` while searching.
 
-Poster and chips paint the first 60 entries when the note opens and put the rest behind a **Show more** button, so a 900-entry Watch Later does not build 900 nodes before you can read it. Table paints every match at once.
+Poster and chips paint the first page of entries when the note opens and put the rest behind a **Show more** button, so a 900-entry Watch Later does not build 900 nodes before you can read it. The page holds 10 entries by default; change it with **Items per page** under **Notes**, and every view follows on its next render. Table paints every match at once.
 
 The view reads the note's own list entries (`dv.current().file.lists`), so it always matches the bullets directly below it. The bullets stay: the view is purely additive, and your `file.lists` Dataview queries are unaffected. Turning the toggle on requires the community [Dataview](https://github.com/blacksmithgu/obsidian-dataview) plugin (Lifeline checks and tells you to install it if it's missing); the scripts are written immediately, and the notes pick up the view on the next sync. If Dataview is missing or the toggle is off, the notes carry no `dataviewjs` block at all. Changing **Script folder** moves these scripts alongside the dashboard one, and the old copies are cleaned up. Zero API quota cost.
 

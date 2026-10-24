@@ -160,8 +160,28 @@ export function dashboardStylesheetPath(folder: string): string {
 	return `${normalizeStylesFolder(folder)}/${DASHBOARD_STYLESHEET_FILE}`;
 }
 
-/** How many entries a chips or poster view paints before it needs a click. */
-const PAGE_SIZE = 60;
+/** How many entries a chips or poster view paints before Show more, for an
+ *  install with no saved preference and for a render where the plugin
+ *  instance cannot be reached. The live setting (`viewPageSize`) wins
+ *  otherwise, so changing it needs no sync. */
+export const DEFAULT_VIEW_PAGE_SIZE = 10;
+
+/** Bounds for a page size, applied to what the settings row accepts and again
+ *  at render time, so a stray value can neither paint a whole 900-entry note
+ *  nor shrink the page to nothing. */
+export const MIN_VIEW_PAGE_SIZE = 1;
+export const MAX_VIEW_PAGE_SIZE = 1000;
+
+/** Clamp a stored or typed page size to a whole number inside those bounds.
+ *  Anything unusable (missing, blank, NaN) falls back to the default, and a
+ *  number out of range is pulled to the nearest bound. */
+export function normalizeViewPageSize(value: unknown): number {
+	const raw = typeof value === 'string' ? value.trim() : value;
+	if (raw == null || raw === '') return DEFAULT_VIEW_PAGE_SIZE;
+	const n = typeof raw === 'number' ? raw : Number(raw);
+	if (!Number.isFinite(n)) return DEFAULT_VIEW_PAGE_SIZE;
+	return Math.min(MAX_VIEW_PAGE_SIZE, Math.max(MIN_VIEW_PAGE_SIZE, Math.floor(n)));
+}
 
 /** Debounce for the toolbar search box, matching the quotebook script. */
 const SEARCH_DEBOUNCE_MS = 250;
@@ -2091,11 +2111,29 @@ const thumb = (item, label) => {
 };
 
 // Chips and posters paint one page, then append the rest behind a button, so a
-// 900-video Watch Later builds 60 nodes on open instead of 900. onPaint runs
-// after every page so the toolbar count stays honest.
+// 900-video Watch Later builds one page of nodes on open instead of 900.
+// onPaint runs after every page so the toolbar count stays honest. The page
+// size is the live Items per page setting, clamped; the baked default only
+// covers a render where the plugin instance cannot be reached.
+const DEFAULT_PAGE_SIZE = ${DEFAULT_VIEW_PAGE_SIZE};
+const normalizePageSize = (value) => {
+  const raw = typeof value === "string" ? value.trim() : value;
+  if (raw == null || raw === "") return DEFAULT_PAGE_SIZE;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n)) return DEFAULT_PAGE_SIZE;
+  return Math.min(${MAX_VIEW_PAGE_SIZE}, Math.max(${MIN_VIEW_PAGE_SIZE}, Math.floor(n)));
+};
+const livePageSize = () => {
+  const plugin = pluginInstance();
+  const value = plugin && plugin.settings ? plugin.settings.viewPageSize : null;
+  return normalizePageSize(value);
+};
 const mount = (host, items, renderOne, onPaint) => {
   let shown = 0;
   let more = null;
+  // Read once per mount, so every Show more click adds the same page the view
+  // opened with even if the setting changes mid-read.
+  const pageSize = livePageSize();
   const paint = (count) => {
     const end = Math.min(items.length, shown + count);
     for (let i = shown; i < end; i++) host.appendChild(renderOne(items[i]));
@@ -2110,12 +2148,12 @@ const mount = (host, items, renderOne, onPaint) => {
     }
     if (onPaint) onPaint(shown);
   };
-  paint(${PAGE_SIZE});
+  paint(pageSize);
   if (shown < items.length) {
     more = el("button", "lv-more");
     more.type = "button";
     more.textContent = "Show more (" + (items.length - shown) + ")";
-    more.addEventListener("click", () => paint(${PAGE_SIZE}));
+    more.addEventListener("click", () => paint(pageSize));
     host.appendChild(more);
   }
 };
@@ -2277,8 +2315,8 @@ const stats = el("div", "lv-stats");
 glass.appendChild(stats);
 toolbarRow.appendChild(glass);
 
-// The count reads "60 / 76" so the pill stays narrow, and expands to the full
-// sentence ("Showing 60 of 76 channels") while the pointer is over it, which
+// The count reads "10 / 76" so the pill stays narrow, and expands to the full
+// sentence ("Showing 10 of 76 channels") while the pointer is over it, which
 // is also where the words were before. Every render writes through
 // setStatsText, so a repaint while hovered keeps the expanded form.
 let statsFull = "";
@@ -2429,7 +2467,7 @@ const render = () => {
     setStatsText(rows.length === 0 ? "" : "Found 0 of " + rows.length + " " + noun);
     return;
   }
-  // Unfiltered mirrors quotebook ("Showing 60 of 120 channels"); filtered
+  // Unfiltered mirrors quotebook ("Showing 10 of 120 channels"); filtered
   // states the hit count, and the Show more button carries the paging. The
   // pill shows only the numbers until hovered (see statsShort above).
   const setStats = (shown) => {
