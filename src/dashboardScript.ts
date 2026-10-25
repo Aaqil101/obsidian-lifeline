@@ -5,11 +5,13 @@
  *
  *   dv.view("<scriptsFolder>/lifeline-dashboard", { section: "playlists", ... })
  *
- * Sections: header (status hero, KPI tiles, quick-link chips, and the "New
- * since last sync" + "Needs attention" cards), playlists (top-5 summary plus
- * the full table in a collapsed block), channels (subscriber bars). All data
- * is queried live from dv.pages() inside the output folder (src option);
- * status, section toggles, and the sync date (since) are baked in per call.
+ * Sections: header (status hero, KPI tiles, and the "New since last sync" +
+ * "Needs attention" cards), playlists (top-5 summary plus the full table in a
+ * collapsed block, both drawn in the note views' Ledger table style), and
+ * channels (top ten by subscribers in the note views' Cover rows table style,
+ * avatar and banner included). All data is queried live from dv.pages() inside
+ * the output folder (src option); status, section toggles, and the sync date
+ * (since) are baked in per call.
  *
  * The plugin regenerates the file on every dashboard refresh, so hand edits
  * are overwritten (an explicit user choice). Sync writes it alongside every
@@ -129,25 +131,6 @@ export const DASHBOARD_CSS = `.lifeline-dash .lifeline-hero {
   font-size: 0.78em;
   margin-top: 2px;
 }
-.lifeline-dash .lifeline-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0 0 6px;
-}
-.lifeline-dash a.lifeline-chip {
-  padding: 4px 12px;
-  border-radius: 999px;
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  color: var(--text-normal);
-  text-decoration: none;
-  font-size: 0.9em;
-}
-.lifeline-dash a.lifeline-chip:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-accent);
-}
 .lifeline-dash .lifeline-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -213,53 +196,143 @@ export const DASHBOARD_CSS = `.lifeline-dash .lifeline-hero {
   font-size: 0.9em;
   padding: 4px 0;
 }
-.lifeline-dash .lifeline-bar-cell {
-  position: relative;
-  display: inline-block;
-  min-width: 90px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  overflow: hidden;
+.lifeline-dash .lifeline-scroll {
+  overflow-x: auto;
 }
-.lifeline-dash .lifeline-bar {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  background: var(--color-blue, #3b82f6);
-  opacity: 0.25;
-  border-radius: 4px;
-}
-.lifeline-dash .lifeline-bar-num {
-  position: relative;
-}
-.lifeline-dash table.dataview.table-view-table,
-.lifeline-dash table.lifeline-mini-table {
+.lifeline-dash .lifeline-table {
+  width: 100%;
   border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m, 8px);
+  border-radius: 12px;
+  border-collapse: separate;
+  border-spacing: 0;
   overflow: hidden;
+  background: var(--background-secondary);
+  font-size: 0.88em;
   margin: 4px 0 10px;
 }
-.lifeline-dash table.dataview.table-view-table thead > tr > th,
-.lifeline-dash table.lifeline-mini-table thead > tr > th {
-  background: var(--background-secondary);
-  color: var(--text-muted);
-  font-weight: 600;
-  font-size: 0.85em;
+.lifeline-dash .lifeline-table th {
+  padding: 8px 12px;
   text-align: left;
+  color: var(--text-faint);
+  font-size: 0.66em;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: var(--background-secondary-alt, var(--background-modifier-hover));
   border-bottom: 1px solid var(--background-modifier-border);
 }
-.lifeline-dash table.dataview.table-view-table tbody > tr > td,
-.lifeline-dash table.lifeline-mini-table tbody > tr > td {
-  border-bottom: 1px solid var(--background-modifier-border);
+.lifeline-dash .lifeline-table td {
+  padding: 9px 12px;
+  vertical-align: middle;
 }
-.lifeline-dash table.dataview.table-view-table tbody > tr:last-child > td,
-.lifeline-dash table.lifeline-mini-table tbody > tr:last-child > td {
-  border-bottom: none;
+.lifeline-dash .lifeline-table th.lifeline-num,
+.lifeline-dash .lifeline-table td.lifeline-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-.lifeline-dash table.dataview.table-view-table tbody > tr:hover > td,
-.lifeline-dash table.lifeline-mini-table tbody > tr:hover > td {
+.lifeline-dash .lifeline-table tbody tr + tr td {
+  border-top: 1px solid var(--background-modifier-border);
+}
+.lifeline-dash .lifeline-table tbody tr:hover td {
   background: var(--background-modifier-hover);
+}
+.lifeline-dash .lifeline-title {
+  color: var(--text-normal);
+  font-weight: 600;
+  text-decoration: none;
+}
+.lifeline-dash .lifeline-title:hover {
+  color: var(--link-color, var(--text-accent));
+  text-decoration: underline;
+}
+.lifeline-dash .lifeline-date {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.lifeline-dash .lifeline-who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.lifeline-dash .lifeline-art {
+  position: relative;
+  flex: 0 0 auto;
+  width: 124px;
+  height: 64px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(
+    135deg,
+    var(--background-modifier-border),
+    var(--background-secondary-alt, var(--background-secondary))
+  );
+}
+.lifeline-dash .lifeline-art > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Soft focus on the banner so the sharp avatar badge sits in front of it. */
+  filter: blur(2px) brightness(0.7) saturate(1.05);
+  transform: scale(1.06);
+  transition: transform 0.35s ease, filter 0.35s ease;
+}
+.lifeline-dash .lifeline-table tbody tr:hover .lifeline-art > img {
+  filter: blur(1.2px) brightness(0.74) saturate(1.05);
+  transform: scale(1.12);
+}
+.lifeline-dash .lifeline-av {
+  position: absolute;
+  left: 10px;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border: 3px solid var(--background-secondary);
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: 1.2em;
+  font-weight: 700;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
+}
+.lifeline-dash .lifeline-av img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.lifeline-dash .lifeline-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.lifeline-dash .lifeline-name a {
+  color: var(--text-normal);
+  font-weight: 650;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lifeline-dash .lifeline-name a:hover {
+  color: var(--link-color, var(--text-accent));
+  text-decoration: underline;
+}
+.lifeline-dash .lifeline-handle {
+  color: var(--text-muted);
+  font-size: 0.78em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 `;
 
@@ -275,8 +348,9 @@ export function renderDashboardScript(cssPath: string): string {
  *
  * Dashboard.md invokes this file once per section:
  *   dv.view("98 - Organize/Scripts/lifeline-dashboard", { section: "playlists", ... })
- * Sections: header (hero + KPI tiles + new/attention cards), playlists,
- * channels. The plugin regenerates this file on every dashboard refresh; hand edits are overwritten.
+ * Sections: header (hero + KPI tiles + new/attention cards), playlists
+ * (Ledger table style), channels (Cover rows table style). The plugin
+ * regenerates this file on every dashboard refresh; hand edits are overwritten.
  */
 const toArr = (v) => (v == null ? [] : Array.isArray(v) ? v : typeof v.array === "function" ? v.array() : []);
 
@@ -381,6 +455,69 @@ const renderValue = (parent, v) => {
   return internalLink(parent, label, v.path);
 };
 
+// Image fields sit on the bullet as inline fields (avatar/avatar_url,
+// banner/banner_url), never as embeds: the bare field is a vault path, the
+// *_url field a remote link. Dataview hands either back as a Link or a plain
+// string, so both shapes are read. The local field wins, so download mode
+// stays offline.
+const imageField = (v) =>
+  v == null ? "" : isLinkValue(v) ? String(v.path).trim() : String(v).trim();
+const picture = (item, key) => {
+  const local = imageField(item?.[key]);
+  if (local) return { local: true, target: local };
+  const remote = imageField(item?.[key + "_url"]);
+  if (remote) return { local: false, target: remote };
+  return null;
+};
+// Resolve that image for an <img> src. A local file is resolved from
+// Channels.md's own path (where those bullets live), the way the note views
+// resolve their joined channel faces; no folder setting has to be baked in.
+const imageSrc = (img, fromPath) => {
+  if (!img) return null;
+  if (!img.local) return img.target;
+  try {
+    const file = app.metadataCache.getFirstLinkpathDest(img.target, fromPath);
+    return file ? app.vault.getResourcePath(file) : null;
+  } catch (err) {
+    return null;
+  }
+};
+
+// A channel value is a markdown link inside the inline field; Dataview may
+// hand it back parsed, so both shapes resolve to {label, href}.
+const linkParts = (v) => {
+  if (isLinkValue(v)) return { label: String(v.display || v.path), href: String(v.path) };
+  const s = v == null ? "" : String(v);
+  const found = /^\\s*\\[(.*)\\]\\(([^)]+)\\)/.exec(s);
+  return found ? { label: found[1], href: found[2] } : { label: s, href: "" };
+};
+const linkInto = (parent, label, href) => {
+  if (!href) return parent.createSpan({ text: label });
+  if (/^https?:\\/\\//.test(href)) {
+    const a = parent.createEl("a", { text: label });
+    a.setAttribute("href", href);
+    a.setAttribute("target", "_blank");
+    a.setAttribute("rel", "noopener");
+    return a;
+  }
+  return internalLink(parent, label, href);
+};
+const initialOf = (label) => {
+  const s = label == null ? "" : String(label).trim();
+  return s ? s.charAt(0).toUpperCase() : "?";
+};
+
+// Both list sections borrow a note-view table design: Ledger for playlists,
+// Cover rows for channels. Building the DOM here (instead of dv.table) is what
+// lets the stylesheet own the look; the head classes are the layout's own.
+const tableBody = (host, cols) => {
+  const wrap = host.createDiv({ cls: "lifeline-scroll" });
+  const table = wrap.createEl("table", { cls: "lifeline-table" });
+  const head = table.createEl("thead").createEl("tr");
+  for (const col of cols) head.createEl("th", { cls: col[1], text: col[0] });
+  return table.createEl("tbody");
+};
+
 const STYLE_ID = "lifeline-dash-style";
 const CSS_PATH = ${JSON.stringify(cssPath)};
 // Read the stylesheet from the vault like the note views do, so hand edits
@@ -476,26 +613,6 @@ function sectionHeader() {
     tile(fresh.length, "New since sync", { text: "since " + since, cls: "lifeline-count-new" }, { accent: true });
   }
 
-  // Quick links: only notes NOT already reachable in this note. Every
-  // playlist is linked in the cards/tables below, and this note links to
-  // itself, so in practice the row carries Channels (plus any future
-  // non-playlist note in the output folder).
-  if (input.quickLinks) {
-    const self = dashboardPath;
-    const links = all
-      .filter((p) => {
-        const path = String(p.file?.path ?? "");
-        if (!path || path === self) return false;
-        return p.type !== "lifeline-playlist";
-      })
-      .map((p) => [String(p.file.name), String(p.file.path)])
-      .sort((a, b) => a[0].localeCompare(b[0]));
-    if (links.length > 0) {
-      const chips = dv.container.createDiv({ cls: "lifeline-chips" });
-      for (const [label, path] of links) internalLink(chips, label, path, "lifeline-chip");
-    }
-  }
-
   // Cards grid: the delta and the attention queue, side by side when both fit.
   if ((input.recent && since) || input.attention) {
     const grid = dv.container.createDiv({ cls: "lifeline-grid" });
@@ -554,45 +671,49 @@ function sectionPlaylists() {
       const ds = itemDate(item);
       if (ds > newest) newest = ds;
     }
-    rows.push({ name: page.file.name, path: page.file.path, link: page.file.link, count: items.length, newest: newest });
+    rows.push({ name: page.file.name, path: page.file.path, count: items.length, newest: newest });
   }
   if (rows.length === 0) {
     dv.paragraph("No playlists tracked yet.");
     return;
   }
-  const tableRows = (list) => list.map((r) => [r.link, numCell(r.count), r.newest || "-"]);
+
+  // Ledger table style: the playlist title in the first column, then the
+  // counts and the newest date at the right edge, one rounded container.
+  const cols = [["Playlist", ""], ["Videos", "lifeline-num"], ["Newest", "lifeline-num"]];
+  const draw = (host, list) => {
+    const body = tableBody(host, cols);
+    for (const r of list) {
+      const tr = body.createEl("tr");
+      internalLink(tr.createEl("td"), r.name, r.path, "lifeline-title");
+      tr.createEl("td", { cls: "lifeline-num" }).appendChild(numCell(r.count));
+      tr.createEl("td", { cls: "lifeline-num" }).createSpan({ cls: "lifeline-date", text: r.newest || "-" });
+    }
+  };
 
   // Small collection: one full table (Watch Later pinned, then alphabetical).
   if (rows.length <= 5) {
     rows.sort((a, b) => (a.path === WL_PATH ? -1 : b.path === WL_PATH ? 1 : a.name.localeCompare(b.name)));
-    dv.table(["Playlist", "Videos", "Newest"], tableRows(rows));
+    draw(dv.container, rows);
     return;
   }
 
   // Summary first: the most recently active playlists, then the full table
-  // inside a collapsed block (Dataview cannot render a table into a nested
-  // element, so the collapsed copy is built by hand with the same classes).
+  // inside a collapsed block.
   const top = rows.slice().sort((a, b) => b.newest.localeCompare(a.newest)).slice(0, 5);
-  dv.table(["Playlist", "Videos", "Newest"], tableRows(top));
+  draw(dv.container, top);
   rows.sort((a, b) => (a.path === WL_PATH ? -1 : b.path === WL_PATH ? 1 : a.name.localeCompare(b.name)));
   const details = dv.container.createEl("details", { cls: "lifeline-more" });
   details.createEl("summary", { text: "All " + rows.length + " playlists" });
-  const table = details.createEl("table", { cls: "lifeline-mini-table" });
-  const htr = table.createEl("thead").createEl("tr");
-  for (const h of ["Playlist", "Videos", "Newest"]) htr.createEl("th", { text: h });
-  const tbody = table.createEl("tbody");
-  for (const r of rows) {
-    const tr = tbody.createEl("tr");
-    internalLink(tr.createEl("td"), r.name, r.path);
-    tr.createEl("td").appendChild(numCell(r.count));
-    tr.createEl("td", { text: r.newest || "-" });
-  }
+  draw(details, rows);
 }
 
 function sectionChannels() {
+  let channelsPath = "";
   const rows = [];
   for (const page of dv.pages(SRC).array()) {
     if (page.type !== "lifeline-channels") continue;
+    channelsPath = String(page.file?.path ?? "");
     for (const item of toArr(page.file?.lists ?? page.lists)) {
       if (typeof item.subscribers === "number") rows.push(item);
     }
@@ -603,20 +724,49 @@ function sectionChannels() {
     dv.paragraph("No subscriber counts found. Turn on Subscribers in Settings → Lifeline → Channels.md fields.");
     return;
   }
-  // Subscribers render as a bar behind the number so the table reads as a chart.
-  const max = top[0].subscribers || 1;
-  dv.table(["Channel", "Subscribers", "Videos"], top.map((l) => {
-    const cell = document.createElement("div");
-    cell.className = "lifeline-bar-cell";
-    const bar = document.createElement("div");
-    bar.className = "lifeline-bar";
-    bar.style.width = Math.max(4, Math.round((l.subscribers / max) * 100)) + "%";
-    cell.appendChild(bar);
-    const num = numCell(l.subscribers);
-    num.className = "lifeline-bar-num";
-    cell.appendChild(num);
-    return [l.channel, cell, l.videos == null ? "-" : numCell(l.videos)];
-  }));
+
+  // Cover rows table style: the banner as a soft crop with the avatar over it,
+  // the name (and handle) stacked beside it, and the counts right-aligned.
+  const body = tableBody(dv.container, [
+    ["Channel", ""],
+    ["Subs", "lifeline-num"],
+    ["Videos", "lifeline-num"],
+  ]);
+  for (const item of top) {
+    const link = linkParts(item.channel);
+    const tr = body.createEl("tr");
+    const who = tr.createEl("td").createDiv({ cls: "lifeline-who" });
+    const art = who.createDiv({ cls: "lifeline-art" });
+    const banner = imageSrc(picture(item, "banner"), channelsPath);
+    if (banner) {
+      const img = art.createEl("img");
+      img.src = banner;
+      img.alt = "";
+      img.loading = "lazy";
+      img.addEventListener("error", () => img.remove());
+    }
+    const face = art.createDiv({ cls: "lifeline-av" });
+    const avatar = imageSrc(picture(item, "avatar"), channelsPath);
+    if (avatar) {
+      const img = face.createEl("img");
+      img.src = avatar;
+      img.alt = "";
+      img.loading = "lazy";
+      img.addEventListener("error", () => {
+        img.remove();
+        face.textContent = initialOf(link.label);
+      });
+    } else {
+      face.textContent = initialOf(link.label);
+    }
+    const name = who.createDiv({ cls: "lifeline-name" });
+    linkInto(name, link.label, link.href);
+    if (item.handle) name.createDiv({ cls: "lifeline-handle", text: String(item.handle) });
+    tr.createEl("td", { cls: "lifeline-num" }).appendChild(numCell(item.subscribers));
+    const videos = tr.createEl("td", { cls: "lifeline-num" });
+    if (item.videos == null) videos.createSpan({ cls: "lifeline-date", text: "-" });
+    else videos.appendChild(numCell(item.videos));
+  }
 }
 
 const section = String(input.section ?? "header");

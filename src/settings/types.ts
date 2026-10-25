@@ -166,7 +166,6 @@ export const FIELD_ROWS: FieldRow[] = [
 
 /** Dashboard.md live-section checklist rows, in render order. */
 export const DASHBOARD_ROWS: Array<{ key: keyof DashboardSections; name: string }> = [
-	{ key: 'quickLinks', name: 'Quick links row' },
 	{ key: 'recent', name: 'New since last sync card' },
 	{ key: 'topChannels', name: 'Top channels by subscribers' },
 	{ key: 'attention', name: 'Needs attention card' },

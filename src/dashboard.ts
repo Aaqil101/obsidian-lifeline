@@ -5,9 +5,9 @@
  * the view script itself (dashboardScript.ts).
  *
  * Everything visible is DataviewJS: the note is one header call (hero status
- * badge, KPI tiles, quick-link chips, and the "New since last sync" +
- * "Needs attention" cards) plus one call per list section into the generated
- * script, which queries the synced notes live. The note only carries
+ * badge, KPI tiles, and the "New since last sync" + "Needs attention" cards)
+ * plus one call per list section into the generated script, which queries the
+ * synced notes live. The note only carries
  * frontmatter (state-derived counts), the H1, the section headings, and the
  * view calls with their baked options (status, section toggles, the sync
  * date for the delta, output folder, watch-later id).
@@ -68,8 +68,8 @@ export interface DashboardContext {
 /**
  * The note itself: frontmatter (state-derived counts), the H1, and one
  * dv.view() call per section under a real heading. The header call is always
- * present (hero status badge, stat tiles, quick-link chips, and the
- * new-since-sync/attention cards when their toggles are on); the list
+ * present (hero status badge, stat tiles, and the new-since-sync/attention
+ * cards when their toggles are on); the list
  * sections follow the section checklist, with the playlist table always on
  * (it has no toggle).
  *
@@ -124,7 +124,6 @@ export function renderDashboardNote(state: SyncState, ctx: DashboardContext): st
 			viewCall(viewName, {
 				section: 'header',
 				status,
-				quickLinks: sections.quickLinks,
 				recent: sections.recent,
 				attention: sections.attention,
 				since,

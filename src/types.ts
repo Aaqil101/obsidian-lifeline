@@ -132,14 +132,12 @@ export const DEFAULT_CHANNELS_FIELDS: ChannelsFieldSettings = {
 
 /** Which optional sections render on Dashboard.md (settings checklist). */
 export interface DashboardSections {
-	quickLinks: boolean;
 	recent: boolean;
 	topChannels: boolean;
 	attention: boolean;
 }
 
 export const DEFAULT_DASHBOARD_SECTIONS: DashboardSections = {
-	quickLinks: true,
 	recent: true,
 	topChannels: true,
 	attention: true,

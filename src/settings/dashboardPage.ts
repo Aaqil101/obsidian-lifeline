@@ -34,7 +34,7 @@ export function renderDashboardPage(host: SettingsHost, containerEl: HTMLElement
 	new Setting(card)
 		.setName('Dashboard note')
 		.setDesc(
-			'Write Dashboard.md at the top of the output folder: sync status, counts, and quick links, plus live sections. Refreshed after every sync. Its script lives in the Script folder, under Notes. Requires the community Dataview plugin.',
+			'Write Dashboard.md at the top of the output folder: sync status, counts, and live sections. Refreshed after every sync. Its script lives in the Script folder, under Notes. Requires the community Dataview plugin.',
 		)
 		.addToggle((toggle) =>
 			toggle.setValue(settings.dashboardNote).onChange(async (on) => {

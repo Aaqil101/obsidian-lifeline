@@ -115,11 +115,11 @@ Each video is a single list item with Dataview inline fields:
 
 **Dashboard.md** (opt-in, off by default) is a home note whose visible content is all DataviewJS. The note itself stays small: frontmatter (state-derived counts), the title, and a `dv.view()` call per section under a real `##` heading. Each call runs `lifeline-dashboard.js`, a script Lifeline generates in the **Script folder** (default `98 - Organize/Scripts`, changeable under **Notes**), which queries the synced notes live:
 
-- A **header**: the last sync time and status, clickable stat tiles (channels, playlists, videos, and a green **New since sync** count), a quick links row, and two cards side by side: **New since last sync** (videos added on or after the last sync date) and **Needs attention** (playlists with hidden, unavailable, or removed entries; **All clear** when there are none).
-- A **Playlists** section: the five most recently active playlists, with the full table (Watch Later pinned first, then alphabetical) inside a collapsed toggle below it.
-- A **Top channels** section with subscriber bars so the table reads as a chart.
+- A **header**: the last sync time and status, clickable stat tiles (channels, playlists, videos, and a green **New since sync** count), and two cards side by side: **New since last sync** (videos added on or after the last sync date) and **Needs attention** (playlists with hidden, unavailable, or removed entries; **All clear** when there are none).
+- A **Playlists** section in the note views' **Ledger** table style: the five most recently active playlists, with the full table (Watch Later pinned first, then alphabetical) inside a collapsed toggle below it.
+- A **Top channels** section in the note views' **Cover rows** table style: banner crop, avatar, name, subscribers, and videos for the ten largest channels.
 
-The cards, quick links row, and Top channels section each have a toggle under **Dashboard** (Settings → Lifeline → Notes); the playlist table is always on.
+The two cards and the Top channels section each have a toggle under **Dashboard** (Settings → Lifeline → Notes); the playlist table is always on.
 
 Turning the toggle on requires the community [Dataview](https://github.com/blacksmithgu/obsidian-dataview) plugin; Lifeline checks and tells you to install it if it's missing. The note and its script refresh after every sync, and the **Create dashboard note** command, the **Refresh dashboard note** command, or the refresh icon on the Dashboard sub-page rewrites them on demand (the script is regenerated, so hand edits to it are overwritten). Changing **Script folder** moves the script and rewrites the note's calls; the old copy is cleaned up. Subscriber and video counts render YouTube-style (`109M`, `4.67K`); hover a number for the full value, or select it to switch between short and full. Zero API quota cost; if Dataview is disabled later, sync keeps the frontmatter and title and replaces every section with a one-line warning callout.
 
