@@ -144,7 +144,7 @@ Every view opens with a glass pill toolbar:
 - An icon-only **Refresh** button that re-reads the note's bullets, for when you edited them by hand.
 - The count, for example `Showing 10 of 412 channels`, or `Found 3 of 412 channels` while searching.
 
-Poster and chips paint the first page of entries when the note opens and put the rest behind a **Show more** button, so a 900-entry Watch Later does not build 900 nodes before you can read it. The page holds 10 entries by default; change it with **Items per page** under **Notes**, and every view follows on its next render. Table paints every match at once.
+Poster, chips, and table paint the first page of entries when the note opens and put the rest behind a **Show more** button, so a 900-entry Watch Later does not build 900 nodes before you can read it. The page holds 10 entries by default; change it with **Items per page** under **Notes**, and every view follows on its next render.
 
 The view reads the note's own list entries (`dv.current().file.lists`), so it always matches the bullets directly below it. The bullets stay: the view is purely additive, and your `file.lists` Dataview queries are unaffected. Turning the toggle on requires the community [Dataview](https://github.com/blacksmithgu/obsidian-dataview) plugin (Lifeline checks and tells you to install it if it's missing); the scripts are written immediately, and the notes pick up the view on the next sync. If Dataview is missing or the toggle is off, the notes carry no `dataviewjs` block at all. Changing **Script folder** moves these scripts alongside the dashboard one, and the old copies are cleaned up. Zero API quota cost.
 

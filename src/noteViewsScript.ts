@@ -160,7 +160,7 @@ export function dashboardStylesheetPath(folder: string): string {
 	return `${normalizeStylesFolder(folder)}/${DASHBOARD_STYLESHEET_FILE}`;
 }
 
-/** How many entries a chips or poster view paints before Show more, for an
+/** How many entries any layout paints before Show more, for an
  *  install with no saved preference and for a render where the plugin
  *  instance cannot be reached. The live setting (`viewPageSize`) wins
  *  otherwise, so changing it needs no sync. */
@@ -576,6 +576,11 @@ const NOTE_VIEWS_CSS_CHANNELS_TABLE = `
     display: flex;
     flex-direction: column;
     overflow-x: auto;
+}
+/* The Show more button sits under the table (rows are paged into the tbody),
+   so it needs the space the chips/poster gaps would otherwise give it. */
+.lifeline-views .lv-cover .lv-more {
+    margin: 14px 0;
 }
 .lifeline-views .lv-cover-table {
     width: 100%;
@@ -1015,6 +1020,11 @@ const NOTE_VIEWS_CSS_VIDEO_TABLE = `
     display: flex;
     flex-direction: column;
     overflow-x: auto;
+}
+/* The Show more button sits under the table (rows are paged into the tbody),
+   so it needs the space the chips/poster gaps would otherwise give it. */
+.lifeline-views .lv-ledger .lv-more {
+    margin: 14px 0;
 }
 .lifeline-views .lv-ledger-table {
     width: 100%;
@@ -1513,7 +1523,7 @@ const coverRow = (item) => {
   row.appendChild(cell);
   return row;
 };
-const renderTableRows = (host, items) => {
+const renderTableRows = (host, items, onPaint) => {
   host.classList.add("lv-cover");
   const cols = [];
   if (want("subscribers")) cols.push(["Subs", "lv-cover-num", (item) => coverNum(item.subscribers)]);
@@ -1528,13 +1538,21 @@ const renderTableRows = (host, items) => {
   thead.appendChild(head);
   table.appendChild(thead);
   const tbody = document.createElement("tbody");
-  for (const item of items) {
-    const row = coverRow(item);
-    for (const col of cols) row.appendChild(col[2](item));
-    tbody.appendChild(row);
-  }
   table.appendChild(tbody);
   host.appendChild(table);
+  // Rows into the tbody, the button beside the table: one page at a time on
+  // the same live setting the poster and chips layouts read.
+  mount(
+    tbody,
+    items,
+    (item) => {
+      const row = coverRow(item);
+      for (const col of cols) row.appendChild(col[2](item));
+      return row;
+    },
+    onPaint,
+    host,
+  );
 };
 
 // The channels script draws no channel faces, so the refresh handler's cache
@@ -1750,7 +1768,7 @@ const chipRow = (item) => {
 
 // Table layout: Ledger. The thumbnail and title in the first column, the
 // channel next to it, and the date added at the right edge.
-const renderTableRows = (host, items) => {
+const renderTableRows = (host, items, onPaint) => {
   host.classList.add("lv-ledger");
   const table = el("table", "lv-ledger-table");
   const thead = document.createElement("thead");
@@ -1761,7 +1779,9 @@ const renderTableRows = (host, items) => {
   thead.appendChild(head);
   table.appendChild(thead);
   const tbody = document.createElement("tbody");
-  for (const item of items) {
+  table.appendChild(tbody);
+  host.appendChild(table);
+  const ledgerRow = (item) => {
     const title = mdLink(item.title);
     const channel = mdLink(item.channel);
     const row = document.createElement("tr");
@@ -1790,10 +1810,11 @@ const renderTableRows = (host, items) => {
     const added = el("td", "lv-r");
     added.appendChild(datePart(item.date, "lv-ledger-date"));
     row.appendChild(added);
-    tbody.appendChild(row);
-  }
-  table.appendChild(tbody);
-  host.appendChild(table);
+    return row;
+  };
+  // Rows into the tbody, the button beside the table: one page at a time on
+  // the same live setting the poster and chips layouts read.
+  mount(tbody, items, ledgerRow, onPaint, host);
 };
 `;
 }
@@ -2110,7 +2131,7 @@ const thumb = (item, label) => {
   return box;
 };
 
-// Chips and posters paint one page, then append the rest behind a button, so a
+// Every layout paints one page, then appends the rest behind a button, so a
 // 900-video Watch Later builds one page of nodes on open instead of 900.
 // onPaint runs after every page so the toolbar count stays honest. The page
 // size is the live Items per page setting, clamped; the baked default only
@@ -2128,9 +2149,13 @@ const livePageSize = () => {
   const value = plugin && plugin.settings ? plugin.settings.viewPageSize : null;
   return normalizePageSize(value);
 };
-const mount = (host, items, renderOne, onPaint) => {
+const mount = (host, items, renderOne, onPaint, buttonHost) => {
   let shown = 0;
   let more = null;
+  // Where the button lives: beside the rows, or beside the table when the
+  // rows are painted into a tbody (a button child of a tbody is invalid HTML
+  // and inherits none of the table's surroundings).
+  const holder = buttonHost || host;
   // Read once per mount, so every Show more click adds the same page the view
   // opened with even if the setting changes mid-read.
   const pageSize = livePageSize();
@@ -2140,7 +2165,7 @@ const mount = (host, items, renderOne, onPaint) => {
     shown = end;
     if (more) {
       more.textContent = "Show more (" + (items.length - shown) + ")";
-      host.appendChild(more); // keep the button last as rows grow
+      holder.appendChild(more); // keep the button last as rows grow
     }
     if (shown >= items.length && more) {
       more.parentNode.removeChild(more);
@@ -2154,7 +2179,7 @@ const mount = (host, items, renderOne, onPaint) => {
     more.type = "button";
     more.textContent = "Show more (" + (items.length - shown) + ")";
     more.addEventListener("click", () => paint(pageSize));
-    host.appendChild(more);
+    holder.appendChild(more);
   }
 };
 
@@ -2478,8 +2503,7 @@ const render = () => {
     setStatsText(text);
   };
   if (resolved === "table") {
-    renderTableRows(host, visible);
-    setStats(visible.length);
+    renderTableRows(host, visible, setStats);
   } else {
     mount(host, visible, resolved === "poster" ? posterCard : chipRow, setStats);
   }

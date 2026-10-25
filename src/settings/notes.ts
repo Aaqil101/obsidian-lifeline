@@ -139,19 +139,17 @@ export function renderNotesGroup(host: SettingsHost, containerEl: HTMLElement): 
 			});
 	}
 
-	// How many entries the poster and chips views paint before a Show more
-	// button. Read live from settings at render time, the same way the layout
-	// is, so changing it needs no sync and no regenerated script. Committed on
-	// blur or Enter rather than per keystroke, so a half-typed number never
-	// becomes the page size; the value is clamped and written back into the
-	// field either way. The table layout paints every match at once, which is
-	// why the description says so.
+	// How many entries each view paints before a Show more button. Read live
+	// from settings at render time, the same way the layout is, so changing it
+	// needs no sync and no regenerated script. Committed on blur or Enter
+	// rather than per keystroke, so a half-typed number never becomes the page
+	// size; the value is clamped and written back into the field either way.
 	new Setting(card)
 		.setName('Items per page')
 		.setDesc(
 			settings.noteViews
-				? 'How many channels or videos the poster and chips views draw before a Show more button. The table layout always draws every row. Applies on the next view render.'
-				: 'How many channels or videos the poster and chips views draw before a Show more button. The table layout always draws every row. Only applies while Views in notes is on.',
+				? 'How many channels or videos each layout draws before a Show more button. Applies on the next view render.'
+				: 'How many channels or videos each layout draws before a Show more button. Only applies while Views in notes is on.',
 		)
 		.addText((text) => {
 			text.inputEl.type = 'number';
