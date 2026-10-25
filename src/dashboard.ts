@@ -4,13 +4,14 @@
  * file writes (writeDashboardNote and the writeOutputs path) and also writes
  * the view script itself (dashboardScript.ts).
  *
- * Everything visible is DataviewJS: the note is one header call (hero status
- * badge, KPI tiles, and the "New since last sync" + "Needs attention" cards)
- * plus one call per list section into the generated script, which queries the
- * synced notes live. The note only carries
- * frontmatter (state-derived counts), the H1, the section headings, and the
- * view calls with their baked options (status, section toggles, the sync
- * date for the delta, output folder, watch-later id).
+ * Everything visible is DataviewJS: the note is one header call (the
+ * banner-mosaic hero with the status badge, KPI chips, and the "New since last
+ * sync" + "Needs attention" panels) plus one call per list section into the
+ * generated script, which queries the synced notes live. The note itself
+ * carries only frontmatter (state-derived counts) and the view calls with
+ * their baked options (status, section toggles, the sync date for the delta,
+ * output folder, watch-later id): the hero owns the title and each panel owns
+ * its heading, so no H1 or section headings are written in Dataview mode.
  *
  * When Dataview is missing the note degrades to frontmatter + H1 + a warning
  * callout (the settings toggle gates on isDataviewEnabled anyway, so this
@@ -66,12 +67,12 @@ export interface DashboardContext {
 }
 
 /**
- * The note itself: frontmatter (state-derived counts), the H1, and one
- * dv.view() call per section under a real heading. The header call is always
- * present (hero status badge, stat tiles, and the new-since-sync/attention
- * cards when their toggles are on); the list
- * sections follow the section checklist, with the playlist table always on
- * (it has no toggle).
+ * The note itself: frontmatter (state-derived counts) and one dv.view() call
+ * per section. The header call is always present (the hero with its badge and
+ * KPI chips, plus the new-since-sync/attention panels when their toggles are
+ * on); the list sections follow the section checklist, with the playlist panel
+ * always on (it has no toggle). Neither an H1 nor section headings are written
+ * in Dataview mode: the hero carries the title, and every panel draws its own.
  *
  * When Dataview is unavailable, only frontmatter, the H1, and a warning
  * callout remain: there is no static fallback table by design.
@@ -93,12 +94,12 @@ export function renderDashboardNote(state: SyncState, ctx: DashboardContext): st
 		`video_count: ${videoCount}`,
 		'---',
 		'',
-		'# YouTube dashboard',
-		'',
 	);
 
 	if (!dataviewReady) {
 		lines.push(
+			'# YouTube dashboard',
+			'',
 			'> [!warning] Dataview is required',
 			'> The dashboard needs the community Dataview plugin. Enable it in **Settings → Community plugins**, then refresh this note.',
 			'',
@@ -113,8 +114,8 @@ export function renderDashboardNote(state: SyncState, ctx: DashboardContext): st
 	const base = { src: paths.folder, wlPath: paths.watchLater, wlId: watchLaterId };
 	const viewName = dashboardViewName(scriptsFolder);
 
-	// Day-granular last-sync date for the delta card; null before the first
-	// sync so the header never reports a bogus "everything is new".
+	// Day-granular last-sync date for the new-since-sync panel; null before the
+	// first sync so the header never reports a bogus "everything is new".
 	const pad2 = (n: number): string => String(n).padStart(2, '0');
 	const since =
 		status === null ? null : `${syncedAt.getFullYear()}-${pad2(syncedAt.getMonth() + 1)}-${pad2(syncedAt.getDate())}`;
@@ -131,13 +132,11 @@ export function renderDashboardNote(state: SyncState, ctx: DashboardContext): st
 			}),
 		),
 		'',
-		'## Playlists',
-		'',
 		dataviewBlock(viewCall(viewName, { section: 'playlists', ...base })),
 		'',
 	);
 	if (sections.topChannels) {
-		lines.push('## Top channels', '', dataviewBlock(viewCall(viewName, { section: 'channels', src: paths.folder })), '');
+		lines.push(dataviewBlock(viewCall(viewName, { section: 'channels', src: paths.folder })), '');
 	}
 
 	lines.push('');
