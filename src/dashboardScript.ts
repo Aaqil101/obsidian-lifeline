@@ -1045,10 +1045,10 @@ await ensureStyle();
 // collapsed block hid is now out of reach.
 const MIN_DASHBOARD_LIMIT = 1;
 const MAX_DASHBOARD_LIMIT = 100;
-const DEFAULT_FEED_LIMIT = 8;
+const DEFAULT_FEED_LIMIT = 6;
 const DEFAULT_ATTENTION_LIMIT = 6;
-const DEFAULT_CARDS_LIMIT = 6;
-const DEFAULT_CHANNELS_LIMIT = 10;
+const DEFAULT_CARDS_LIMIT = 12;
+const DEFAULT_CHANNELS_LIMIT = 12;
 const NO_PLAYLISTS = "No playlists tracked yet.";
 const NO_CHANNELS = "No subscriber counts found. Turn on Subscribers in Settings → Lifeline → Channels.md fields.";
 
