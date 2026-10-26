@@ -189,12 +189,12 @@ export const DASHBOARD_LIMIT_ROWS: Array<{ key: keyof DashboardLimits; name: str
 	{
 		key: 'cards',
 		name: 'Playlist cards',
-		desc: 'How many playlist cover cards the Playlists panel draws in Cards mode. Table mode always shows every playlist. Default 6.',
+		desc: 'How many playlist cover cards the Playlists panel draws. Both Cards and Table modes use this cap; Table uses the same sorted list. Default 6.',
 	},
 	{
 		key: 'channels',
 		name: 'Top channels',
-		desc: 'How many channel cards the Top channels panel draws in Cards mode. Table mode always shows every channel. Default 10.',
+		desc: 'How many channel cards the Top channels panel draws. Both Cards and Table modes use this cap; Table draws the same sorted channels. Default 10.',
 	},
 ];
 

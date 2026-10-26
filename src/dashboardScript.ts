@@ -1512,7 +1512,7 @@ function sectionPlaylists() {
   const byName = rows.slice().sort((a, b) => (a.path === WL_PATH ? -1 : b.path === WL_PATH ? 1 : a.name.localeCompare(b.name)));
   addToggle(head, (mode) => {
     body.textContent = "";
-    if (mode === "table") playlistsTable(body, byName);
+    if (mode === "table") playlistsTable(body, byName.slice(0, LIMITS.cards));
     else playlistCovers(body, byNewest.slice(0, LIMITS.cards));
   });
 }
@@ -1536,7 +1536,7 @@ function sectionChannels() {
   const top = rows.slice(0, LIMITS.channels);
   addToggle(head, (mode) => {
     body.textContent = "";
-    if (mode === "table") channelsTable(body, rows);
+    if (mode === "table") channelsTable(body, rows.slice(0, LIMITS.channels));
     else channelCards(body, top);
   });
 }
