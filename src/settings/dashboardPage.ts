@@ -13,7 +13,8 @@
  */
 import { Notice, Setting } from 'obsidian';
 import { DATAVIEW_REQUIRED_NOTICE, isDataviewEnabled } from '../dashboard';
-import { DASHBOARD_ROWS } from './types';
+import { type DashboardLimits, type DashboardSections } from '../types';
+import { DASHBOARD_LIMIT_ROWS, DASHBOARD_ROWS } from './types';
 import { group, type SettingsHost } from './ui';
 
 export function renderDashboardPage(host: SettingsHost, containerEl: HTMLElement): void {
@@ -50,14 +51,41 @@ export function renderDashboardPage(host: SettingsHost, containerEl: HTMLElement
 		);
 
 	for (const row of DASHBOARD_ROWS) {
-		new Setting(card).setName(row.name).addToggle((toggle) =>
-			toggle.setValue(settings.dashboardSections[row.key]).onChange(async (on) => {
-				settings.dashboardSections[row.key] = on;
+		new Setting(card).setName(row.name).addToggle((toggle) => {
+			const key = row.key;
+			toggle.setValue(settings.dashboardSections[key]).onChange(async (on) => {
+				settings.dashboardSections[key] = on;
 				await plugin.saveSettings();
 				// Keep an existing note in step with its checklist; skip the
 				// open so ticking rows does not yank focus away from settings.
 				if (settings.dashboardNote) await plugin.createDashboard({ open: false });
-			}),
-		);
+			});
+		});
+	}
+
+	for (const row of DASHBOARD_LIMIT_ROWS) {
+		new Setting(card).setName(row.name).setDesc(row.desc).addText((text) => {
+			text.inputEl.type = 'number';
+			text.inputEl.min = '1';
+			text.inputEl.max = '100';
+			text.inputEl.step = '1';
+			text.setValue(String(settings.dashboardLimits[row.key]));
+			const commit = async (): Promise<void> => {
+				const key = row.key;
+			const next = Math.max(1, Math.min(100, Math.floor(Number(text.getValue()))));
+				text.setValue(String(next));
+				if (next === settings.dashboardLimits[key]) return;
+				settings.dashboardLimits[key] = next;
+				await plugin.saveSettings();
+			};
+			text.inputEl.addEventListener('blur', () => {
+				void commit();
+			});
+			text.inputEl.addEventListener('keydown', (event) => {
+				if (event.key !== 'Enter') return;
+				event.preventDefault();
+				text.inputEl.blur();
+			});
+		});
 	}
 }

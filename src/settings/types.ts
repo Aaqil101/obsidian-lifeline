@@ -17,8 +17,10 @@ import {
 } from '../noteViewsScript';
 import {
 	DEFAULT_CHANNELS_FIELDS,
+	DEFAULT_DASHBOARD_LIMITS,
 	DEFAULT_DASHBOARD_SECTIONS,
 	type ChannelsFieldSettings,
+	type DashboardLimits,
 	type DashboardSections,
 	type ImageMode,
 	type PlaylistSummary,
@@ -165,10 +167,35 @@ export const FIELD_ROWS: FieldRow[] = [
 ];
 
 /** Dashboard.md live-section checklist rows, in render order. */
-export const DASHBOARD_ROWS: Array<{ key: keyof DashboardSections; name: string }> = [
+export const DASHBOARD_ROWS: Array<{ key: keyof DashboardSections; name: string; desc?: string }> = [
 	{ key: 'recent', name: 'New since last sync card' },
 	{ key: 'topChannels', name: 'Top channels by subscribers' },
 	{ key: 'attention', name: 'Needs attention card' },
+];
+
+/** Dashboard.md live-section limit rows, in render order. Each key matches
+ *  one of the four live dashboard limits on `LifelineSettings`. */
+export const DASHBOARD_LIMIT_ROWS: Array<{ key: keyof DashboardLimits; name: string; desc: string }> = [
+	{
+		key: 'feed',
+		name: 'Feed entries',
+		desc: 'How many new-since-sync rows the feed panel shows before the +N more line. Default 8.',
+	},
+	{
+		key: 'attention',
+		name: 'Attention entries',
+		desc: 'How many needs-attention playlists the attention panel shows before the +N more line. Default 6.',
+	},
+	{
+		key: 'cards',
+		name: 'Playlist cards',
+		desc: 'How many playlist cover cards the Playlists panel draws in Cards mode. Table mode always shows every playlist. Default 6.',
+	},
+	{
+		key: 'channels',
+		name: 'Top channels',
+		desc: 'How many channel cards the Top channels panel draws in Cards mode. Table mode always shows every channel. Default 10.',
+	},
 ];
 
 /** Daily-notes folder dated bullets wikilink into by default. */
@@ -244,6 +271,8 @@ export interface LifelineSettings {
 	syncIntervalHours: number;
 	/** Soft quota cap per run (units); sync warns instead of hard-stopping. */
 	quotaSoftLimit: number;
+	/** Dashboard limits for the four live sections: feed, attention, cards, channels. */
+	dashboardLimits: DashboardLimits;
 }
 
 export const DEFAULT_SETTINGS: LifelineSettings = {
@@ -271,4 +300,5 @@ export const DEFAULT_SETTINGS: LifelineSettings = {
 	watchLaterPlaylistId: '',
 	syncIntervalHours: 20,
 	quotaSoftLimit: 8000,
+	dashboardLimits: { feed: DEFAULT_DASHBOARD_LIMITS.feed, attention: DEFAULT_DASHBOARD_LIMITS.attention, cards: DEFAULT_DASHBOARD_LIMITS.cards, channels: DEFAULT_DASHBOARD_LIMITS.channels },
 };

@@ -143,6 +143,27 @@ export const DEFAULT_DASHBOARD_SECTIONS: DashboardSections = {
 	attention: true,
 };
 
+export const DEFAULT_DASHBOARD_LIMITS: DashboardLimits = {
+	feed: 8,
+	attention: 6,
+	cards: 6,
+	channels: 10,
+};
+
+/** How many entries each live dashboard section paints before it cuts off
+ *  with a `+N more` line. Read live at render time, so changing a limit needs
+ *  no sync or regenerated script. */
+export interface DashboardLimits {
+	/** New-since-sync feed rows. */
+	feed: number;
+	/** Needs-attention playlist rows. */
+	attention: number;
+	/** Playlist cover cards drawn in Cards mode. */
+	cards: number;
+	/** Top channels shown in Cards mode (Table mode shows every channel). */
+	channels: number;
+}
+
 export interface VideoRecord {
 	title: string;
 	channelTitle: string;

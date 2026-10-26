@@ -21,6 +21,8 @@
  * Pure: this module only builds strings; sync.ts owns the vault writes.
  */
 
+import { DEFAULT_DASHBOARD_LIMITS, type DashboardLimits } from './types';
+
 /** Default folder for the generated script (also the settings placeholder). */
 export const DEFAULT_SCRIPTS_FOLDER = '98 - Organize/Scripts';
 
@@ -53,6 +55,21 @@ export function dashboardScriptPath(folder: string): string {
 /** dv.view() target: the script path without the `.js` extension. */
 export function dashboardViewName(folder: string): string {
 	return dashboardScriptPath(folder).replace(/\.js$/, '');
+}
+
+/** Minimum allowed limit (inclusive). */
+export const MIN_DASHBOARD_LIMIT = 1;
+
+/** Maximum allowed limit (inclusive). */
+export const MAX_DASHBOARD_LIMIT = 100;
+
+/** Normalize a stored or typed limit to a whole number inside [MIN_DASHBOARD_LIMIT, MAX_DASHBOARD_LIMIT]; anything unusable falls back to the feed default. */
+export function normalizeDashboardLimit(value: unknown): number {
+	const raw = typeof value === 'string' ? value.trim() : value;
+	if (raw == null || raw === '') return DEFAULT_DASHBOARD_LIMITS.feed;
+	const n = typeof raw === 'number' ? raw : Number(raw);
+	if (!Number.isFinite(n)) return DEFAULT_DASHBOARD_LIMITS.feed;
+	return Math.min(MAX_DASHBOARD_LIMIT, Math.max(MIN_DASHBOARD_LIMIT, Math.floor(n)));
 }
 
 /** All CSS for the dashboard, scoped under the `.lifeline-dash` class that the
@@ -249,6 +266,7 @@ export const DASHBOARD_CSS = `/* Glass cockpit: a banner mosaic hero, KPI chips,
   backdrop-filter: blur(12px);
   min-width: 0;
 }
+.lifeline-dash .lifeline-panels > :only-child { grid-column: 1 / -1; }
 .lifeline-dash .lifeline-panels {
   display: grid;
   grid-template-columns: 1.1fr 0.9fr;
@@ -1025,9 +1043,47 @@ await ensureStyle();
 // Section geometry: what each panel draws before it overflows. Cards is the
 // default mode; table mode draws every playlist, so nothing that the old
 // collapsed block hid is now out of reach.
-const LIMITS = { feed: 8, cards: 6, attention: 6, channels: 10 };
+const MIN_DASHBOARD_LIMIT = 1;
+const MAX_DASHBOARD_LIMIT = 100;
+const DEFAULT_FEED_LIMIT = 8;
+const DEFAULT_ATTENTION_LIMIT = 6;
+const DEFAULT_CARDS_LIMIT = 6;
+const DEFAULT_CHANNELS_LIMIT = 10;
 const NO_PLAYLISTS = "No playlists tracked yet.";
 const NO_CHANNELS = "No subscriber counts found. Turn on Subscribers in Settings → Lifeline → Channels.md fields.";
+
+// The plugin instance is the live source of truth for the dashboard limits,
+// the same way noteViews reads viewPageSize: switching in the settings rows,
+// or live in the notes, takes effect on the next render with no sync.
+const pluginInstance = () => {
+  try {
+    return app.plugins && app.plugins.plugins ? app.plugins.plugins["lifeline"] : null;
+  } catch (err) {
+    return null;
+  }
+};
+
+const normalizeLimit = (value) => {
+  const raw = typeof value === "string" ? value.trim() : value;
+  if (raw == null || raw === "") return DEFAULT_FEED_LIMIT;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n)) return DEFAULT_FEED_LIMIT;
+  return Math.min(MAX_DASHBOARD_LIMIT, Math.max(MIN_DASHBOARD_LIMIT, Math.floor(n)));
+};
+
+const liveLimit = (kind) => {
+  const plugin = pluginInstance();
+  const limits = plugin && plugin.settings ? plugin.settings.dashboardLimits : null;
+  const value = limits ? limits[kind] : null;
+  return normalizeLimit(value);
+};
+
+const liveLimits = () => ({
+  feed: liveLimit("feed"),
+  attention: liveLimit("attention"),
+  cards: liveLimit("cards"),
+  channels: liveLimit("channels"),
+});
 
 // Everything the three sections read is gathered once: the deduplicated
 // playlist notes, the Channels.md page, and its rows sorted by subscribers.
@@ -1129,6 +1185,7 @@ const kpiChips = (host, chips) => {
 
 // "New since last sync": hairline-separated rows, newest first.
 const feedPanel = (host, fresh, since) => {
+  const LIMITS = liveLimits();
   const panel = add(host, "div", "lifeline-panel");
   const head = add(panel, "div", "lifeline-card-h lifeline-panel-head");
   const titles = add(head, "div", "lifeline-panel-titles");
@@ -1162,6 +1219,7 @@ const feedPanel = (host, fresh, since) => {
 // pulses while something is hidden, and each playlist keeps its counts as
 // coloured chips under its name.
 const attentionPanel = (host, attention, hidden) => {
+  const LIMITS = liveLimits();
   const panel = add(host, "div", "lifeline-panel");
   const head = add(panel, "div", "lifeline-attn-head" + (attention.length ? "" : " lifeline-attn-clear"));
   const titles = add(head, "div", "lifeline-attn-titles");
@@ -1449,6 +1507,7 @@ function sectionPlaylists() {
 
   // Cards: newest first. Table: Watch Later pinned, then alphabetical, so the
   // full list stays reachable now that the collapsed block is gone.
+  const LIMITS = liveLimits();
   const byNewest = rows.slice().sort((a, b) => b.newest.localeCompare(a.newest));
   const byName = rows.slice().sort((a, b) => (a.path === WL_PATH ? -1 : b.path === WL_PATH ? 1 : a.name.localeCompare(b.name)));
   addToggle(head, (mode) => {
@@ -1473,10 +1532,11 @@ function sectionChannels() {
     return;
   }
 
+  const LIMITS = liveLimits();
   const top = rows.slice(0, LIMITS.channels);
   addToggle(head, (mode) => {
     body.textContent = "";
-    if (mode === "table") channelsTable(body, top);
+    if (mode === "table") channelsTable(body, rows);
     else channelCards(body, top);
   });
 }
