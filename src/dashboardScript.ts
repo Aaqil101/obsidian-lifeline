@@ -188,7 +188,7 @@ export const DASHBOARD_CSS = `/* Glass cockpit: a banner mosaic hero, KPI chips,
   position: relative;
   width: 100%;
   padding: 18px 20px;
-  background: var(--background-secondary);
+  background: var(--background-primary);
   border-top: 1px solid var(--background-modifier-border);
   color: var(--text-normal);
 }
