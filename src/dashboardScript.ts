@@ -5,8 +5,10 @@
  *
  *   dv.view("<scriptsFolder>/lifeline-dashboard", { section: "playlists", ... })
  *
- * Sections: header (a banner-mosaic hero with the status badge, the sync line,
- * KPI chips, and the "New since last sync" + "Needs attention" panels), and the
+ * Sections: header (a banner hero carrying the picked favorite channel
+ * full-bleed, or the default mosaic of top-channel banners, with the status
+ * badge, the sync line, and the KPI chips, and the "New since last sync" +
+ * "Needs attention" panels), and the
  * playlists and channels panels, each with a pill Table/Cards toggle: cards
  * draw playlist covers or channel cards, tables draw every row transparently
  * inside the panel. All data is queried live from dv.pages() inside the output
@@ -150,42 +152,45 @@ export const DASHBOARD_CSS = `/* Glass cockpit: a banner mosaic hero, KPI chips,
   gap: 12px;
 }
 
-/* Hero: up to four channel banners behind a heavy veil. */
+/* Hero: channel banners in a 6:1 strip across the top, as YouTube shows them,
+   with the title and stats below. The strip is wider than a banner's 16:9, so
+   object-fit: cover crops the top and bottom only. */
 .lifeline-dash .lifeline-hero {
   position: relative;
-  min-height: 200px;
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
   border: 1px solid var(--background-modifier-border);
   border-radius: 16px;
   overflow: hidden;
   background: linear-gradient(135deg, var(--background-secondary), var(--background-modifier-border));
 }
 .lifeline-dash .lifeline-mosaic {
-  position: absolute;
-  inset: 0;
+  position: relative;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+  aspect-ratio: 6 / 1;
   display: grid;
-  grid-template-rows: 1fr;
+  grid-template-rows: minmax(0, 1fr);
   gap: 2px;
 }
 .lifeline-dash .lifeline-mosaic img {
   display: block;
   width: 100%;
   height: 100%;
+  min-height: 0;
   object-fit: cover;
-  filter: saturate(0.9) brightness(0.72);
+  filter: saturate(0.9) brightness(0.85);
 }
-.lifeline-dash .lifeline-veil {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.92) 0%, rgba(0, 0, 0, 0.72) 45%, rgba(0, 0, 0, 0.38) 100%);
-}
+/* The title block sits on its own solid band below the banner, so it reads in
+   either theme and never competes with the artwork. */
 .lifeline-dash .lifeline-hero-body {
   position: relative;
-  z-index: 2;
   width: 100%;
   padding: 18px 20px;
-  color: #ffffff;
+  background: var(--background-secondary);
+  border-top: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
 }
 .lifeline-dash .lifeline-hero-title-row {
   display: flex;
@@ -198,20 +203,12 @@ export const DASHBOARD_CSS = `/* Glass cockpit: a banner mosaic hero, KPI chips,
   font-size: 1.5em;
   font-weight: 700;
   line-height: 1.15;
-  color: #ffffff;
-  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
+  color: var(--text-normal);
 }
 .lifeline-dash .lifeline-hero-sub {
   margin-top: 2px;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--text-muted);
   font-size: 0.84em;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
-}
-/* Bright banners would swallow the badge outline, so it gets a dark backing
-   on the hero and drops the coloured border. */
-.lifeline-dash .lifeline-hero .lifeline-badge {
-  background: rgba(0, 0, 0, 0.42);
-  border-color: rgba(255, 255, 255, 0.24);
 }
 
 /* KPI chips: the figure and its label, as a button when the chip navigates. */
@@ -867,7 +864,8 @@ export function renderDashboardScript(cssPath: string): string {
  *
  * Dashboard.md invokes this file once per section:
  *   dv.view("98 - Organize/Scripts/lifeline-dashboard", { section: "playlists", ... })
- * Sections: header (banner-mosaic hero, KPI chips, and the new/attention
+ * Sections: header (banner hero: the picked favorite channel full-bleed, or
+ * a mosaic of top-channel banners, KPI chips, and the new/attention
  * panels), playlists and channels (glass panels with a Table/Cards toggle:
  * covers or channel cards by default, transparent tables in table mode). The
  * plugin regenerates this file on every dashboard refresh; hand edits are
@@ -1052,9 +1050,10 @@ const DEFAULT_CHANNELS_LIMIT = 12;
 const NO_PLAYLISTS = "No playlists tracked yet.";
 const NO_CHANNELS = "No subscriber counts found. Turn on Subscribers in Settings → Lifeline → Channels.md fields.";
 
-// The plugin instance is the live source of truth for the dashboard limits,
-// the same way noteViews reads viewPageSize: switching in the settings rows,
-// or live in the notes, takes effect on the next render with no sync.
+// The plugin instance is the live source of truth for the dashboard limits
+// and the picked hero channel, the same way noteViews reads viewPageSize:
+// switching in the settings rows, or live in the notes, takes effect on the
+// next render with no sync.
 const pluginInstance = () => {
   try {
     return app.plugins && app.plugins.plugins ? app.plugins.plugins["lifeline"] : null;
@@ -1084,6 +1083,26 @@ const liveLimits = () => ({
   cards: liveLimit("cards"),
   channels: liveLimit("channels"),
 });
+
+// The picked hero banner channel, read live the same way so choosing or
+// clearing one needs no sync and no regenerated script. '' (the default) is
+// the mosaic of top channels; a URL no channel carries anymore also lands
+// there, so a stale pick never renders an empty hero.
+const liveHero = () => {
+  const plugin = pluginInstance();
+  const value = plugin && plugin.settings ? plugin.settings.dashboardHeroChannel : null;
+  return typeof value === "string" ? value.trim() : "";
+};
+
+// The crop point for that pick, read live. The hero is wider than a banner,
+// so only the vertical position matters: y is the stored value, x is always
+// the middle. Out of range or missing falls back to the middle.
+const liveHeroFocus = () => {
+  const plugin = pluginInstance();
+  const focus = plugin && plugin.settings ? plugin.settings.dashboardHeroFocus : null;
+  const axis = (v) => (typeof v === "number" && Number.isFinite(v) ? Math.min(100, Math.max(0, v)) : 50);
+  return focus ? { x: 50, y: axis(focus.y) } : { x: 50, y: 50 };
+};
 
 // Everything the three sections read is gathered once: the deduplicated
 // playlist notes, the Channels.md page, and its rows sorted by subscribers.
@@ -1150,20 +1169,100 @@ const scrollToPlaylists = () => {
   if (el) el.scrollIntoView({ block: "start" });
 };
 
-// The hero: up to four channel banners behind a heavier veil than the note
-// views use, because every line of text sits directly on the artwork.
+// What the hero draws: the picked channel's banner alone when it has one,
+// else up to four channel banners as the mosaic fallback. A picked channel
+// with no banner (or one no longer synced) falls through, so the hero always
+// has something to show. The solo flag marks the picked channel drawn alone,
+// which is the banner the crop point applies to; the mosaic fallback shows
+// several, so one point for it would mean nothing and it keeps the centered
+// default.
+const heroBanners = () => {
+  const rows = channelRows();
+  const pick = liveHero();
+  if (pick) {
+    // Same trim-and-trailing-slash comparison the settings row uses, so a
+    // hand-pasted URL still matches what Channels.md wrote. Double-escaped:
+    // this is inside the TS template literal, so the generated script must
+    // receive its own escape for the slash.
+    const norm = (url) => String(url == null ? "" : url).trim().replace(/\\/+$/, "");
+    const wanted = norm(pick);
+    const match = rows.find((item) => norm(linkParts(item.channel).href) === wanted);
+    const src = match ? imageSrc(picture(match, "banner"), CHANNELS_PATH) : null;
+    if (src) return { banners: [src], solo: true };
+  }
+  return {
+    banners: rows
+      .map((item) => imageSrc(picture(item, "banner"), CHANNELS_PATH))
+      .filter((src) => Boolean(src))
+      .slice(0, 4),
+    solo: false,
+  };
+};
+
+// Follow a crop-only change by moving object-position on the images already on
+// screen rather than rebuilding them. A rebuilt remote banner has to re-decode
+// before it paints, so tearing the mosaic down on every drag tick would blank
+// the very thing being cropped; nudging the live images repaints instantly.
+const cropMosaic = (hero, focus) => {
+  for (const img of hero.querySelectorAll(":scope > .lifeline-mosaic img"))
+    img.style.objectPosition = focus.x + "% " + focus.y + "%";
+};
+
+// Paint (or repaint) the mosaic strip at the top of the hero, above the title
+// band. The picked banner alone carries the crop point, applied through the
+// same object-position the settings preview paints, so what was picked there
+// is what survives the crop here.
+const paintMosaic = (hero) => {
+  for (const old of hero.querySelectorAll(":scope > .lifeline-mosaic")) old.remove();
+  const state = heroBanners();
+  if (!state.banners.length) return;
+  const mosaic = mk("div", "lifeline-mosaic");
+  hero.prepend(mosaic);
+  mosaic.style.gridTemplateColumns = "repeat(" + state.banners.length + ", minmax(0, 1fr))";
+  const pos = state.solo ? liveHeroFocus() : null;
+  for (const src of state.banners) {
+    const img = imgInto(mosaic, src, "");
+    if (pos) img.style.objectPosition = pos.x + "% " + pos.y + "%";
+  }
+};
+
+// The pick and the crop are both read live, but a dataviewjs block only
+// re-runs when the note re-renders: it ignores Dataview's refresh event, so
+// an open dashboard would never follow a change made in settings. Watch the
+// live values and repaint the mosaic in place instead. A changed pick rebuilds
+// the strip; a changed crop only nudges object-position on the live images,
+// so dragging stays smooth. The timer stops itself once the hero leaves the
+// DOM, so a closed or re-rendered dashboard leaves no interval behind.
+const watchHero = (hero) => {
+  let lastPick = JSON.stringify(liveHero());
+  let lastFocus = JSON.stringify(liveHeroFocus());
+  const timer = window.setInterval(() => {
+    if (!hero.isConnected) {
+      window.clearInterval(timer);
+      return;
+    }
+    const pick = JSON.stringify(liveHero());
+    if (pick !== lastPick) {
+      lastPick = pick;
+      lastFocus = JSON.stringify(liveHeroFocus());
+      paintMosaic(hero);
+      return;
+    }
+    const focus = JSON.stringify(liveHeroFocus());
+    if (focus !== lastFocus) {
+      lastFocus = focus;
+      if (liveHero()) cropMosaic(hero, liveHeroFocus());
+    }
+  }, 400);
+};
+
+// The hero: the banner strip on top, the title block beneath it. The banner is
+// cropped to the stored focus point rather than the middle, so the part of a
+// wide banner the user picked is the part that survives.
 const bannerHero = (host) => {
   const hero = add(host, "div", "lifeline-hero");
-  const banners = channelRows()
-    .map((item) => imageSrc(picture(item, "banner"), CHANNELS_PATH))
-    .filter((src) => Boolean(src))
-    .slice(0, 4);
-  if (banners.length) {
-    const mosaic = add(hero, "div", "lifeline-mosaic");
-    mosaic.style.gridTemplateColumns = "repeat(" + banners.length + ", minmax(0, 1fr))";
-    for (const src of banners) imgInto(mosaic, src, "");
-  }
-  add(hero, "div", "lifeline-veil");
+  paintMosaic(hero);
+  watchHero(hero);
   return add(hero, "div", "lifeline-hero-body");
 };
 

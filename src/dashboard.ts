@@ -4,9 +4,9 @@
  * file writes (writeDashboardNote and the writeOutputs path) and also writes
  * the view script itself (dashboardScript.ts).
  *
- * Everything visible is DataviewJS: the note is one header call (the
- * banner-mosaic hero with the status badge, KPI chips, and the "New since last
- * sync" + "Needs attention" panels) plus one call per list section into the
+ * Everything visible is DataviewJS: the note is one header call (the banner
+ * hero, the status badge, KPI chips, and the "New since last sync" + "Needs
+ * attention" panels) plus one call per list section into the
  * generated script, which queries the synced notes live. The note itself
  * carries only frontmatter (state-derived counts) and the view calls with
  * their baked options (status, section toggles, the sync date for the delta,
