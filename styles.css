@@ -225,6 +225,49 @@
 	font-size: var(--font-ui-smaller);
 }
 
+/* Hero banner crop preview (Dashboard sub-page): the banner at the hero's
+   shape, with a dot marking the point the crop keeps. object-fit and
+   object-position match what the generated script applies, so the preview
+   never disagrees with the note. */
+.lifeline-hero-focus {
+	position: relative;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	overflow: hidden;
+	cursor: crosshair;
+	background: var(--background-secondary);
+}
+
+.lifeline-hero-focus:focus-visible {
+	outline: 2px solid var(--background-modifier-border-focus, var(--interactive-accent));
+	outline-offset: 1px;
+}
+
+.lifeline-hero-focus-img {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	/* object-position is set from the stored crop point at render time. */
+}
+
+.lifeline-hero-focus-dot {
+	position: absolute;
+	width: 14px;
+	height: 14px;
+	margin: -7px 0 0 -7px;
+	border: 2px solid #fff;
+	border-radius: 50%;
+	box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+	pointer-events: none;
+	/* left and top are set from the stored crop point at render time. */
+}
+
+.lifeline-hero-focus-hint {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
 .lifeline-collect-feedback p {
 	margin: 0;
 }

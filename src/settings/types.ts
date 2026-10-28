@@ -33,6 +33,33 @@ import {
  *  render time. */
 export type NoteLayout = 'table' | 'chips' | 'poster';
 
+/**
+ * Where the hero crop of a picked banner centers, in percent of the image
+ * each way (0-100). A channel banner is far wider than the hero strip, so
+ * `object-fit: cover` throws away everything outside this point's column and
+ * row; this is the point the crop keeps. The middle (50, 50) is what the
+ * hero drew before the crop was pickable, so an unset value changes nothing.
+ */
+export interface HeroFocusPoint {
+	x: number;
+	y: number;
+}
+
+/** The default crop: the center of the banner, matching the old behavior. */
+export const DEFAULT_HERO_FOCUS: HeroFocusPoint = { x: 50, y: 50 };
+
+/** Clamp a possibly hand-edited stored focus back into 0-100 each way, so a
+ *  bad value in data.json cannot push the crop off the image entirely. Each
+ *  axis falls back on its own: one bad number should not reset the other. */
+export function normalizeHeroFocus(value: Partial<HeroFocusPoint> | null | undefined): HeroFocusPoint {
+	const axis = (n: unknown): number | null =>
+		typeof n === 'number' && Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : null;
+	return {
+		x: axis(value?.x) ?? DEFAULT_HERO_FOCUS.x,
+		y: axis(value?.y) ?? DEFAULT_HERO_FOCUS.y,
+	};
+}
+
 /** One choice in a layout dropdown, in menu order (the same order the
  *  segmented control in the note shows). Deliberately no Mixed: within one
  *  note type it is just a slower way of naming the other value. */
@@ -222,6 +249,18 @@ export interface LifelineSettings {
 	dashboardNote: boolean;
 	/** Which live sections render on Dashboard.md (sub-page checklist). */
 	dashboardSections: DashboardSections;
+	/** Channel URL picked as the dashboard hero banner ('' = none, draw the
+	 *  default mosaic of the top channels). Read live by the generated script
+	 *  at view time, so picking or clearing needs no sync and no rewrite; a
+	 *  stale URL simply falls back to the mosaic. */
+	dashboardHeroChannel: string;
+	/** Where the hero crop of that banner centers, in percent of the image
+	 *  each way (0-100, default the middle). A banner is far wider than the
+	 *  hero strip, so `object-fit: cover` discards everything outside this
+	 *  point's column and row; the settings preview picks it by clicking the
+	 *  part of the picture to keep. Also read live, and only meaningful while
+	 *  `dashboardHeroChannel` resolves to a banner. */
+	dashboardHeroFocus: HeroFocusPoint;
 	/** Vault folder holding the generated lifeline-dashboard.js view script. */
 	dashboardScriptsFolder: string;
 	/** Folder the script was last written to (null = never); lets a folder
@@ -283,6 +322,8 @@ export const DEFAULT_SETTINGS: LifelineSettings = {
 	channelsFields: { ...DEFAULT_CHANNELS_FIELDS },
 	dashboardNote: false,
 	dashboardSections: { ...DEFAULT_DASHBOARD_SECTIONS },
+	dashboardHeroChannel: '',
+	dashboardHeroFocus: { ...DEFAULT_HERO_FOCUS },
 	dashboardScriptsFolder: DEFAULT_SCRIPTS_FOLDER,
 	dashboardScriptsFolderWritten: null,
 	noteViews: false,

@@ -10,10 +10,18 @@
  *
  * No reset button: the section defaults are one all-on state, not worth a
  * control.
+ *
+ * The Hero banner row and the Banner crop row do not rewrite the note: both
+ * values are read live by the generated script, so Dashboard.md never changes
+ * for them (a rewrite would be skipped as unchanged anyway). The generated
+ * script watches both values and repaints the hero in place, so a change takes
+ * effect on the note already on screen with no sync and no re-render trigger.
  */
 import { Notice, Setting } from 'obsidian';
 import { DATAVIEW_REQUIRED_NOTICE, isDataviewEnabled } from '../dashboard';
 import { type DashboardLimits, type DashboardSections } from '../types';
+import { heroChannelSetting } from './channelPicker';
+import { heroFocusSetting } from './heroFocus';
 import { DASHBOARD_LIMIT_ROWS, DASHBOARD_ROWS } from './types';
 import { group, type SettingsHost } from './ui';
 
@@ -49,6 +57,41 @@ export function renderDashboardPage(host: SettingsHost, containerEl: HTMLElement
 				if (on) await plugin.createDashboard();
 			}),
 		);
+
+	// The crop preview lives under the pick row and follows it, so the pick
+	// row is given a hook that repoints the preview instead of the whole page
+	// re-rendering (which would drop the settings scroll position).
+	let repointCrop: ((url: string) => void) | null = null;
+	heroChannelSetting(card, {
+		app: plugin.app,
+		name: 'Hero banner',
+		desc: 'Show one channel\'s banner full-bleed across the dashboard hero. Leave empty, or pick a channel without a banner, for the default mosaic of top channels. Read live by the open dashboard, so no sync is needed.',
+		value: settings.dashboardHeroChannel,
+		placeholder: 'Top channels by default',
+		channels: () => Object.values(plugin.state.channels),
+		commit: async (url) => {
+			settings.dashboardHeroChannel = url;
+			await plugin.saveSettings();
+			// The note itself never changes for this pick, so there is nothing
+			// to rewrite. The generated script watches this value and repaints
+			// the hero in place, so the open dashboard follows with no sync.
+		},
+		onPick: (url) => repointCrop?.(url),
+	});
+
+	const showCrop = heroFocusSetting(card, {
+		plugin,
+		name: 'Banner crop',
+		desc: 'Which part of the banner the hero keeps: a banner is much wider than the hero, so the rest is cropped away. Select a point on the preview, or focus it and use the arrow keys (Shift for larger steps, Home to recenter). Read live, like the pick itself.',
+		commit: async (focus) => {
+			settings.dashboardHeroFocus = focus;
+			await plugin.saveSettings();
+			// The generated script watches this value too and repaints the hero
+			// in place, so the open dashboard follows with no sync.
+		},
+	});
+	repointCrop = showCrop;
+	showCrop(settings.dashboardHeroChannel);
 
 	for (const row of DASHBOARD_ROWS) {
 		new Setting(card).setName(row.name).addToggle((toggle) => {
