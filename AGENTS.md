@@ -9,7 +9,7 @@
 ## What this plugin is (Lifeline)
 
 - Backs up YouTube subscriptions, playlists, and a watch-later substitute into Markdown notes (default folder `95 - Notes/YouTube/`): `Channels.md`, `Playlists/<name>.md`, `Watch Later.md`, an opt-in `Dashboard.md` home note (one `dv.view()` call per section into the generated `lifeline-dashboard.js` script in a configurable scripts folder; gated on the community Dataview plugin), opt-in per-note views above the bullets (one `dv.view()` call per note into one of three generated scripts: `lifeline-channels.js`, `lifeline-playlists.js`, and `lifeline-watchlater.js`, in one of three layouts each, picked per note type in settings or in the note's own toolbar), and opt-in avatar/thumbnail image fields at the end of the bullets themselves (`avatar_url`/`avatar`, `thumbnail_url`/`thumbnail`, channel `banner_url`/`banner`, drawn by the views; `off` / `link` / `download`). The sync log (`sync-log.json`) lives in the plugin folder.
-- Desktop-only (`isDesktopOnly: true`, `minAppVersion: 1.11.4` for the native SecretStorage API). No mobile, no telemetry, no video downloads.
+- Desktop-only (`isDesktopOnly: true`, `minAppVersion: 1.14.0` for the declarative settings API; 1.14 is also the tested floor). No mobile, no telemetry, no video downloads.
 
 ### Architecture (keep `main.ts` lifecycle-only)
 

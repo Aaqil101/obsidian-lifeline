@@ -65,7 +65,7 @@ export function renderCredentialsPage(host: SettingsHost, containerEl: HTMLEleme
 			new SecretComponent(host.plugin.app, el)
 				.setValue(settings.clientIdName)
 				.onChange(async (value) => {
-					settings.clientIdName = value;
+					settings.clientIdName = value ?? '';
 					await host.plugin.saveSettings();
 				}),
 		);
@@ -77,7 +77,7 @@ export function renderCredentialsPage(host: SettingsHost, containerEl: HTMLEleme
 			new SecretComponent(host.plugin.app, el)
 				.setValue(settings.clientSecretName)
 				.onChange(async (value) => {
-					settings.clientSecretName = value;
+					settings.clientSecretName = value ?? '';
 					await host.plugin.saveSettings();
 				}),
 		);
