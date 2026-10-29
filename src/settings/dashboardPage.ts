@@ -19,7 +19,6 @@
  */
 import { Notice, Setting } from 'obsidian';
 import { DATAVIEW_REQUIRED_NOTICE, isDataviewEnabled } from '../dashboard';
-import { type DashboardLimits, type DashboardSections } from '../types';
 import { heroChannelSetting } from './channelPicker';
 import { heroFocusSetting } from './heroFocus';
 import { DASHBOARD_LIMIT_ROWS, DASHBOARD_ROWS } from './types';

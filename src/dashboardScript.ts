@@ -23,7 +23,7 @@
  * Pure: this module only builds strings; sync.ts owns the vault writes.
  */
 
-import { DEFAULT_DASHBOARD_LIMITS, type DashboardLimits } from './types';
+import { DEFAULT_DASHBOARD_LIMITS } from './types';
 
 /** Default folder for the generated script (also the settings placeholder). */
 export const DEFAULT_SCRIPTS_FOLDER = '98 - Organize/Scripts';
