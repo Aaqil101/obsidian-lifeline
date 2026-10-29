@@ -1,42 +1,29 @@
 /**
- * Notes: where the notes go, the Dataview view rows (the toggle, the layout
- * dropdowns, items per page, and the two folders its generated files land in),
- * and the doors to the Channels.md fields and Dashboard sub-pages.
+ * Notes: where the notes go, the two folders the generated view files land
+ * in, and the doors to the Views in notes, Channels.md fields, and Dashboard
+ * sub-pages.
  *
  * The image rows deliberately live in their own group (images.ts): they are
  * content decisions with a folder of their own, not note structure.
  *
  * Every row here is a `render` definition rather than a native `control` one:
- * the folders commit only on blur, the toggle carries the Dataview gate, and
- * several folders rewrite generated scripts when they move. The definition
- * still carries the name and desc, so settings search indexes them.
+ * the folders commit only on blur, and several rewrite generated scripts when
+ * they move. The definition still carries the name and desc, so settings
+ * search indexes them.
  */
-import { Notice, Setting, type SettingDefinitionGroup, type SettingGroupItem } from 'obsidian';
-import { DATAVIEW_REQUIRED_NOTICE, isDataviewEnabled } from '../dashboard';
+import { Notice, Setting, type SettingDefinitionGroup } from 'obsidian';
 import { DEFAULT_SCRIPTS_FOLDER, normalizeScriptsFolder } from '../dashboardScript';
 import { DEFAULT_OUTPUT_FOLDER, normalizeFolder } from '../markdown';
-import {
-	DEFAULT_STYLES_FOLDER,
-	MAX_VIEW_PAGE_SIZE,
-	MIN_VIEW_PAGE_SIZE,
-	normalizeStylesFolder,
-	normalizeViewPageSize,
-} from '../noteViewsScript';
+import { DEFAULT_STYLES_FOLDER, normalizeStylesFolder } from '../noteViewsScript';
 import { writeNoteViewScripts } from '../sync';
 import { DEFAULT_CHANNELS_FIELDS } from '../types';
 import { folderSetting } from './folderPicker';
 import { renderDashboardPage } from './dashboardPage';
-import {
-	DEFAULT_JOURNAL_FOLDER,
-	DEFAULT_NOTE_LAYOUTS,
-	FIELD_ROWS,
-	LAYOUT_ROWS,
-	NOTE_LAYOUT_OPTIONS_BY_KIND,
-	type NoteLayout,
-} from './types';
+import { renderViewsPage } from './viewsPage';
+import { DEFAULT_JOURNAL_FOLDER, FIELD_ROWS } from './types';
 import { group, pageDefinition, renderRow, type SettingsHost } from './ui';
 
-/** Landing group: output folder, views, and the two structural sub-pages. */
+/** Landing group: output folder, the sub-page doors, and the shared folders. */
 export function notesGroup(host: SettingsHost): SettingDefinitionGroup {
 	const { plugin } = host;
 	const { settings } = plugin;
@@ -93,101 +80,6 @@ export function notesGroup(host: SettingsHost): SettingDefinitionGroup {
 					await plugin.saveSettings();
 				},
 			}),
-	);
-
-	// Opt-in DataviewJS views. Same Dataview gate as the dashboard toggle:
-	// revert + Notice when the community plugin is missing. Toggling on writes
-	// the three view scripts immediately so the next sync's baked dv.view()
-	// calls resolve; toggling off needs nothing (the next sync rewrites the
-	// notes without the block). The layout rows below stay live either way so
-	// a choice survives the toggle, described as inactive while off.
-	const views = renderRow(
-		'Views in notes',
-		'Draw a live view above the entries in Channels.md, playlist notes, and Watch Later.md, each with search and a Layout picker. Notes pick it up on the next sync. Requires the community Dataview plugin.',
-		(setting) => {
-			setting.addToggle((toggle) =>
-				toggle.setValue(settings.noteViews).onChange(async (on) => {
-					if (on && !isDataviewEnabled(plugin.app)) {
-						new Notice(DATAVIEW_REQUIRED_NOTICE, 20000);
-						toggle.setValue(false);
-						return;
-					}
-					settings.noteViews = on;
-					await plugin.saveSettings();
-					if (on) {
-						try {
-							await writeNoteViewScripts(plugin);
-						} catch (err) {
-							console.error('Lifeline: could not write the note-view scripts', err);
-							new Notice('Could not write the view scripts.');
-						}
-					}
-				}),
-			);
-		},
-	);
-
-	// Layout rows. Live while the toggle is off but described as inactive
-	// rather than disabled, so a choice made with views off survives and is
-	// still there when they come back on. No rewrite on change: each view
-	// reads its own layout out of the live plugin settings at render time, so
-	// the next re-render of an open note picks the new value up with no sync
-	// and no regenerated script. The note's baked layout is only a fallback.
-	const layouts: SettingGroupItem[] = LAYOUT_ROWS.map((row) =>
-		// Every kind offers the same three layouts; the lists stay per kind so
-		// the value written is always one this kind's script can render.
-		renderRow(
-			row.name,
-			settings.noteViews ? row.desc : `${row.desc} Only applies while Views in notes is on.`,
-			(setting) => {
-				setting.addDropdown((dropdown) => {
-					const options = NOTE_LAYOUT_OPTIONS_BY_KIND[row.key];
-					for (const option of options) dropdown.addOption(option.value, option.label);
-					dropdown.setValue(settings.noteLayouts[row.key]).onChange(async (value) => {
-						settings.noteLayouts[row.key] = options.some((option) => option.value === value)
-							? (value as NoteLayout)
-							: DEFAULT_NOTE_LAYOUTS[row.key];
-						await plugin.saveSettings();
-					});
-				});
-			},
-		),
-	);
-
-	// How many entries each view paints before a Show more button. Read live
-	// from settings at render time, the same way the layout is, so changing it
-	// needs no sync and no regenerated script. Committed on blur or Enter
-	// rather than per keystroke, so a half-typed number never becomes the page
-	// size; the value is clamped and written back into the field either way.
-	const pageSize = renderRow(
-		'Items per page',
-		settings.noteViews
-			? 'How many channels or videos each layout draws before a Show more button. Applies on the next view render.'
-			: 'How many channels or videos each layout draws before a Show more button. Only applies while Views in notes is on.',
-		(setting) => {
-			setting.addText((text) => {
-				text.inputEl.type = 'number';
-				text.inputEl.min = String(MIN_VIEW_PAGE_SIZE);
-				text.inputEl.max = String(MAX_VIEW_PAGE_SIZE);
-				text.inputEl.step = '1';
-				text.setValue(String(normalizeViewPageSize(settings.viewPageSize)));
-				const commit = async (): Promise<void> => {
-					const next = normalizeViewPageSize(text.getValue());
-					text.setValue(String(next));
-					if (next === settings.viewPageSize) return;
-					settings.viewPageSize = next;
-					await plugin.saveSettings();
-				};
-				text.inputEl.addEventListener('blur', () => {
-					void commit();
-				});
-				text.inputEl.addEventListener('keydown', (event) => {
-					if (event.key !== 'Enter') return;
-					event.preventDefault();
-					text.inputEl.blur();
-				});
-			});
-		},
 	);
 
 	// Folder for the per-view stylesheets the view scripts read at render
@@ -272,6 +164,15 @@ export function notesGroup(host: SettingsHost): SettingDefinitionGroup {
 		renderChannelsFieldsPage,
 	);
 
+	const views = pageDefinition(
+		host,
+		'Views in notes',
+		settings.noteViews
+			? 'On. Live views above the entries in Channels.md, playlist notes, and Watch Later.md; open this page to change their layouts.'
+			: 'Off. Live views above the entries in Channels.md, playlist notes, and Watch Later.md.',
+		renderViewsPage,
+	);
+
 	const dashboard = pageDefinition(
 		host,
 		'Dashboard',
@@ -288,8 +189,6 @@ export function notesGroup(host: SettingsHost): SettingDefinitionGroup {
 			outputFolder,
 			journalFolder,
 			views,
-			...layouts,
-			pageSize,
 			stylesFolder,
 			scriptsFolder,
 			channelsFields,
