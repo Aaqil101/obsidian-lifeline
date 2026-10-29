@@ -13,9 +13,9 @@
 import {
 	AbstractInputSuggest,
 	FuzzySuggestModal,
-	Setting,
 	TFolder,
 	type App,
+	type Setting,
 	type TextComponent,
 } from 'obsidian';
 
@@ -96,8 +96,6 @@ export class FolderPickModal extends FuzzySuggestModal<TFolder> {
 
 export interface FolderRowOptions {
 	app: App;
-	name: string;
-	desc: string;
 	/** Stored value; the box starts here. */
 	value: string;
 	/** Shown in the box while it is empty, so the row never looks unset. */
@@ -112,8 +110,11 @@ export interface FolderRowOptions {
  * One folder row: text input with typeahead, a browse button, and a
  * commit-on-blur. A no-op when nothing changed, so tabbing through the form
  * rewrites nothing.
+ *
+ * The row's name and desc come from the caller's setting definition, so this
+ * only adds the controls.
  */
-export function folderSetting(card: HTMLElement, options: FolderRowOptions): void {
+export function folderSetting(row: Setting, options: FolderRowOptions): void {
 	let committed = options.value;
 	let input: TextComponent | null = null;
 
@@ -127,7 +128,6 @@ export function folderSetting(card: HTMLElement, options: FolderRowOptions): voi
 		return Promise.resolve(options.commit(next));
 	};
 
-	const row = new Setting(card).setName(options.name).setDesc(options.desc);
 	row.addText((text) => {
 		input = text;
 		text.setPlaceholder(options.placeholder).setValue(options.value);

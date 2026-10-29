@@ -1,23 +1,27 @@
 /**
- * Settings tab. This file is routing only: it holds the sub-page switch and
- * the five landing groups, each in its own module so no file has to carry the
- * whole tab. Shared row builders live in ui.ts, the settings shape in types.ts.
+ * Settings tab. This file is the tab shell only: it implements the
+ * declarative `getSettingDefinitions()` that Obsidian renders and indexes for
+ * settings search, and the five landing groups it returns, each built by its
+ * own module so no file has to carry the whole tab. Shared row builders live
+ * in ui.ts, the settings shape in types.ts.
+ *
+ * There is no manual router anymore: a sub-page is a `page` definition whose
+ * factory wraps the page module's renderer, so the way back is native and no
+ * page has to remember to draw it.
  *
  * No Google credential ever lands in data.json: the client ID, client secret,
  * and refresh token all live in the Obsidian keychain, and only their *names*
  * are persisted here. Collected playlist IDs live in data.json and nowhere
  * else.
  */
-import { App, PluginSettingTab } from 'obsidian';
+import { App, PluginSettingTab, type SettingDefinitionItem } from 'obsidian';
 import type LifelinePlugin from '../main';
-import { renderAccountGroup, renderCredentialsPage } from './account';
-import { renderChannelsFieldsPage, renderNotesGroup } from './notes';
-import { renderImagesGroup } from './images';
-import { renderDashboardPage } from './dashboardPage';
-import { renderPlaylistsGroup, renderPlaylistsPage } from './playlists';
-import { renderCollectIdsPage } from './collectPage';
-import { renderSyncGroup } from './syncSection';
-import { addBackCrumb, type SettingsHost, type SubPage } from './ui';
+import { accountGroup } from './account';
+import { notesGroup } from './notes';
+import { imagesGroup } from './images';
+import { playlistsGroup } from './playlists';
+import { syncGroup } from './syncSection';
+import type { SettingsHost } from './ui';
 
 export {
 	DEFAULT_SETTINGS,
@@ -30,48 +34,31 @@ export {
 	type NoteLayouts,
 } from './types';
 
-/** The pages that can be open instead of the landing list. */
-const SUB_PAGES: Record<Exclude<SubPage, 'none'>, (host: SettingsHost, containerEl: HTMLElement) => void> = {
-	credentials: renderCredentialsPage,
-	channels: renderChannelsFieldsPage,
-	playlists: renderPlaylistsPage,
-	collect: renderCollectIdsPage,
-	dashboard: renderDashboardPage,
-};
-
 export class LifelineSettingTab extends PluginSettingTab implements SettingsHost {
 	plugin: LifelinePlugin;
-	/** Which in-settings sub-page is open (native Manage-page navigation). */
-	private subPage: SubPage = 'none';
 
 	constructor(app: App, plugin: LifelinePlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
 
-	display(): void {
-		const { containerEl } = this;
-		containerEl.empty();
-
-		if (this.subPage !== 'none') {
-			// The way out is rendered here, not inside each page. A page that
-			// has to remember its own back crumb is a page that can forget it,
-			// and a sub-page with no way back is a trap.
-			addBackCrumb(this, containerEl);
-			SUB_PAGES[this.subPage](this, containerEl);
-			return;
-		}
-
-		renderAccountGroup(this, containerEl);
-		renderNotesGroup(this, containerEl);
-		renderImagesGroup(this, containerEl);
-		renderPlaylistsGroup(this, containerEl);
-		renderSyncGroup(this, containerEl);
+	/**
+	 * The landing page as definitions. Returning a non-empty array means the
+	 * app renders the tab from these instead of calling `display()`, and
+	 * indexes every name and desc for settings search, which is the whole
+	 * point of the declarative API.
+	 */
+	getSettingDefinitions(): SettingDefinitionItem[] {
+		return [accountGroup(this), notesGroup(this), imagesGroup(this), playlistsGroup(this), syncGroup(this)];
 	}
 
-	/** Open a sub-page (or return to the landing list with 'none'). */
-	navigate(target: SubPage): void {
-		this.subPage = target;
-		this.display();
+	/**
+	 * Re-render the tab. Rows whose change alters what else is shown (the
+	 * image modes, which gate the images folder) call this; the app then
+	 * re-runs `getSettingDefinitions()`, so a group rebuilt from live state
+	 * picks the new state up.
+	 */
+	refresh(): void {
+		this.update();
 	}
 }

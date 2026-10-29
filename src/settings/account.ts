@@ -4,51 +4,56 @@
  * never looked at again. Keeping them off the landing page leaves the first
  * screen for things that are checked regularly.
  */
-import { Notice, SecretComponent, Setting } from 'obsidian';
-import { SECURITY_URL, authErrorMessage, group, navRow, type SettingsHost } from './ui';
+import { Notice, SecretComponent, Setting, type SettingDefinitionGroup } from 'obsidian';
+import { SECURITY_URL, authErrorMessage, group, pageDefinition, renderRow, type SettingsHost } from './ui';
 
 /** Landing group: are we connected, and how to change that. */
-export function renderAccountGroup(host: SettingsHost, containerEl: HTMLElement): void {
+export function accountGroup(host: SettingsHost): SettingDefinitionGroup {
 	const { plugin } = host;
-	const card = group(containerEl, 'Google account');
 	const connected = plugin.auth.isConnected();
 
-	const status = new Setting(card)
-		.setName(connected ? 'Connected' : 'Not connected')
-		.setDesc(
-			connected
-				? 'Lifeline can read your subscriptions. The refresh token lives in the system keychain.'
-				: 'Authenticate to let Lifeline read your subscriptions.',
-		)
-		.addButton((button) =>
-			button
-				.setButtonText(connected ? 'Re-authenticate' : 'Authenticate with Google')
-				.setCta()
-				.onClick(async () => {
-					button.setDisabled(true);
-					button.setButtonText('Waiting for browser…');
-					try {
-						await plugin.auth.authenticate();
-						new Notice('Lifeline is connected to YouTube.');
-					} catch (err) {
-						new Notice(authErrorMessage(err), 20000);
-					} finally {
-						button.setDisabled(false);
-						host.display();
-					}
-				}),
-		);
-	status.setClass('lifeline-connection');
-	status.setClass(connected ? 'lifeline-connection--ok' : 'lifeline-connection--off');
-
-	navRow(
-		host,
-		card,
-		'Google credentials',
-		'Client ID and client secret, stored in the system keychain rather than in data.json.',
-		'credentials',
-		'key',
+	const status = renderRow(
+		connected ? 'Connected' : 'Not connected',
+		connected
+			? 'Lifeline can read your subscriptions. The refresh token lives in the system keychain.'
+			: 'Authenticate to let Lifeline read your subscriptions.',
+		(setting) => {
+			setting.setClass('lifeline-connection');
+			setting.setClass(connected ? 'lifeline-connection--ok' : 'lifeline-connection--off');
+			setting.addButton((button) =>
+				button
+					.setButtonText(connected ? 'Re-authenticate' : 'Authenticate with Google')
+					.setCta()
+					.onClick(async () => {
+						button.setDisabled(true);
+						button.setButtonText('Waiting for browser…');
+						try {
+							await plugin.auth.authenticate();
+							new Notice('Lifeline is connected to YouTube.');
+						} catch (err) {
+							new Notice(authErrorMessage(err), 20000);
+						} finally {
+							button.setDisabled(false);
+							host.refresh();
+						}
+					}),
+			);
+		},
 	);
+
+	return {
+		type: 'group',
+		heading: 'Google account',
+		items: [
+			status,
+			pageDefinition(
+				host,
+				'Google credentials',
+				'Client ID and client secret, stored in the system keychain rather than in data.json.',
+				renderCredentialsPage,
+			),
+		],
+	};
 }
 
 /** Credentials sub-page: the two keychain secrets plus the security notes. */

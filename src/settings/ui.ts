@@ -1,35 +1,51 @@
 /**
- * Row builders shared by every settings page: the native group card, the
- * chevron navigation row, the sub-page back crumb, and small helper text.
+ * Shared settings building blocks: the native group card (still used inside
+ * imperative sub-pages), the wrapper that opens one of those sub-pages from
+ * the declarative tab, and the row helper the landing groups are built from.
  *
  * Everything here is a free function taking a SettingsHost rather than a
  * method on the tab, so the tab can be split across page modules without any
  * of them importing it (they only `import type` the host interface).
+ *
+ * The landing rows are deliberately `render` definitions rather than native
+ * `control` definitions: several of them carry behaviour a plain control
+ * cannot express (a folder value that only commits on blur, a toggle the
+ * Dataview gate can reject, a dropdown that rewrites generated scripts), so
+ * the existing imperative rows are kept and merely hosted. The definition
+ * still carries the name and desc, which is what settings search indexes.
  */
-import { Setting, setIcon, type IconName } from 'obsidian';
+import {
+	Setting,
+	SettingPage,
+	type SettingDefinitionPage,
+	type SettingDefinitionRender,
+} from 'obsidian';
 import type LifelinePlugin from '../main';
-
-/** Which in-settings sub-page is open (native Manage-page navigation). */
-export type SubPage = 'none' | 'credentials' | 'channels' | 'playlists' | 'dashboard' | 'collect';
 
 /**
  * What a page module may touch on the tab. Declared here rather than in
  * index.ts so page modules depend on this file only, never on the tab class
  * itself (`plugin` is a type-only import, which esbuild erases).
+ *
+ * `refresh()` re-renders whichever view the caller is part of: the landing
+ * tab, or the sub-page a page function was opened inside. It is the only
+ * re-render entry point a page module gets, since the declarative tab has no
+ * `display()` of its own to call.
  */
 export interface SettingsHost {
 	readonly plugin: LifelinePlugin;
-	display(): void;
-	navigate(target: SubPage): void;
+	refresh(): void;
 }
 
 export const SECURITY_URL = 'https://github.com/Aaqil101/obsidian-lifeline#security--privacy';
 
 /**
- * Native settings group (Obsidian 1.14+): section heading plus a
- * `.setting-items` card. On older versions these classes are inert and rows
- * keep the flat style those app versions use, so the tab always matches its
- * surroundings.
+ * Imperative group card: a section heading plus a `.setting-items` card.
+ *
+ * Only sub-pages use this now: the landing groups come from
+ * `getSettingDefinitions()`, whose groups carry their own heading. A
+ * sub-page is drawn imperatively (its rows depend on live state the
+ * definition tree has no way to express), so it keeps this helper.
  */
 export function group(
 	containerEl: HTMLElement,
@@ -42,56 +58,79 @@ export function group(
 	return card.createDiv({ cls: 'setting-items' });
 }
 
+/** How a sub-page module draws itself: a host plus the container to fill. */
+export type PageRenderer = (host: SettingsHost, containerEl: HTMLElement) => void;
+
 /**
- * Chevron navigation row (Ribbon menu configuration style). The whole row is
- * focusable and answers Enter and Space, not just the mouse: a row that opens
- * a page has to be reachable from the keyboard like the button it is.
+ * One landing row as a declarative definition. The name and desc live on the
+ * definition, which is what settings search indexes and the framework renders;
+ * they are also written onto the row so a row the framework hands over bare
+ * still labels itself. The draw callback only adds controls.
  */
-export function navRow(
-	host: SettingsHost,
-	card: HTMLElement,
+export function renderRow(
 	name: string,
-	desc: string,
-	target: SubPage,
-	icon?: IconName,
-): void {
-	const row = new Setting(card)
-		.setName(name)
-		.setDesc(desc)
-		.addExtraButton((button) => button.setIcon('chevron-right'));
-	row.settingEl.addClass('lifeline-nav-row');
-	row.settingEl.setAttr('role', 'button');
-	row.settingEl.setAttr('tabindex', '0');
-	if (icon) {
-		const glyph = row.nameEl.createSpan({ cls: 'lifeline-nav-icon' });
-		setIcon(glyph, icon);
-		row.nameEl.prepend(glyph);
-	}
-	const open = (event: Event): void => {
-		event.preventDefault();
-		host.navigate(target);
+	desc: string | undefined,
+	draw: (setting: Setting) => void,
+	visible?: () => boolean,
+): SettingDefinitionRender {
+	return {
+		name,
+		desc,
+		visible,
+		render: (setting) => {
+			setting.setName(name);
+			if (desc !== undefined) setting.setDesc(desc);
+			draw(setting);
+		},
 	};
-	row.settingEl.addEventListener('click', open);
-	row.settingEl.addEventListener('keydown', (event) => {
-		if (event.key === 'Enter' || event.key === ' ') open(event);
-	});
 }
 
 /**
- * Back crumb for sub-pages (chevron + parent name), like native Manage pages.
+ * A sub-page hosted by an existing imperative page renderer, opened through
+ * the framework's own navigation (so it gets a native back affordance and no
+ * longer needs the router's back crumb).
  *
- * Rendered by the router in index.ts, not by the page itself: the way out of a
- * sub-page is not something a page should be able to forget.
+ * The host handed to the page is scoped to this page: `refresh()` re-runs
+ * this page's own `display()`, so a row that needs to repaint what it is part
+ * of repaints the sub-page, not the whole tab.
  */
-export function addBackCrumb(host: SettingsHost, containerEl: HTMLElement): void {
-	const backRow = containerEl.createDiv({ cls: 'setting-item setting-item-heading' });
-	const backLink = backRow.createEl('a', { cls: 'lifeline-subpage-back', href: '#' });
-	setIcon(backLink, 'chevron-left');
-	backLink.append(' Lifeline');
-	backLink.addEventListener('click', (event) => {
-		event.preventDefault();
-		host.navigate('none');
-	});
+class HostedPage extends SettingPage {
+	private bound!: { host: SettingsHost; render: PageRenderer };
+
+	bind(host: SettingsHost, render: PageRenderer): void {
+		this.bound = {
+			host: { plugin: host.plugin, refresh: () => this.display() },
+			render,
+		};
+	}
+
+	display(): void {
+		this.containerEl.empty();
+		this.bound.render(this.bound.host, this.containerEl);
+	}
+}
+
+/**
+ * A navigable entry in the landing tab that opens an imperative sub-page.
+ * `desc` is shown on the entry and indexed for settings search.
+ */
+export function pageDefinition(
+	host: SettingsHost,
+	name: string,
+	desc: string,
+	render: PageRenderer,
+): SettingDefinitionPage {
+	return {
+		type: 'page',
+		name,
+		desc,
+		page: () => {
+			const page = new HostedPage();
+			page.title = name;
+			page.bind(host, render);
+			return page;
+		},
+	};
 }
 
 /** Muted paragraph inside a card, for prose that is not a setting row. */

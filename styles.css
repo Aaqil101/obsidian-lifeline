@@ -137,55 +137,6 @@
 	word-break: break-word;
 }
 
-.lifeline-subpage-back {
-	color: var(--text-muted);
-	text-decoration: none;
-}
-
-.lifeline-subpage-back:hover {
-	color: var(--text-normal);
-}
-
-/* Navigation rows open a sub-page. The whole row is a link, so it takes the
-   pointer, a hover tint, and a focus ring: it has to be as discoverable from
-   the keyboard as it is from the mouse. */
-.lifeline-nav-row {
-	cursor: pointer;
-	border-radius: var(--radius-s);
-}
-
-.lifeline-nav-row:hover {
-	background: var(--background-modifier-hover);
-}
-
-.lifeline-nav-row:focus-visible {
-	outline: 2px solid var(--background-modifier-border-focus, var(--interactive-accent));
-	outline-offset: -2px;
-}
-
-/* Leading glyph on a navigation row. `:empty` covers an icon id this build of
-   Obsidian does not know, so the row degrades to its label rather than
-   leaving a gap. */
-.lifeline-nav-icon {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	flex-shrink: 0;
-	width: var(--icon-s, 16px);
-	height: var(--icon-s, 16px);
-	margin-right: 8px;
-	color: var(--text-muted);
-}
-
-.lifeline-nav-icon:empty {
-	display: none;
-}
-
-.lifeline-nav-icon svg {
-	width: 100%;
-	height: 100%;
-}
-
 /* Connection row: the words already say which state it is in, so the colour
    only reinforces them. */
 .lifeline-connection--ok .setting-item-name {

@@ -113,7 +113,7 @@ export function renderCollectIdsPage(host: SettingsHost, containerEl: HTMLElemen
 							? `Added ${added} playlist ID${added === 1 ? '' : 's'}.`
 							: 'Those IDs are already tracked.',
 					);
-					host.display();
+					host.refresh();
 				});
 		});
 	updateFeedback();
@@ -142,7 +142,7 @@ function renderImportedCard(host: SettingsHost, containerEl: HTMLElement): void 
 				.onClick(async () => {
 					removeImportedPlaylistId(settings, id);
 					await host.plugin.saveSettings();
-					host.display();
+					host.refresh();
 				}),
 		);
 		if (title !== id) row.setDesc(id);
@@ -232,7 +232,7 @@ async function collectFromWebViewer(host: SettingsHost): Promise<void> {
 		const added = addImportedPlaylistIds(settings, ids);
 		await host.plugin.saveSettings();
 		new Notice(`Collected ${ids.length} playlist IDs · ${added} new.`);
-		host.display();
+		host.refresh();
 	} catch (err) {
 		new Notice(
 			`Could not read the Web viewer tab: ${errorMessage(err)}. Use the console steps instead.`,
