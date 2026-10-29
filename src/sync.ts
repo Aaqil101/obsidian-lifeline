@@ -10,7 +10,7 @@
  *   end of every run so partial failures never lose known data.
  */
 import { App, Notice, TFile, type Vault } from 'obsidian';
-import { isDataviewEnabled, renderDashboardNote } from './dashboard';
+import { isDataviewEnabled, renderDashboardNote, renderDisabledDashboardNote } from './dashboard';
 import {
 	DASHBOARD_CSS,
 	dashboardScriptPath,
@@ -623,6 +623,12 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 		} catch (err) {
 			ctx.errors.push(recordError(err, ctx.paths.dashboard));
 		}
+	} else {
+		try {
+			await writeDisabledDashboardNote(vault, ctx.paths.dashboard);
+		} catch (err) {
+			ctx.errors.push(recordError(err, ctx.paths.dashboard));
+		}
 	}
 }
 
@@ -793,6 +799,16 @@ export async function writeNoteViewScripts(
 	}
 	const firstError = firstErrors[0];
 	if (firstError !== undefined) throw firstError;
+}
+
+/**
+ * Swap an existing Dashboard.md for the disabled-notice callout. Only
+ * touches a note that already exists, so turning the setting off never
+ * creates a file for someone who never enabled the dashboard.
+ */
+export async function writeDisabledDashboardNote(vault: Vault, path: string): Promise<void> {
+	if (!(vault.getAbstractFileByPath(path) instanceof TFile)) return;
+	await writeNote(vault, path, renderDisabledDashboardNote());
 }
 
 /**

@@ -67,6 +67,24 @@ export interface DashboardContext {
 }
 
 /**
+ * Replacement for Dashboard.md once the Dashboard note setting is off: the
+ * live sections are gone, and a callout says how to turn the dashboard back on.
+ */
+export function renderDisabledDashboardNote(): string {
+	return [
+		'---',
+		'type: lifeline-dashboard',
+		'---',
+		'',
+		'# YouTube dashboard',
+		'',
+		'> [!info] Dashboard note is disabled',
+		'> The dashboard is turned off in the Lifeline settings. Enable **Dashboard note** to use it again.',
+		'',
+	].join('\n');
+}
+
+/**
  * The note itself: frontmatter (state-derived counts) and one dv.view() call
  * per section. The header call is always present (the hero with its badge and
  * KPI chips, plus the new-since-sync/attention panels when their toggles are
