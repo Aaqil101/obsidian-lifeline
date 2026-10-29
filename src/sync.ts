@@ -413,6 +413,8 @@ function applyPlaylistDiff(
 			fileName: uniqueFileName(state, playlistId, desiredName),
 			videos: {},
 		};
+		// Skipped on the first sync, so the whole existing catalog is not "new".
+		if (state.lastSync !== null) record.addedOn = today;
 		state.playlists[playlistId] = record;
 	} else {
 		record.title = title;

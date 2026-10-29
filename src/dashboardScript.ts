@@ -1294,12 +1294,18 @@ const feedPanel = (host, fresh, since) => {
   const rows = fresh.slice(0, LIMITS.feed);
   if (rows.length === 0) {
     add(body, "div", "lifeline-empty",
-      since ? "No new videos since " + since + "." : "New videos appear after the next sync.");
+      since ? "Nothing new since " + since + "." : "New videos and playlists appear after the next sync.");
     return panel;
   }
   for (const f of rows) {
     const row = add(body, "div", "lifeline-feed-row");
     const title = add(row, "div", "lifeline-feed-title");
+    if (f.kind === "playlist") {
+      internalLink(title, f.playlist, f.path);
+      const meta = add(row, "div", "lifeline-meta");
+      add(meta, "span", "", f.date + " · new playlist · " + f.count + " videos");
+      continue;
+    }
     itemTitle(title, f.item);
     const meta = add(row, "div", "lifeline-meta");
     add(meta, "span", "", f.date + " · ");
@@ -1523,6 +1529,10 @@ function sectionHeader() {
       const ds = itemDate(item);
       if (ds >= since) fresh.push({ item: item, date: ds, playlist: page.file.name, path: page.file.path });
     }
+  }
+  const newPlaylists = Array.isArray(input.newPlaylists) ? input.newPlaylists : [];
+  for (const p of newPlaylists) {
+    fresh.push({ kind: "playlist", date: String(p.date), playlist: String(p.title), path: String(p.path), count: Number(p.count ?? 0) });
   }
   fresh.sort((a, b) => b.date.localeCompare(a.date));
 

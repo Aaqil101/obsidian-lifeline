@@ -133,12 +133,14 @@ export const DEFAULT_CHANNELS_FIELDS: ChannelsFieldSettings = {
 /** Which optional sections render on Dashboard.md (settings checklist). */
 export interface DashboardSections {
 	recent: boolean;
+	playlists: boolean;
 	topChannels: boolean;
 	attention: boolean;
 }
 
 export const DEFAULT_DASHBOARD_SECTIONS: DashboardSections = {
 	recent: true,
+	playlists: true,
 	topChannels: true,
 	attention: true,
 };
@@ -185,6 +187,8 @@ export interface PlaylistRecord {
 	fileName: string;
 	/** Saved from another channel rather than created by you. Optional for pre-existing state files. */
 	saved?: boolean;
+	/** Date the playlist first appeared after the first sync (YYYY-MM-DD). Absent on the first sync and on older state files. */
+	addedOn?: string;
 	videos: Record<string, VideoRecord>;
 }
 

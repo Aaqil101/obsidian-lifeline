@@ -88,8 +88,8 @@ export function renderDisabledDashboardNote(): string {
  * The note itself: frontmatter (state-derived counts) and one dv.view() call
  * per section. The header call is always present (the hero with its badge and
  * KPI chips, plus the new-since-sync/attention panels when their toggles are
- * on); the list sections follow the section checklist, with the playlist panel
- * always on (it has no toggle). Neither an H1 nor section headings are written
+ * on); the playlists and top-channels panels follow the section checklist.
+ * Neither an H1 nor section headings are written
  * in Dataview mode: the hero carries the title, and every panel draws its own.
  *
  * When Dataview is unavailable, only frontmatter, the H1, and a warning
@@ -138,6 +138,20 @@ export function renderDashboardNote(state: SyncState, ctx: DashboardContext): st
 	const since =
 		status === null ? null : `${syncedAt.getFullYear()}-${pad2(syncedAt.getMonth() + 1)}-${pad2(syncedAt.getDate())}`;
 
+	// Playlists first seen on or after the sync date, for the new-since-sync
+	// panel (the script cannot tell from the playlist notes alone).
+	const newPlaylists =
+		since === null
+			? []
+			: playlists
+					.filter(([id, record]) => record.addedOn !== undefined && record.addedOn >= since && trackedIds.has(id))
+					.map(([id, record]) => ({
+						title: record.title,
+						path: `${paths.playlistsFolder}/${record.fileName}.md`,
+						date: record.addedOn,
+						count: Object.keys(record.videos).length,
+					}));
+
 	lines.push(
 		dataviewBlock(
 			viewCall(viewName, {
@@ -146,13 +160,15 @@ export function renderDashboardNote(state: SyncState, ctx: DashboardContext): st
 				recent: sections.recent,
 				attention: sections.attention,
 				since,
+				newPlaylists,
 				...base,
 			}),
 		),
 		'',
-		dataviewBlock(viewCall(viewName, { section: 'playlists', ...base })),
-		'',
 	);
+	if (sections.playlists) {
+		lines.push(dataviewBlock(viewCall(viewName, { section: 'playlists', ...base })), '');
+	}
 	if (sections.topChannels) {
 		lines.push(dataviewBlock(viewCall(viewName, { section: 'channels', src: paths.folder })), '');
 	}
