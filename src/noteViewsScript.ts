@@ -2216,6 +2216,37 @@ const liveLayout = () => {
   return KNOWN_LAYOUTS.indexOf(value) >= 0 ? value : null;
 };
 
+// Read at render time like the layout, so the Sort order setting applies on the
+// next render with no sync. Anything but "desc" counts as newest first.
+const liveSortOrder = () => {
+  const plugin = pluginInstance();
+  const value = plugin && plugin.settings ? plugin.settings.viewSortOrder : null;
+  return value === "desc" ? "desc" : "asc";
+};
+
+// Order by the dated field: subscribed_on on Channels.md, date on playlist and
+// Watch Later bullets. Compared as yyyy-MM-dd text, which sorts by date. Entries
+// with no usable date sink to the end in either order.
+const sortDate = (item) => {
+  const v = section === "channels" ? item.subscribed_on : item.date;
+  if (v == null || v === "") return "";
+  if (typeof v.toFormat === "function") return v.toFormat("yyyy-MM-dd");
+  if (v instanceof Date && !isNaN(v.getTime())) {
+    const pad = (n) => (n < 10 ? "0" + n : String(n));
+    return v.getFullYear() + "-" + pad(v.getMonth() + 1) + "-" + pad(v.getDate());
+  }
+  const found = /(\\d{4})-(\\d{2})-(\\d{2})/.exec(fmtDate(v) + " " + String(v));
+  return found ? found[0] : "";
+};
+const orderRows = (list) => {
+  const keyed = Array.from(list, (item) => ({ item, key: sortDate(item) }));
+  const dated = keyed.filter((e) => e.key !== "");
+  const undated = keyed.filter((e) => e.key === "");
+  dated.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  if (liveSortOrder() !== "desc") dated.reverse();
+  return dated.concat(undated).map((e) => e.item);
+};
+
 const persistLayout = (value) => {
   const plugin = pluginInstance();
   if (!plugin || !plugin.settings || typeof plugin.saveSettings !== "function") return;
@@ -2487,6 +2518,7 @@ const render = () => {
     "lv-results" +
     (resolved === "table" ? "" : " lv-" + (resolved === "poster" ? "posters" : resolved));
   const visible = rows.filter(matches);
+  const ordered = orderRows(visible);
   if (visible.length === 0) {
     host.appendChild(el("div", "lv-empty", rows.length === 0 ? "No " + noun + " synced yet." : "No entries match your search."));
     setStatsText(rows.length === 0 ? "" : "Found 0 of " + rows.length + " " + noun);
@@ -2503,9 +2535,9 @@ const render = () => {
     setStatsText(text);
   };
   if (resolved === "table") {
-    renderTableRows(host, visible, setStats);
+    renderTableRows(host, ordered, setStats);
   } else {
-    mount(host, visible, resolved === "poster" ? posterCard : chipRow, setStats);
+    mount(host, ordered, resolved === "poster" ? posterCard : chipRow, setStats);
   }
 };
 

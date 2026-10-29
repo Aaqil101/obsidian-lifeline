@@ -6,6 +6,9 @@
  * The Styles folder and Script folder rows stay in the Notes group: both
  * Dataview features share them, so they belong at the level both sit under.
  *
+ * The sort order sits with the layouts because both shape what the view
+ * draws; it is read live too.
+ *
  * The layout rows and the page size are read live by the views at render
  * time, so changing them needs no sync. The toggle does need one: it writes
  * or strips the generated scripts and blocks, so it is the only row here
@@ -17,6 +20,7 @@ import {
 	DEFAULT_NOTE_LAYOUTS,
 	LAYOUT_ROWS,
 	NOTE_LAYOUT_OPTIONS_BY_KIND,
+	VIEW_SORT_OPTIONS,
 	type NoteLayout,
 } from './types';
 import { MAX_VIEW_PAGE_SIZE, MIN_VIEW_PAGE_SIZE, normalizeViewPageSize } from '../noteViewsScript';
@@ -91,6 +95,21 @@ export function renderViewsPage(host: SettingsHost, containerEl: HTMLElement): v
 				});
 			});
 	}
+
+	// Order the entries are drawn in, by date. Read live at render time like the
+	// layouts, so no sync is needed.
+	const sortDesc =
+		'Order of the channels or videos in every view, by the date each one was subscribed or added. Newest first lists the most recent date at the top; oldest first lists the earliest. Entries without a date go last.';
+	new Setting(card)
+		.setName('Sort order')
+		.setDesc(settings.noteViews ? sortDesc : `${sortDesc} Only applies while Views in notes is on.`)
+		.addDropdown((dropdown) => {
+			for (const option of VIEW_SORT_OPTIONS) dropdown.addOption(option.value, option.label);
+			dropdown.setValue(settings.viewSortOrder).onChange(async (value) => {
+				settings.viewSortOrder = value === 'desc' ? 'desc' : 'asc';
+				await plugin.saveSettings();
+			});
+		});
 
 	// How many entries each view paints before a Show more button. Committed on
 	// blur or Enter rather than per keystroke, so a half-typed number never

@@ -97,6 +97,18 @@ export const DEFAULT_NOTE_LAYOUTS: NoteLayouts = {
 	watchlater: 'poster',
 };
 
+/** Order the entries of every note view are drawn in, by their date
+ *  (subscribed_on on Channels.md, date on playlist and Watch Later notes).
+ *  `asc` lists the newest first; `desc` lists the oldest first. */
+export type ViewSortOrder = 'asc' | 'desc';
+
+export const DEFAULT_VIEW_SORT_ORDER: ViewSortOrder = 'asc';
+
+export const VIEW_SORT_OPTIONS: Array<{ value: ViewSortOrder; label: string }> = [
+	{ value: 'asc', label: 'Newest first' },
+	{ value: 'desc', label: 'Oldest first' },
+];
+
 /** The three layout rows, in render order and in the order the notes appear
  *  in the vault. Each names the note it drives: a bare "Playlists" would read
  *  as though it covered Watch Later too, which is the whole point of the
@@ -281,6 +293,10 @@ export interface LifelineSettings {
 	 *  Chips, and Table). Read live at render time, so changing it needs no
 	 *  sync and no regenerated script. Ignored while `noteViews` is off. */
 	viewPageSize: number;
+	/** Order the entries are drawn in, on Channels.md, playlist notes, and
+	 *  Watch Later.md. Read live at render time, so changing it needs no sync.
+	 *  Ignored while `noteViews` is off. */
+	viewSortOrder: ViewSortOrder;
 	/** Vault folder holding the per-view stylesheets (lifeline-channels.css,
 	 *  lifeline-playlists.css, lifeline-watchlater.css, and the dashboard's
 	 *  lifeline-dashboard.css) that the view scripts read at view time. */
@@ -330,6 +346,7 @@ export const DEFAULT_SETTINGS: LifelineSettings = {
 	noteViews: false,
 	noteLayouts: { ...DEFAULT_NOTE_LAYOUTS },
 	viewPageSize: DEFAULT_VIEW_PAGE_SIZE,
+	viewSortOrder: DEFAULT_VIEW_SORT_ORDER,
 	stylesFolder: DEFAULT_STYLES_FOLDER,
 	stylesFolderWritten: null,
 	channelAvatars: 'off',
