@@ -27,6 +27,7 @@ import {
 	renderChannelsNote,
 	renderPlaylistNote,
 	sanitizeFileName,
+	stripNoteViewBlocks,
 	videoImageBase,
 	videoThumbnailUrl,
 	viewCall,
@@ -798,6 +799,38 @@ export async function writeNoteViewScripts(
 				),
 			noteViewScriptPath(kind, plugin.settings.dashboardScriptsFolder),
 		);
+	}
+	const firstError = firstErrors[0];
+	if (firstError !== undefined) throw firstError;
+}
+
+/**
+ * Undo the opt-in note views the moment Views in notes is switched off:
+ * strip the dv.view() blocks out of every note under the output folder
+ * (Channels.md, playlist notes, Watch Later.md) and trash the three note-view
+ * scripts and their stylesheets, which nothing reads once no note calls them.
+ * Only notes that actually carry a block are rewritten, so an untouched
+ * vault sees no modify events. Each note is isolated: one failing note is
+ * recorded and the rest still lose their block.
+ */
+export async function removeNoteViews(plugin: LifelinePlugin): Promise<void> {
+	const vault = plugin.app.vault;
+	const root = normalizeFolder(plugin.settings.outputFolder);
+	const everywhere = !root || root === '/';
+	const firstErrors: Error[] = [];
+	for (const file of vault.getMarkdownFiles()) {
+		if (!everywhere && !file.path.startsWith(`${root}/`)) continue;
+		try {
+			const current = await vault.cachedRead(file);
+			const stripped = stripNoteViewBlocks(current);
+			if (stripped !== current) await vault.modify(file, stripped);
+		} catch (err) {
+			firstErrors.push(err instanceof Error ? err : new Error(String(err)));
+		}
+	}
+	for (const kind of NOTE_VIEW_KINDS) {
+		await deleteNote(plugin.app, noteViewScriptPath(kind, plugin.settings.dashboardScriptsFolder));
+		await deleteNote(plugin.app, viewsStylesheetPath(kind, plugin.settings.stylesFolder));
 	}
 	const firstError = firstErrors[0];
 	if (firstError !== undefined) throw firstError;

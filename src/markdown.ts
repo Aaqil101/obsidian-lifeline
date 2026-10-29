@@ -227,6 +227,20 @@ export function dataviewBlock(code: string): string {
 	return ['```dataviewjs', code.trimEnd(), '```'].join('\n');
 }
 
+/**
+ * Remove the note-view blocks (the three opt-in lifeline-channels/playlists/
+ * watchlater dv.view() fences) from a note's text, restoring the pre-feature
+ * bytes. Each block is exactly three lines plus the blank line `renderNote`
+ * pushes after it, so the match takes that trailing blank line too. The
+ * dashboard's own dataviewjs blocks name a different view and are untouched.
+ */
+export function stripNoteViewBlocks(content: string): string {
+	return content.replace(
+		/```dataviewjs\r?\n[^\r\n]*dv\.view\("[^"\r\n]*lifeline-(?:channels|playlists|watchlater)"[^\r\n]*\r?\n```\r?\n(?:\r?\n)?/g,
+		'',
+	);
+}
+
 /** One `dv.view()` call into a generated script, with baked options. */
 export function viewCall(viewName: string, options: Record<string, string | boolean | null | object>): string {
 	return `dv.view(${JSON.stringify(viewName)}, ${JSON.stringify(options)});`;
