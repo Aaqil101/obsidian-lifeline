@@ -34,8 +34,9 @@ export function playlistsGroup(host: SettingsHost): SettingDefinitionGroup {
 		(setting) => {
 			setting.addDropdown((dropdown) => {
 				dropdown.addOption('', 'Not set');
-				for (const playlist of catalog)
-					dropdown.addOption(playlist.id, playlist.saved ? `${playlist.title} (saved)` : playlist.title);
+				for (const playlist of catalog) {
+					if (!playlist.saved) dropdown.addOption(playlist.id, playlist.title);
+				}
 				dropdown.setValue(settings.watchLaterPlaylistId);
 				dropdown.onChange(async (value) => {
 					settings.watchLaterPlaylistId = value;
