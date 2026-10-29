@@ -1795,6 +1795,7 @@ const renderTableRows = (host, items, onPaint) => {
       img.alt = "";
       img.loading = "lazy";
       img.addEventListener("error", () => img.remove());
+      softened(item, img);
       frame.appendChild(img);
       who.appendChild(frame);
     }
@@ -2083,6 +2084,24 @@ const mdBanner = (item) => {
   return null;
 };
 
+// A video tagged [sensitive:: true] keeps its picture but draws it blurred
+// until clicked, so a shared screen never shows it by accident. Clicking
+// toggles the blur and never follows the entry's link.
+const softened = (item, img) => {
+  const flag = item ? item.sensitive : null;
+  if (flag !== true && String(flag).toLowerCase() !== "true") return;
+  img.style.filter = "blur(18px)";
+  img.style.cursor = "pointer";
+  img.title = "Click to reveal";
+  img.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const blurred = img.style.filter !== "";
+    img.style.filter = blurred ? "" : "blur(18px)";
+    img.title = blurred ? "" : "Click to reveal";
+  });
+};
+
 // Resolve that image to something an <img> can load. A remote URL is used as
 // is; a local file is resolved the same way the note itself resolves it, from
 // the note's own path, so no folder setting has to be baked in. The optional
@@ -2127,6 +2146,7 @@ const thumb = (item, label) => {
   img.addEventListener("error", () => {
     box.textContent = initialOf(label);
   });
+  softened(item, img);
   box.appendChild(img);
   return box;
 };

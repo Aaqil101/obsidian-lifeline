@@ -1132,12 +1132,20 @@ const add = (parent, tag, cls, text) => {
   parent.appendChild(node);
   return node;
 };
-const imgInto = (parent, src, alt) => {
+// A video tagged [sensitive:: true] is drawn blurred here. No reveal on click:
+// the cover is the whole card's click target, so a click opens the playlist
+// (the note views reveal it).
+const isSensitive = (item) => {
+  const flag = item ? item.sensitive : null;
+  return flag === true || String(flag).toLowerCase() === "true";
+};
+const imgInto = (parent, src, alt, item) => {
   const img = document.createElement("img");
   img.src = src;
   img.alt = alt || "";
   img.loading = "lazy";
   img.addEventListener("error", () => img.remove());
+  if (isSensitive(item)) img.style.filter = "blur(18px)";
   parent.appendChild(img);
   return img;
 };
@@ -1397,7 +1405,7 @@ const playlistCovers = (host, rows) => {
     });
     const art = add(card, "div", "lifeline-cover-art");
     const src = p.newestItem ? imageSrc(picture(p.newestItem, "thumbnail"), p.path) : null;
-    if (src) imgInto(art, src, "");
+    if (src) imgInto(art, src, "", p.newestItem);
     else {
       art.classList.add("lifeline-letter");
       art.textContent = initialOf(p.name);

@@ -179,6 +179,8 @@ export interface VideoRecord {
 	removed: boolean;
 	/** Private or deleted at fetch time; kept deliberately, never dropped. */
 	unavailable: boolean;
+	/** YouTube's age-restriction flag (videos.list contentRating); absent until checked. */
+	ageRestricted?: boolean;
 }
 
 export interface PlaylistRecord {

@@ -310,6 +310,9 @@ export interface LifelineSettings {
 	/** Thumbnail at the end of every playlist and Watch Later bullet. Not
 	 *  gated on the views toggle either. */
 	videoThumbnails: ImageMode;
+	/** Video ids whose thumbnail is drawn blurred until clicked, on top of the
+	 *  age-restricted ones YouTube flags. */
+	blurredThumbnailVideos: string[];
 	/** Parent folder for downloaded images; '' = keep them beside the notes.
 	 *  Files always land in `<parent>/thumbnails/`. */
 	imagesFolder: string;
@@ -351,6 +354,7 @@ export const DEFAULT_SETTINGS: LifelineSettings = {
 	stylesFolderWritten: null,
 	channelAvatars: 'off',
 	videoThumbnails: 'off',
+	blurredThumbnailVideos: [],
 	imagesFolder: '',
 	trackedPlaylists: null,
 	importedPlaylistIds: [],

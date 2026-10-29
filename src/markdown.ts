@@ -95,6 +95,8 @@ export function normalizeFolder(path: string): string {
 export interface BulletImages {
 	mode: ImageMode;
 	available: ReadonlySet<string>;
+	/** Video ids whose thumbnail the views draw blurred (age-restricted or set by the user). */
+	blurred?: ReadonlySet<string>;
 }
 
 /** Base name (no extension) of a downloaded channel avatar. */
@@ -346,7 +348,9 @@ export function renderChannelsNote(
  *
  * When `images` is provided (and its mode is not `off`), each bullet ends
  * with that video's thumbnail as fields (`thumbnail_url`, plus `thumbnail`
- * when the local file exists). Omitted or `off`, the output is unchanged.
+ * when the local file exists). A blurred video also gets `[sensitive:: true]`,
+ * which the views read to draw its picture blurred. Omitted or `off`, the
+ * output is unchanged.
  *
  * `date-added` behaves the same for `journal` as `subscribed_on` does for
  * Channels: the `date` field wikilinks that day's journal note when it
@@ -399,15 +403,15 @@ export function renderPlaylistNote(
 			: labelText(video.channelTitle || 'unknown channel');
 		const parts = [`[title:: [${labelText(video.title)}](${watchUrl})]`, `[channel:: ${channelValue}]`];
 		if (video.dateAdded) parts.push(`[date:: ${journalDate(video.dateAdded, journal)}]`);
-		parts.push(
-			...bulletImageFields(
-				images,
-				videoImageBase(videoId),
-				videoThumbnailUrl(videoId),
-				'thumbnail_url',
-				'thumbnail',
-			),
+		const imageParts = bulletImageFields(
+			images,
+			videoImageBase(videoId),
+			videoThumbnailUrl(videoId),
+			'thumbnail_url',
+			'thumbnail',
 		);
+		if (imageParts.length > 0 && images?.blurred?.has(videoId)) imageParts.push('[sensitive:: true]');
+		parts.push(...imageParts);
 		lines.push(`- ${parts.join(' ')}`);
 	}
 	lines.push('');

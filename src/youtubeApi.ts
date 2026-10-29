@@ -406,6 +406,53 @@ export async function listPlaylistItems(
 	return { title: playlistTitle, items };
 }
 
+/**
+ * Age-restriction flag for the given video ids (videos.list, contentDetails).
+ * playlistItems does not carry it, so this is one extra call per 50 new
+ * videos at 1 quota unit each. Every id in a chunk that answered gets an
+ * entry (a missing id counts as not restricted); a failed chunk is collected
+ * as an error and leaves its ids unchecked for the next run.
+ */
+export async function listVideoAgeRatings(
+	videoIds: string[],
+	auth: ApiAuth,
+	quota: QuotaTracker,
+): Promise<{ flags: Map<string, boolean>; syncErrors: SyncError[] }> {
+	const flags = new Map<string, boolean>();
+	const syncErrors: SyncError[] = [];
+	for (let start = 0; start < videoIds.length; start += STAT_CHUNK_SIZE) {
+		const chunk = videoIds.slice(start, start + STAT_CHUNK_SIZE);
+		try {
+			const json = await requestJson(
+				{
+					endpoint: 'videos',
+					resource: 'videos',
+					quotaUnits: 1,
+					params: {
+						part: 'contentDetails',
+						id: chunk.join(','),
+						maxResults: String(STAT_CHUNK_SIZE),
+					},
+				},
+				auth,
+				quota,
+			);
+			for (const id of chunk) flags.set(id, false);
+			const items = asArray(asRecord(json)?.items) ?? [];
+			for (const raw of items) {
+				const item = asRecord(raw);
+				const id = asString(item?.id);
+				if (!id) continue;
+				const rating = asString(asRecord(asRecord(item?.contentDetails)?.contentRating)?.ytRating);
+				flags.set(id, rating === 'ytAgeRestricted');
+			}
+		} catch (err) {
+			syncErrors.push(err instanceof SyncError ? err : new SyncError('api', 'videos', errorMessage(err)));
+		}
+	}
+	return { flags, syncErrors };
+}
+
 async function collectPages(
 	fetchPage: (pageToken: string | null) => Promise<{ items: unknown[]; nextPageToken: string | null }>,
 ): Promise<unknown[]> {

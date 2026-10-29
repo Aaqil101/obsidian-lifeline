@@ -9,6 +9,7 @@
  * set to Download, since it has nothing to say otherwise.
  */
 import { type SettingDefinitionGroup } from 'obsidian';
+import { parseBlurredVideoIds } from '../blurredThumbnails';
 import { imagesParentFolder, normalizeFolder } from '../markdown';
 import type { ImageMode } from '../types';
 import { folderSetting } from './folderPicker';
@@ -44,6 +45,23 @@ export function imagesGroup(host: SettingsHost): SettingDefinitionGroup {
 		'videoThumbnails',
 	);
 
+	const blurred = renderRow(
+		'Blurred thumbnails',
+		'Videos whose thumbnail is shown blurred until you click it. Paste video links or IDs, separated by spaces, commas, or new lines. Age-restricted videos are blurred automatically.',
+		(setting) => {
+			setting.addTextArea((text) => {
+				text.setValue(settings.blurredThumbnailVideos.join('\n'));
+				text.inputEl.addEventListener('blur', () => {
+					const next = parseBlurredVideoIds(text.getValue());
+					text.setValue(next.join('\n'));
+					if (next.join(' ') === settings.blurredThumbnailVideos.join(' ')) return;
+					settings.blurredThumbnailVideos = next;
+					void plugin.saveSettings();
+				});
+			});
+		},
+	);
+
 	// The folder row is always defined but only rendered while a mode is set
 	// to Download; the mode rows refresh the tab when that predicate flips,
 	// so the row appears and disappears without a jump on every other select.
@@ -67,7 +85,7 @@ export function imagesGroup(host: SettingsHost): SettingDefinitionGroup {
 	return {
 		type: 'group',
 		heading: 'Images',
-		items: [avatars, thumbnails, folder],
+		items: [avatars, thumbnails, blurred, folder],
 	};
 }
 

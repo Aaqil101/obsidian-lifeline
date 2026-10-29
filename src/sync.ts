@@ -35,6 +35,7 @@ import {
 	type JournalDates,
 	type OutputPaths,
 } from './markdown';
+import { blurredVideoIds } from './blurredThumbnails';
 import { appendSyncLogRun } from './syncLog';
 import {
 	NOTE_VIEWS_CSS_BY_KIND,
@@ -55,6 +56,7 @@ import {
 	listPlaylistsByIds,
 	listPlaylistItems,
 	listSubscriptions,
+	listVideoAgeRatings,
 	QuotaTracker,
 	type ChannelItem,
 	type PlaylistVideoItem,
@@ -289,6 +291,12 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 			}
 		}
 
+		// Ratings only matter for thumbnails, so the extra call is skipped
+		// while the video thumbnail setting is off.
+		if (plugin.settings.videoThumbnails !== 'off') {
+			await rateNewVideos(plugin, state, targets.map((target) => target.id), quota, errors);
+		}
+
 		// --- write notes (each write isolated) ---------------------------------
 		const ctx: WriteContext = {
 			paths,
@@ -455,6 +463,37 @@ function applyPlaylistDiff(
 	}
 }
 
+/**
+ * Fill in the age flag for videos that do not have one yet. Videos already
+ * checked keep their answer, so each video costs a rating call once.
+ */
+async function rateNewVideos(
+	plugin: LifelinePlugin,
+	state: SyncState,
+	playlistIds: string[],
+	quota: QuotaTracker,
+	errors: SyncErrorRecord[],
+): Promise<void> {
+	const pending = new Set<string>();
+	for (const playlistId of playlistIds) {
+		const record = state.playlists[playlistId];
+		if (!record) continue;
+		for (const [videoId, video] of Object.entries(record.videos)) {
+			if (video.ageRestricted === undefined && !video.removed && !video.unavailable) pending.add(videoId);
+		}
+	}
+	if (pending.size === 0) return;
+
+	const { flags, syncErrors } = await listVideoAgeRatings(Array.from(pending), plugin.auth, quota);
+	errors.push(...syncErrors.map((err) => recordError(err, 'video ratings')));
+	for (const record of Object.values(state.playlists)) {
+		for (const [videoId, video] of Object.entries(record.videos)) {
+			const flag = flags.get(videoId);
+			if (flag !== undefined && video.ageRestricted === undefined) video.ageRestricted = flag;
+		}
+	}
+}
+
 function fileNameTaken(state: SyncState, exceptId: string, fileName: string): boolean {
 	return Object.entries(state.playlists).some(([id, record]) => id !== exceptId && record.fileName === fileName);
 }
@@ -513,9 +552,10 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 	// names the local copy only once it exists on disk, so every download
 	// has to finish before any note is rendered. Runs regardless of the views
 	// toggle, since the image fields live in the bullets rather than the view.
+	const blurred = blurredVideoIds(ctx.state.playlists, plugin.settings.blurredThumbnailVideos);
 	const available = await collectThumbnails(plugin, ctx);
 	const channelImages: BulletImages = { mode: plugin.settings.channelAvatars, available };
-	const videoImages: BulletImages = { mode: plugin.settings.videoThumbnails, available };
+	const videoImages: BulletImages = { mode: plugin.settings.videoThumbnails, available, blurred };
 	// Journal dates: the base names of the notes already sitting in the
 	// configured daily-notes folder, matched once per run from the vault
 	// index with no extra reads. A dated bullet wikilinks a day only when
