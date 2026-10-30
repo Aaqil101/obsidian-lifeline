@@ -51,6 +51,7 @@ import {
 	viewsStylesheetPath,
 } from './noteViewsScript';
 import {
+	listChannelFaces,
 	listChannelStatistics,
 	listOwnedPlaylists,
 	listPlaylistsByIds,
@@ -64,6 +65,7 @@ import {
 import {
 	asSyncError,
 	SyncError,
+	type ChannelFace,
 	type PlaylistRecord,
 	type PlaylistSummary,
 	type SyncErrorRecord,
@@ -291,6 +293,13 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 			}
 		}
 
+		// --- channel faces for playlist owners absent from Channels.md --------
+		// A channel you do not subscribe to has no row for the video views to
+		// join a face from, so they would fall back to the letter badge. Pruned
+		// on every run (subscribing removes the entry and the fields with it);
+		// only the missing avatars are fetched, and only while images are on.
+		await collectChannelFaces(plugin, state, trackedIds, quota, errors);
+
 		// Ratings only matter for thumbnails, so the extra call is skipped
 		// while the video thumbnail setting is off.
 		if (plugin.settings.videoThumbnails !== 'off') {
@@ -494,6 +503,57 @@ async function rateNewVideos(
 	}
 }
 
+/**
+ * Avatars for playlist-owner channels that have no row in Channels.md.
+ *
+ * `state.faces` is rebuilt from the visible videos of the tracked playlists on
+ * every run, so an entry disappears as soon as its channel becomes a
+ * subscription (Channels.md then carries the face) or stops appearing in any
+ * playlist. Known avatars are carried over and only the gaps are fetched: a
+ * channel never looked up before, or one whose fetch failed last run. Nothing
+ * here throws: a failed call is recorded, the notes keep the letter badge for
+ * those channels, and a later sync fills the gap.
+ */
+async function collectChannelFaces(
+	plugin: LifelinePlugin,
+	state: SyncState,
+	trackedIds: Set<string>,
+	quota: QuotaTracker,
+	errors: SyncErrorRecord[],
+): Promise<void> {
+	const wanted = new Map<string, string>();
+	for (const [playlistId, record] of Object.entries(state.playlists)) {
+		if (!trackedIds.has(playlistId)) continue;
+		for (const video of Object.values(record.videos)) {
+			if (video.removed || video.unavailable || !video.channelId) continue;
+			// A channel with a Channels.md row is joined by the view from there.
+			if (state.channels[video.channelId]) continue;
+			if (!wanted.has(video.channelId)) wanted.set(video.channelId, video.channelTitle);
+		}
+	}
+
+	// Prune first: subscribing moves the channel into state.channels, and a
+	// channel that left every playlist must not keep growing this map.
+	const faces: Record<string, ChannelFace> = {};
+	for (const [id, title] of wanted) {
+		faces[id] = { title, avatar: state.faces[id]?.avatar ?? '' };
+	}
+
+	const missing = Object.keys(faces).filter((id) => !faces[id]?.avatar);
+	// Skipped while Channel avatars and banners is off, since no bullet would
+	// write the field anyway; the pruned entries above still stand, so turning
+	// the mode back on fetches only what is genuinely unknown.
+	if (missing.length > 0 && plugin.settings.channelAvatars !== 'off') {
+		const { avatars, syncErrors } = await listChannelFaces(plugin.auth, quota, missing);
+		errors.push(...syncErrors.map((err) => recordError(err, 'channel avatars')));
+		for (const [id, avatar] of Object.entries(avatars)) {
+			const entry = faces[id];
+			if (entry && avatar) entry.avatar = avatar;
+		}
+	}
+	state.faces = faces;
+}
+
 function fileNameTaken(state: SyncState, exceptId: string, fileName: string): boolean {
 	return Object.entries(state.playlists).some(([id, record]) => id !== exceptId && record.fileName === fileName);
 }
@@ -617,6 +677,14 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 				mode: plugin.settings.videoThumbnails,
 				available: await collectPlaylistThumbnails(plugin, ctx, run, playlistId, record),
 				blurred,
+				// Channel avatars ride their own mode and their own (already
+				// fetched) set, so the thumbnail mode never writes one and a
+				// local avatar is named only when that file is on disk.
+				faces: {
+					mode: channelImages.mode,
+					available: channelImages.available,
+					channels: ctx.state.faces,
+				},
 			};
 			if (playlistId === ctx.watchLaterId) {
 				await writeNote(
@@ -1204,6 +1272,13 @@ async function collectChannelImages(
 		// without one simply queues nothing.
 		wanted.push({ folder: avatars, base: channelImageBase(channel.title, id), url: channel.avatar ?? '' });
 		wanted.push({ folder: banners, base: channelBannerImageBase(channel.title, id), url: channel.banner ?? '' });
+	}
+	// Playlist-owner channels with no row of their own: their avatar rides the
+	// same toggle and the same folder, so the video bullets can name a local
+	// copy too. The base is built from the stored title, the same one the note
+	// renderer uses, so both agree on the file name.
+	for (const [id, face] of Object.entries(ctx.state.faces)) {
+		wanted.push({ folder: avatars, base: channelImageBase(face.title, id), url: face.avatar });
 	}
 	const jobs = await takeJobs(vault, run, thumbnails, wanted, present);
 	for (const base of await fetchBatch(vault, run, jobs)) present.add(base);

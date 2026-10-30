@@ -1600,14 +1600,46 @@ const channelFaceMap = () => {
   }
   return channelFaces;
 };
-const channelFace = (channel) => {
+const channelFace = (channel, item) => {
   const map = channelFaceMap();
   if (channel.href && map.has(channel.href)) return map.get(channel.href);
   const key = (channel.label || "").trim().toLowerCase();
-  return key && map.has(key) ? map.get(key) : "";
+  if (key && map.has(key)) return map.get(key);
+  // No Channels.md row to join from: the bullet carries the channel's own
+  // face for exactly that case, resolved against Channels.md's path because
+  // the avatar file lives beside that note's images.
+  return imageSrc(mdFace(item), CHANNELS_PATH) || "";
 };
 const resetKindCache = () => {
   channelFaces = null;
+};
+
+// The channel face a video bullet carries itself, for a channel with no
+// Channels.md row: local file first (same download-mode rule as every other
+// image field), then the remote URL, then nothing at all.
+const mdFace = (item) => {
+  if (!item) return null;
+  const local = imageField(item.avatar);
+  if (local) return { local: true, target: local };
+  const remote = imageField(item.avatar_url);
+  return remote ? { local: false, target: remote } : null;
+};
+
+// The video's own thumbnail fields, read apart from the face some video
+// bullets now carry. mdImage() prefers an avatar, so a bullet holding both
+// would otherwise draw the channel's picture as the video's art; the legacy
+// embed path is kept for notes written before the fields existed.
+const mdThumb = (item) => {
+  if (!item) return null;
+  const local = imageField(item.thumbnail);
+  if (local) return { local: true, target: local };
+  const remote = imageField(item.thumbnail_url);
+  if (remote) return { local: false, target: remote };
+  const s = item.text != null ? String(item.text) : "";
+  const oldLocal = /!\\[\\[([^\\]|]+)(?:\\|[^\\]]*)?\\]\\]/.exec(s);
+  if (oldLocal) return { local: true, target: oldLocal[1].trim() };
+  const oldRemote = /!\\[\\]\\(([^)]+)\\)/.exec(s);
+  return oldRemote ? { local: false, target: oldRemote[1] } : null;
 };
 
 // A lettered gradient for a channel with no joined avatar: distinct, stable,
@@ -1618,10 +1650,10 @@ const tint = (node, label) => {
   node.style.background =
     "linear-gradient(135deg, hsl(" + h + ", 62%, 50%), hsl(" + ((h + 40) % 360) + ", 58%, 38%))";
 };
-const channelBadge = (channel) => {
+const channelBadge = (channel, item) => {
   const label = (channel.label || "?").trim();
   const node = el("span", "lv-cine-badge");
-  const src = channelFace(channel);
+  const src = channelFace(channel, item);
   if (src) {
     node.classList.add("lv-cine-badge--img");
     const img = document.createElement("img");
@@ -1661,7 +1693,7 @@ const posterCard = (item) => {
   const link = mdLink(item.title);
   const channel = mdLink(item.channel);
   const node = el("article", "lv-poster-card lv-poster-cinema");
-  const bannerSrc = imageSrc(mdImage(item));
+  const bannerSrc = imageSrc(mdThumb(item));
   const banner = el("div", "lv-poster-banner");
   if (!bannerSrc) banner.classList.add("lv-cine-noimg");
 
@@ -1701,7 +1733,7 @@ const posterCard = (item) => {
   veil.appendChild(linkNode(link.label, link.href, "lv-cine-title"));
   if (channel.label) {
     const meta = el("div", "lv-cine-meta");
-    meta.appendChild(channelBadge(channel));
+    meta.appendChild(channelBadge(channel, item));
     meta.appendChild(linkNode(channel.label, channel.href, "lv-cine-channel"));
     veil.appendChild(meta);
   }
@@ -1724,14 +1756,14 @@ const chipRow = (item) => {
   const link = mdLink(item.title);
   const row = el("div", "lv-chip lv-chip--ticket");
   const main = el("div", "lv-chip-main");
-  const image = thumb(item, link.label);
+  const image = thumb(item, link.label, mdThumb);
   if (image) main.appendChild(image);
   const body = el("div", "lv-body");
   body.appendChild(linkNode(link.label, link.href, "lv-title"));
 
   const channel = mdLink(item.channel);
   const meta = el("div", "lv-meta lv-meta--ticket");
-  const face = channelFace(channel);
+  const face = channelFace(channel, item);
   if (face) {
     const ring = el("span", "lv-ticket-face");
     const img = document.createElement("img");
@@ -1788,7 +1820,7 @@ const renderTableRows = (host, items, onPaint) => {
     const row = document.createElement("tr");
     const first = document.createElement("td");
     const who = el("div", "lv-ledger-who");
-    const src = imageSrc(mdImage(item));
+    const src = imageSrc(mdThumb(item));
     if (src) {
       const frame = el("div", "lv-ledger-thumb");
       const img = document.createElement("img");
@@ -2044,8 +2076,9 @@ const linkNode = (label, href, cls) => {
 };
 
 // The image fields the sync appended to the bullet, if the user enabled one:
-// avatar/avatar_url on channels, thumbnail/thumbnail_url on videos. Fields,
-// never embeds, so they come straight off Dataview's parsed list-item
+// thumbnail/thumbnail_url on videos, avatar/avatar_url on channels and (for a
+// channel with no Channels.md row to join a face from) on video bullets too.
+// Fields, never embeds, so they come straight off Dataview's parsed list-item
 // properties: the *_url field carries the remote link, the local field carries
 // the downloaded file. The local one wins, so download mode stays offline.
 // Read off the bullet so this script never has to know which mode is set.
@@ -2136,8 +2169,11 @@ const initialOf = (label) => {
 // modeled on. lazy keeps a 900-entry note from decoding 900 images on open;
 // the letter fallback covers a file removed after sync (the box already
 // occupies its space, so swapping in the initial does not reflow the row).
-const thumb = (item, label) => {
-  const src = imageSrc(mdImage(item));
+// The third argument overrides which fields are read: the video layouts pass
+// their own thumbnail reader, because a video bullet can carry a channel
+// avatar too and mdImage() would rather draw that than the video's own art.
+const thumb = (item, label, pick) => {
+  const src = imageSrc((pick || mdImage)(item));
   if (!src) return null;
   const box = el("div", "lv-thumb");
   const img = document.createElement("img");

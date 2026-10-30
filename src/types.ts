@@ -183,6 +183,20 @@ export interface VideoRecord {
 	ageRestricted?: boolean;
 }
 
+/**
+ * Avatar for a channel that shows up in playlists but has no row in
+ * Channels.md, because it was never subscribed to. The video scripts cannot
+ * join a face from Channels.md for those, so sync fetches it once and the
+ * video bullet carries it as its own image fields until the channel becomes
+ * a subscription (at which point the entry is pruned and Channels.md wins).
+ */
+export interface ChannelFace {
+	/** Channel title as the playlist records it: the avatar's file name is built from it. */
+	title: string;
+	/** Avatar URL from channels.list; '' while none is known yet. */
+	avatar: string;
+}
+
 export interface PlaylistRecord {
 	title: string;
 	/** Sanitized file base name (without .md) inside the Playlists folder. */
@@ -197,6 +211,8 @@ export interface PlaylistRecord {
 export interface SyncState {
 	version: number;
 	channels: Record<string, ChannelRecord>;
+	/** Playlist-owner channels absent from `channels`, keyed by channel id. */
+	faces: Record<string, ChannelFace>;
 	playlists: Record<string, PlaylistRecord>;
 	lastSync: LastSyncInfo | null;
 	lastSuccessAt: number | null;
@@ -206,6 +222,7 @@ export function createDefaultState(): SyncState {
 	return {
 		version: 1,
 		channels: {},
+		faces: {},
 		playlists: {},
 		lastSync: null,
 		lastSuccessAt: null,

@@ -237,6 +237,52 @@ export async function listChannelStatistics(
 	return { stats, syncErrors };
 }
 
+/**
+ * Avatar URLs for arbitrary channels (channels.list, part=snippet), in the
+ * same 50-id chunks as the statistics call: 1 quota unit per chunk, no
+ * statistics or branding requested because nothing else about them is stored.
+ * Used for playlist-owner channels that have no row in Channels.md, so the
+ * subscription sweep never sees them. A chunk that fails returns an error
+ * alongside the avatars the other chunks did resolve.
+ */
+export async function listChannelFaces(
+	auth: ApiAuth,
+	quota: QuotaTracker,
+	ids: string[],
+): Promise<{ avatars: Record<string, string>; syncErrors: SyncError[] }> {
+	const avatars: Record<string, string> = {};
+	const syncErrors: SyncError[] = [];
+	for (let start = 0; start < ids.length; start += STAT_CHUNK_SIZE) {
+		const chunk = ids.slice(start, start + STAT_CHUNK_SIZE);
+		try {
+			const json = await requestJson(
+				{
+					endpoint: 'channels',
+					resource: 'channels',
+					quotaUnits: 1,
+					params: {
+						part: 'snippet',
+						id: chunk.join(','),
+						maxResults: String(STAT_CHUNK_SIZE),
+					},
+				},
+				auth,
+				quota,
+			);
+			const items = asArray(asRecord(json)?.items) ?? [];
+			for (const raw of items) {
+				const item = asRecord(raw);
+				const id = asString(item?.id);
+				if (!id) continue;
+				avatars[id] = pickThumbnail(asRecord(asRecord(item?.snippet)?.thumbnails));
+			}
+		} catch (err) {
+			syncErrors.push(err instanceof SyncError ? err : new SyncError('api', 'channels', errorMessage(err)));
+		}
+	}
+	return { avatars, syncErrors };
+}
+
 /** Playlists owned by the authenticated channel (playlists.list, mine=true). */
 export interface OwnedPlaylists {
 	playlists: PlaylistSummary[];

@@ -15,7 +15,7 @@
  * (query via `file.lists`).
  */
 import { normalizePath } from 'obsidian';
-import type { ChannelsFieldSettings, ImageMode, PlaylistRecord, SyncState } from './types';
+import type { ChannelsFieldSettings, ChannelFace, ImageMode, PlaylistRecord, SyncState } from './types';
 
 export interface OutputPaths {
 	folder: string;
@@ -92,15 +92,37 @@ export function normalizeFolder(path: string): string {
 }
 
 /**
+ * What one `bulletImageFields` call needs: the mode the fields follow and the
+ * file base names already on disk. Both image kinds below are shaped like it,
+ * which is why the renderer can hand either one to the same helper.
+ */
+export interface ImageFields {
+	mode: ImageMode;
+	available: ReadonlySet<string>;
+}
+
+/**
  * Image data for one note, handed in by sync.ts (which owns the vault reads).
  * `available` holds the file base names already present in the thumbnails
  * folder, so a bullet names the local copy only when it actually exists.
  */
-export interface BulletImages {
-	mode: ImageMode;
-	available: ReadonlySet<string>;
+export interface BulletImages extends ImageFields {
 	/** Video ids whose thumbnail the views draw blurred (age-restricted or set by the user). */
 	blurred?: ReadonlySet<string>;
+	/** Channel avatars for bullets whose channel has no Channels.md row to join a face from. */
+	faces?: FaceImages;
+}
+
+/**
+ * The channel faces a video note's bullets carry themselves: `mode` and
+ * `available` follow Channel avatars and banners (not the thumbnail mode, so
+ * the two stay independent), and `channels` holds the avatar per channel id
+ * for the channels that are playlist owners only. Subscribing to one prunes
+ * its entry at the next sync, which drops the fields again and lets the view
+ * join the face from Channels.md instead.
+ */
+export interface FaceImages extends ImageFields {
+	channels: Record<string, ChannelFace>;
 }
 
 /**
@@ -173,7 +195,7 @@ function labelText(text: string): string {
  * above it is what draws the picture.
  */
 function bulletImageFields(
-	images: BulletImages | undefined,
+	images: ImageFields | undefined,
 	base: string,
 	url: string | undefined,
 	urlField: 'avatar_url' | 'thumbnail_url' | 'banner_url',
@@ -380,6 +402,12 @@ export function renderChannelsNote(
  * which the views read to draw its picture blurred. Omitted or `off`, the
  * output is unchanged.
  *
+ * `images.faces` adds the channel's avatar the same way (`avatar_url`, plus
+ * `avatar` once downloaded) but only for a channel with no row in
+ * Channels.md, since a channel that has one is joined by the view from there.
+ * Its own mode (Channel avatars and banners) governs it, so the thumbnail
+ * mode never writes an avatar and vice versa.
+ *
  * `date-added` behaves the same for `journal` as `subscribed_on` does for
  * Channels: the `date` field wikilinks that day's journal note when it
  * exists, or when the date is today or later; plain ISO text otherwise. This
@@ -440,6 +468,22 @@ export function renderPlaylistNote(
 		);
 		if (imageParts.length > 0 && images?.blurred?.has(videoId)) imageParts.push('[sensitive:: true]');
 		parts.push(...imageParts);
+		// The channel's own face, for a channel with no Channels.md row to
+		// join one from (a playlist owner you do not subscribe to). Gated on
+		// Channel avatars and banners, exactly like the fields on a channel
+		// bullet; nothing is written for a channel the view can join instead.
+		const face = images?.faces?.channels[video.channelId];
+		if (face) {
+			parts.push(
+				...bulletImageFields(
+					images.faces,
+					channelImageBase(face.title, video.channelId),
+					face.avatar,
+					'avatar_url',
+					'avatar',
+				),
+			);
+		}
 		lines.push(`- ${parts.join(' ')}`);
 	}
 	lines.push('');

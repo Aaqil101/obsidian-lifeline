@@ -257,6 +257,7 @@ export default class LifelinePlugin extends Plugin {
 			return {
 				version: parsed.version ?? fallback.version,
 				channels: parsed.channels ?? {},
+				faces: parsed.faces ?? {},
 				playlists: parsed.playlists ?? {},
 				lastSync: parsed.lastSync ?? null,
 				lastSuccessAt: parsed.lastSuccessAt ?? null,
