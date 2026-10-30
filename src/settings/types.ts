@@ -8,13 +8,7 @@
  * are persisted here. Collected playlist IDs live in data.json and nowhere
  * else.
  */
-import { DEFAULT_SCRIPTS_FOLDER } from '../dashboardScript';
-import { DEFAULT_OUTPUT_FOLDER } from '../markdown';
-import {
-	DEFAULT_STYLES_FOLDER,
-	DEFAULT_VIEW_PAGE_SIZE,
-	type NoteViewKind,
-} from '../noteViewsScript';
+import { DEFAULT_VIEW_PAGE_SIZE, type NoteViewKind } from '../noteViewsScript';
 import {
 	DEFAULT_CHANNELS_FIELDS,
 	DEFAULT_DASHBOARD_LIMITS,
@@ -238,9 +232,6 @@ export const DASHBOARD_LIMIT_ROWS: Array<{ key: keyof DashboardLimits; name: str
 	},
 ];
 
-/** Daily-notes folder dated bullets wikilink into by default. */
-export const DEFAULT_JOURNAL_FOLDER = '01 - Journal/Daily';
-
 export interface LifelineSettings {
 	/** Keychain *name* of the secret holding the OAuth client ID. */
 	clientIdName: string;
@@ -253,8 +244,8 @@ export interface LifelineSettings {
 	 *  when that day's note exists, or when it is today or later; a folder
 	 *  missing from the vault means nothing links, so every date prints
 	 *  plain. Notes are matched anywhere under the folder, so subfolder
-	 *  daily-note layouts work. A saved '' is filled with the default by the
-	 *  onload migration, so the setting always names a folder. */
+	 *  daily-note layouts work. '' means unset: sync refuses to run until a
+	 *  folder is chosen. */
 	journalFolder: string;
 	/** Which fields render on each Channels.md entry (Manage sub-page). */
 	channelsFields: ChannelsFieldSettings;
@@ -337,20 +328,20 @@ export interface LifelineSettings {
 export const DEFAULT_SETTINGS: LifelineSettings = {
 	clientIdName: 'lifeline-client-id',
 	clientSecretName: 'lifeline-client-secret',
-	outputFolder: DEFAULT_OUTPUT_FOLDER,
-	journalFolder: DEFAULT_JOURNAL_FOLDER,
+	outputFolder: '',
+	journalFolder: '',
 	channelsFields: { ...DEFAULT_CHANNELS_FIELDS },
 	dashboardNote: false,
 	dashboardSections: { ...DEFAULT_DASHBOARD_SECTIONS },
 	dashboardHeroChannel: '',
 	dashboardHeroFocus: { ...DEFAULT_HERO_FOCUS },
-	dashboardScriptsFolder: DEFAULT_SCRIPTS_FOLDER,
+	dashboardScriptsFolder: '',
 	dashboardScriptsFolderWritten: null,
 	noteViews: false,
 	noteLayouts: { ...DEFAULT_NOTE_LAYOUTS },
 	viewPageSize: DEFAULT_VIEW_PAGE_SIZE,
 	viewSortOrder: DEFAULT_VIEW_SORT_ORDER,
-	stylesFolder: DEFAULT_STYLES_FOLDER,
+	stylesFolder: '',
 	stylesFolderWritten: null,
 	channelAvatars: 'off',
 	videoThumbnails: 'off',

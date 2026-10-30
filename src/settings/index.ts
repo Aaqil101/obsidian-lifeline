@@ -25,7 +25,6 @@ import type { SettingsHost } from './ui';
 
 export {
 	DEFAULT_SETTINGS,
-	DEFAULT_JOURNAL_FOLDER,
 	DEFAULT_NOTE_LAYOUTS,
 	expandLegacyLayout,
 	normalizeStoredLayouts,

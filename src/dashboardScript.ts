@@ -25,9 +25,6 @@
 
 import { DEFAULT_DASHBOARD_LIMITS } from './types';
 
-/** Default folder for the generated script (also the settings placeholder). */
-export const DEFAULT_SCRIPTS_FOLDER = '98 - Organize/Scripts';
-
 /** Generated file name inside the scripts folder. */
 export const DASHBOARD_SCRIPT_FILE = 'lifeline-dashboard.js';
 
@@ -37,16 +34,15 @@ export const DASHBOARD_STYLESHEET_FILE = 'lifeline-dashboard.css';
 
 /**
  * Normalize a user-entered scripts folder: forward slashes, no duplicate or
- * edge slashes, trimmed. Empty (or slash-only) input falls back to the
- * default folder, so clearing the setting never writes to the vault root.
+ * edge slashes, trimmed. Empty (or slash-only) input stays '', meaning
+ * unset: sync refuses to write scripts until a folder is chosen.
  */
 export function normalizeScriptsFolder(folder: string): string {
-	const cleaned = folder
+	return folder
 		.trim()
 		.replace(/\\/g, '/')
 		.replace(/\/+/g, '/')
 		.replace(/^\/+|\/+$/g, '');
-	return cleaned || DEFAULT_SCRIPTS_FOLDER;
 }
 
 /** Vault path of the generated script, e.g. `98 - Organize/Scripts/lifeline-dashboard.js`. */

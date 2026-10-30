@@ -12,15 +12,15 @@
  * search indexes them.
  */
 import { Notice, Setting, type SettingDefinitionGroup } from 'obsidian';
-import { DEFAULT_SCRIPTS_FOLDER, normalizeScriptsFolder } from '../dashboardScript';
-import { DEFAULT_OUTPUT_FOLDER, normalizeFolder } from '../markdown';
-import { DEFAULT_STYLES_FOLDER, normalizeStylesFolder } from '../noteViewsScript';
+import { normalizeScriptsFolder } from '../dashboardScript';
+import { normalizeFolder } from '../markdown';
+import { normalizeStylesFolder } from '../noteViewsScript';
 import { writeNoteViewScripts } from '../sync';
 import { DEFAULT_CHANNELS_FIELDS } from '../types';
 import { folderSetting } from './folderPicker';
 import { renderDashboardPage } from './dashboardPage';
 import { renderViewsPage } from './viewsPage';
-import { DEFAULT_JOURNAL_FOLDER, FIELD_ROWS } from './types';
+import { FIELD_ROWS } from './types';
 import { group, pageDefinition, renderRow, type SettingsHost } from './ui';
 
 /** Landing group: output folder, the sub-page doors, and the shared folders. */
@@ -35,8 +35,8 @@ export function notesGroup(host: SettingsHost): SettingDefinitionGroup {
 			folderSetting(setting, {
 				app: plugin.app,
 				value: settings.outputFolder,
-				placeholder: DEFAULT_OUTPUT_FOLDER,
-				normalize: (raw) => normalizeFolder(raw) || DEFAULT_OUTPUT_FOLDER,
+				placeholder: 'Choose a folder',
+				normalize: normalizeFolder,
 				commit: async (path) => {
 					settings.outputFolder = path;
 					await plugin.saveSettings();
@@ -59,22 +59,20 @@ export function notesGroup(host: SettingsHost): SettingDefinitionGroup {
 	// field, and Channels `subscribed_on`) wikilink a day only when the note
 	// for that day lives here, or when the date is today or later; a folder
 	// that holds no daily notes leaves every date plain, including the
-	// playlist date that used to link unconditionally. Blank commits to the
-	// default rather than storing an "off" state: the strict rule already
-	// degrades to plain dates by itself, so no separate off value is needed.
-	// The check happens at sync time, so the next run after the folder is
-	// picked (or after a daily note comes to exist) rewrites the notes to
-	// match; the empty data.json value older builds could save is filled by
-	// the onload migration instead.
+	// playlist date that used to link unconditionally. Blank is not an "off"
+	// state: sync stops and asks for a folder, so the choice is always
+	// explicit. The check happens at sync time, so the next run after the
+	// folder is picked (or after a daily note comes to exist) rewrites the
+	// notes to match.
 	const journalFolder = renderRow(
 		'Journal folder',
-		'Daily notes that bullet dates link into. A date links only when its note exists here, or when it is today or later. Blank falls back to the default.',
+		'Daily notes that bullet dates link into. A date links only when its note exists here, or when it is today or later. Required: sync stops until a folder is chosen.',
 		(setting) =>
 			folderSetting(setting, {
 				app: plugin.app,
 				value: settings.journalFolder,
-				placeholder: DEFAULT_JOURNAL_FOLDER,
-				normalize: (raw) => normalizeFolder(raw) || DEFAULT_JOURNAL_FOLDER,
+				placeholder: 'Choose a folder',
+				normalize: normalizeFolder,
 				commit: async (path) => {
 					settings.journalFolder = path;
 					await plugin.saveSettings();
@@ -96,7 +94,7 @@ export function notesGroup(host: SettingsHost): SettingDefinitionGroup {
 			folderSetting(setting, {
 				app: plugin.app,
 				value: settings.stylesFolder,
-				placeholder: DEFAULT_STYLES_FOLDER,
+				placeholder: 'Choose a folder',
 				normalize: normalizeStylesFolder,
 				commit: async (path) => {
 					settings.stylesFolder = path;
@@ -135,7 +133,7 @@ export function notesGroup(host: SettingsHost): SettingDefinitionGroup {
 			folderSetting(setting, {
 				app: plugin.app,
 				value: settings.dashboardScriptsFolder,
-				placeholder: DEFAULT_SCRIPTS_FOLDER,
+				placeholder: 'Choose a folder',
 				normalize: normalizeScriptsFolder,
 				commit: async (path) => {
 					settings.dashboardScriptsFolder = path;

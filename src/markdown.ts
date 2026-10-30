@@ -29,8 +29,6 @@ export interface OutputPaths {
 	banners: string;
 }
 
-export const DEFAULT_OUTPUT_FOLDER = '95 - Notes/YouTube';
-
 /** How a root-level folder is stored: a slash, distinct from '' meaning unset. */
 const VAULT_ROOT = '/';
 
@@ -55,9 +53,11 @@ function joinPath(base: string, name: string): string {
  * Where the notes go. `imagesFolder` is the parent folder chosen for
  * downloaded images: empty means "keep them beside the notes", and files
  * always land in its `thumbnails/`, `avatars/` or `banners/` sub-folder.
+ * A blank `outputFolder` resolves to the root here, but sync refuses to run
+ * until it is set, so nothing is ever written there by accident.
  */
 export function outputPaths(outputFolder: string, imagesFolder?: string | null): OutputPaths {
-	const folder = cleanFolder(outputFolder) ?? DEFAULT_OUTPUT_FOLDER;
+	const folder = cleanFolder(outputFolder) ?? '';
 	const parent = cleanFolder(imagesFolder ?? '') ?? folder;
 	return {
 		folder,
@@ -79,7 +79,7 @@ export function imagesParentFolder(outputFolder: string, imagesFolder?: string |
 	const custom = cleanFolder(imagesFolder ?? '');
 	// A non-null result means the row was set; '' there means the vault root.
 	if (custom !== null) return custom || VAULT_ROOT;
-	return cleanFolder(outputFolder) ?? DEFAULT_OUTPUT_FOLDER;
+	return cleanFolder(outputFolder) ?? '';
 }
 
 /** Canonical stored form of a folder a user typed: '' when the box is blank,

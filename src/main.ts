@@ -12,14 +12,13 @@ import { readSyncLog, removeLegacySyncLog } from './syncLog';
 import { adoptCatalog, mergeCatalog, runSync, writeDashboardNote } from './sync';
 import { listOwnedPlaylists, listSubscriptions, QuotaTracker } from './youtubeApi';
 import {
-	DEFAULT_JOURNAL_FOLDER,
 	DEFAULT_SETTINGS,
 	LifelineSettingTab,
 	expandLegacyLayout,
 	normalizeStoredLayouts,
 	type LifelineSettings,
 } from './settings';
-import { createDefaultState, type SyncRunResult, type SyncState } from './types';
+import { createDefaultState, SyncError, type SyncRunResult, type SyncState } from './types';
 
 /** Delay before the startup auto-sync check fires, so the vault can settle. */
 const AUTO_SYNC_DELAY_MS = 15_000;
@@ -52,13 +51,6 @@ export default class LifelinePlugin extends Plugin {
 		const expandedLayout = hadStaleLayout ? expandLegacyLayout(staleLayout?.noteLayout) : null;
 		if (staleLayout) delete staleLayout.noteLayout;
 		if (expandedLayout && loaded && loaded.noteLayouts === undefined) loaded.noteLayouts = expandedLayout;
-		// The journal folder shipped with '' meaning "the rule is off"; it now
-		// always names a folder (the settings row falls back to the default on
-		// empty), so a saved empty string is a stale state rather than a
-		// choice: fill it with the default once, here, so the row shows it and
-		// dated bullets start linking without a settings visit.
-		const emptyJournal = loaded?.journalFolder === '';
-		if (emptyJournal && loaded) loaded.journalFolder = DEFAULT_JOURNAL_FOLDER;
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
 		// The retired cards layout is the poster card's forerunner, so a stored
 		// `cards` is rewritten to poster once here instead of only at render
@@ -80,7 +72,7 @@ export default class LifelinePlugin extends Plugin {
 		// actually found. Startup stays read-only on every other load, and the
 		// stale noteTables and noteLayout keys are purged from data.json instead
 		// of waiting for some later settings change to happen to write them out.
-		if (hadLegacyTables || hadStaleLayout || emptyJournal || normalizedLayouts) await this.saveSettings();
+		if (hadLegacyTables || hadStaleLayout || normalizedLayouts) await this.saveSettings();
 		this.state = await this.loadState();
 		this.auth = new AuthManager(this);
 
@@ -169,7 +161,7 @@ export default class LifelinePlugin extends Plugin {
 			return true;
 		} catch (err) {
 			console.error('Lifeline: could not write dashboard note', err);
-			new Notice('Could not write the dashboard note.');
+			new Notice(err instanceof SyncError ? err.message : 'Could not write the dashboard note.');
 			return false;
 		}
 	}

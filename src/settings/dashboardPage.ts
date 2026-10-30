@@ -19,7 +19,7 @@
  */
 import { Notice, Setting } from 'obsidian';
 import { DATAVIEW_REQUIRED_NOTICE, isDataviewEnabled } from '../dashboard';
-import { outputPaths } from '../markdown';
+import { normalizeFolder, outputPaths } from '../markdown';
 import { writeDisabledDashboardNote } from '../sync';
 import { heroChannelSetting } from './channelPicker';
 import { heroFocusSetting } from './heroFocus';
@@ -56,7 +56,9 @@ export function renderDashboardPage(host: SettingsHost, containerEl: HTMLElement
 				settings.dashboardNote = on;
 				await plugin.saveSettings();
 				if (on) await plugin.createDashboard();
-				else await writeDisabledDashboardNote(plugin.app.vault, outputPaths(settings.outputFolder, settings.imagesFolder).dashboard);
+				else if (normalizeFolder(settings.outputFolder)) {
+					await writeDisabledDashboardNote(plugin.app.vault, outputPaths(settings.outputFolder, settings.imagesFolder).dashboard);
+				}
 			}),
 		);
 

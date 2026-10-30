@@ -73,6 +73,7 @@ import {
 	type SyncState,
 	type SyncStatus,
 } from './types';
+import type { LifelineSettings } from './settings/types';
 import type LifelinePlugin from './main';
 
 let inFlight: Promise<SyncRunResult> | null = null;
@@ -139,6 +140,15 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 	const paths = outputPaths(plugin.settings.outputFolder, plugin.settings.imagesFolder);
 	const quota = new QuotaTracker(plugin.settings.quotaSoftLimit);
 	const state = plugin.state;
+	const unset = unsetFolders(plugin.settings);
+	if (unset.length > 0) {
+		errors.push(
+			recordError(
+				new SyncError('io', 'settings', `Set these folders in Lifeline settings before syncing: ${unset.join(', ')}.`),
+				'settings',
+			),
+		);
+	}
 
 	plugin.setSyncingIndicator();
 
@@ -783,6 +793,7 @@ async function writeGeneratedScript(
 	content: string,
 ): Promise<void> {
 	const folder = normalizeScriptsFolder(plugin.settings.dashboardScriptsFolder);
+	requireSet(folder, 'script folder');
 	await writeNote(plugin.app.vault, scriptPath(folder), content);
 	const previous = plugin.settings.dashboardScriptsFolderWritten;
 	if (previous !== folder) {
@@ -848,6 +859,7 @@ async function writeDashboardScript(plugin: LifelinePlugin): Promise<void> {
  */
 async function writeViewStylesheets(plugin: LifelinePlugin): Promise<void> {
 	const folder = normalizeStylesFolder(plugin.settings.stylesFolder);
+	requireSet(folder, 'styles folder');
 	await writeNote(
 		plugin.app.vault,
 		viewsStylesheetPath('channels', folder),
@@ -984,6 +996,7 @@ export async function writeDisabledDashboardNote(vault: Vault, path: string): Pr
  * it works before any sync has run (status null → "never").
  */
 export async function writeDashboardNote(plugin: LifelinePlugin): Promise<string> {
+	requireSet(normalizeFolder(plugin.settings.outputFolder), 'output folder');
 	const paths = outputPaths(plugin.settings.outputFolder, plugin.settings.imagesFolder);
 	const trackedIds = new Set(plugin.settings.trackedPlaylists ?? []);
 	if (plugin.settings.watchLaterPlaylistId) trackedIds.add(plugin.settings.watchLaterPlaylistId);
@@ -1083,7 +1096,7 @@ async function fetchImage(url: string): Promise<FetchOutcome> {
 		}
 		return { ok: true, data };
 	} catch (err) {
-		// Aborted, DNS failure, or reset: indistinguishable here, all "network".
+		// Timeout, DNS failure, or reset: indistinguishable here, all "network".
 		const message = err instanceof Error ? err.message : String(err);
 		return { ok: false, reason: 'network', detail: `network: ${message}` };
 	} finally {
@@ -1435,6 +1448,26 @@ async function deleteNote(app: App, path: string): Promise<void> {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Folder settings a write needs that are still blank. Output and journal
+ * always matter; the script and styles folders only when a feature writes
+ * into them. Blank means unset, never the vault root.
+ */
+export function unsetFolders(settings: LifelineSettings): string[] {
+	const unset: string[] = [];
+	if (!normalizeFolder(settings.outputFolder)) unset.push('output folder');
+	if (!normalizeFolder(settings.journalFolder)) unset.push('journal folder');
+	if (settings.dashboardNote || settings.noteViews) {
+		if (!normalizeScriptsFolder(settings.dashboardScriptsFolder)) unset.push('script folder');
+		if (!normalizeStylesFolder(settings.stylesFolder)) unset.push('styles folder');
+	}
+	return unset;
+}
+
+function requireSet(value: string, label: string): void {
+	if (!value) throw new SyncError('io', 'settings', `Set the ${label} in Lifeline settings first.`);
+}
 
 function recordError(err: unknown, resource: string): SyncErrorRecord {
 	const error = asSyncError(err, resource);

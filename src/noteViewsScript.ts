@@ -121,27 +121,23 @@ export function legacyTablesScriptPath(folder: string): string {
 	return `${normalizeScriptsFolder(folder)}/${LEGACY_TABLES_SCRIPT_FILE}`;
 }
 
-/** Default folder for the generated stylesheets (also the settings placeholder). */
-export const DEFAULT_STYLES_FOLDER = '98 - Organize/Styles';
-
 /** Pre-split name of the single shared stylesheet. Per-kind sheets have
  *  replaced it; sync deletes the old file once the new ones are written. */
 export const LEGACY_VIEWS_STYLESHEET_FILE = 'lifeline-views.css';
 
 /**
  * Normalize a user-entered styles folder: forward slashes, no duplicate or
- * edge slashes, trimmed. Empty (or slash-only) input falls back to the
- * default folder, so clearing the setting never writes to the vault root.
+ * edge slashes, trimmed. Empty (or slash-only) input stays '', meaning
+ * unset: sync refuses to write stylesheets until a folder is chosen.
  * Same shape as normalizeScriptsFolder, kept local so dashboardScript.ts
  * stays dashboard-only.
  */
 export function normalizeStylesFolder(folder: string): string {
-	const cleaned = folder
+	return folder
 		.trim()
 		.replace(/\\/g, '/')
 		.replace(/\/+/g, '/')
 		.replace(/^\/+|\/+$/g, '');
-	return cleaned || DEFAULT_STYLES_FOLDER;
 }
 
 /** Vault path of one generated stylesheet, e.g. `98 - Organize/Styles/lifeline-channels.css`. */
