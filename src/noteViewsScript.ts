@@ -1674,6 +1674,7 @@ const posterCard = (item) => {
       img.remove();
       banner.classList.add("lv-cine-noimg");
     });
+    softened(item, img);
     banner.appendChild(img);
   }
   banner.appendChild(el("span", "lv-cine-fallback", link.label.charAt(0).toUpperCase()));
