@@ -42,7 +42,7 @@ export function renderViewsPage(host: SettingsHost, containerEl: HTMLElement): v
 	new Setting(card)
 		.setName('Views in notes')
 		.setDesc(
-			'Draw a live view above the entries in Channels.md, playlist notes, and Watch Later.md, each with search and a Layout picker. Notes pick it up on the next sync. Requires the community Dataview plugin.',
+			'Draw a live view above the entries in each note, with search and a layout picker. Changes apply on the next sync.',
 		)
 		.addToggle((toggle) =>
 			toggle.setValue(settings.noteViews).onChange(async (on) => {

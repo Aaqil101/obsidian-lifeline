@@ -33,10 +33,10 @@ export function renderCollectIdsPage(host: SettingsHost, containerEl: HTMLElemen
 	const steps = stepsCard.createEl('ol', { cls: 'lifeline-settings-steps' });
 	steps.createEl('li', { text: 'Open YouTube.com/feed/playlists in a browser and sign in.' });
 	steps.createEl('li', {
-		text: 'Open DevTools (F12) and select the Console tab. If Chrome warns about pasting, type allow pasting and press Enter first.',
+		text: 'Open developer tools and select the console tab. If the browser warns about pasting, type allow pasting and press enter first.',
 	});
 	steps.createEl('li', {
-		text: 'Paste the collector script and press Enter. It scrolls to the end of the page, then prints a JSON array of playlist IDs.',
+		text: 'Paste the collector script and press enter. It scrolls to the end of the page, then prints a JSON array of playlist ids.',
 	});
 	const lastStep = steps.createEl('li');
 	lastStep.appendText('Copy the printed array, paste it below, then select ');
@@ -159,12 +159,12 @@ function renderWebViewerCard(host: SettingsHost, containerEl: HTMLElement): void
 	new Setting(card)
 		.setName('Open saved playlists')
 		.setDesc(
-			'Open YouTube.com/feed/playlists in the Web viewer, Obsidian’s built-in browser, where you keep your own sign-in.',
+			'Open the YouTube playlists page in the web viewer, Obsidian’s built-in browser, where you keep your own sign-in.',
 		)
 		.addButton((button) => {
-			button.setButtonText('Open in Web viewer').onClick(() => {
+			button.setButtonText('Open in web viewer').onClick(() => {
 				if (!openInWebViewer(app, PLAYLISTS_URL)) {
-					new Notice('Could not open the Web viewer. Enable it in Settings → Core plugins → Web viewer.', 10000);
+					new Notice('Could not open the web viewer. Enable it in settings → core plugins → web viewer.', 10000);
 				}
 			});
 			if (!webViewerEnabled) button.setDisabled(true);
@@ -172,7 +172,7 @@ function renderWebViewerCard(host: SettingsHost, containerEl: HTMLElement): void
 
 	let collecting = false;
 	new Setting(card)
-		.setName('Collect saved playlist IDs')
+		.setName('Collect saved playlist ids')
 		.setDesc(
 			'Run the collector in that tab: it scrolls to the end, collects every playlist ID, and starts tracking them. It only reads the page.',
 		)
@@ -208,7 +208,7 @@ async function collectFromWebViewer(host: SettingsHost): Promise<void> {
 	const { settings } = host.plugin;
 	const tab = findWebViewerTab(host.plugin.app);
 	if (!tab) {
-		new Notice('Open YouTube.com/feed/playlists in the Web viewer first, then collect again.', 8000);
+		new Notice('Open the YouTube playlists page in the web viewer first, then collect again.', 8000);
 		return;
 	}
 	const url = tab.getURL();
@@ -220,7 +220,7 @@ async function collectFromWebViewer(host: SettingsHost): Promise<void> {
 		return;
 	}
 	if (!url.includes(PLAYLISTS_FRAGMENT)) {
-		new Notice('Open YouTube.com/feed/playlists in the Web viewer tab first.', 8000);
+		new Notice('Open the YouTube playlists page in the web viewer tab first.', 8000);
 		return;
 	}
 	try {

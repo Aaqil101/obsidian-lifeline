@@ -62,9 +62,9 @@ export function renderCredentialsPage(host: SettingsHost, containerEl: HTMLEleme
 	const card = group(containerEl, 'Google credentials');
 
 	new Setting(card)
-		.setName('OAuth client ID')
+		.setName('Client ID')
 		.setDesc(
-			'From Google Cloud Console → APIs & Services → Credentials → OAuth client ID (Desktop app). Stored in the system keychain.',
+			'Create a desktop app client in the Google cloud console, under credentials. Stored in the system keychain.',
 		)
 		.addComponent((el) =>
 			new SecretComponent(host.plugin.app, el)
@@ -76,7 +76,7 @@ export function renderCredentialsPage(host: SettingsHost, containerEl: HTMLEleme
 		);
 
 	new Setting(card)
-		.setName('OAuth client secret')
+		.setName('Client secret')
 		.setDesc('Selected or created here, then kept in the system keychain. Never written to data.json.')
 		.addComponent((el) =>
 			new SecretComponent(host.plugin.app, el)
@@ -89,7 +89,7 @@ export function renderCredentialsPage(host: SettingsHost, containerEl: HTMLEleme
 
 	new Setting(card)
 		.setName('Security')
-		.setDesc('How Lifeline stores your credentials, and what data leaves your machine.')
+		.setDesc('How the plugin stores your credentials, and what data leaves your machine.')
 		.addButton((button) =>
 			button.setButtonText('Open security notes').onClick(() => {
 				window.open(SECURITY_URL, '_blank');
