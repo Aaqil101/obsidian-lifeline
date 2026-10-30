@@ -67,7 +67,7 @@ export function imagesGroup(host: SettingsHost): SettingDefinitionGroup {
 	// so the row appears and disappears without a jump on every other select.
 	const folder = renderRow(
 		'Images folder',
-		'Parent folder for downloaded images. Files always land in its thumbnails/ sub-folder, and the next sync fills it.',
+		'Parent folder for downloaded images. Video thumbnails go into a sub-folder per playlist under thumbnails/. Avatars and banners go into avatars/ and banners/. The next sync fills them.',
 		(setting) =>
 			folderSetting(setting, {
 				app: plugin.app,

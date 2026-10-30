@@ -82,11 +82,11 @@ export function heroBannerSource(
 ): string | null {
 	const wanted = normUrl(url);
 	if (!wanted) return null;
-	const thumbs = outputPaths(outputFolder, imagesFolder).thumbnails;
+	const banners = outputPaths(outputFolder, imagesFolder).banners;
 	for (const [id, channel] of Object.entries(state.channels)) {
 		if (normUrl(channel.url) !== wanted) continue;
 		if (!channel.banner) return null;
-		const local = app.vault.getAbstractFileByPath(`${thumbs}/${channelBannerImageBase(id)}.jpg`);
+		const local = app.vault.getAbstractFileByPath(`${banners}/${channelBannerImageBase(channel.title, id)}.jpg`);
 		return local instanceof TFile ? app.vault.getResourcePath(local) : channel.banner;
 	}
 	return null;

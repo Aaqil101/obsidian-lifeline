@@ -548,14 +548,18 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 		? dataviewBlock(viewCall(noteViewViewName('watchlater', folder), { layout: layouts.watchlater }))
 		: undefined;
 
-	// Thumbnails first, and only when a download setting is on: a bullet
-	// names the local copy only once it exists on disk, so every download
-	// has to finish before any note is rendered. Runs regardless of the views
-	// toggle, since the image fields live in the bullets rather than the view.
+	// Thumbnails download in batches, each just before the note that shows
+	// it: channel images first (Channels.md needs them), then each playlist's
+	// own folder inside the loop below. A bullet names the local copy only
+	// once it exists on disk, so every batch finishes before its note is
+	// rendered. Runs regardless of the views toggle, since the image fields
+	// live in the bullets rather than the view.
 	const blurred = blurredVideoIds(ctx.state.playlists, plugin.settings.blurredThumbnailVideos);
-	const available = await collectThumbnails(plugin, ctx);
-	const channelImages: BulletImages = { mode: plugin.settings.channelAvatars, available };
-	const videoImages: BulletImages = { mode: plugin.settings.videoThumbnails, available, blurred };
+	const run = await startThumbnails(vault, ctx.paths.thumbnails);
+	const channelImages: BulletImages = {
+		mode: plugin.settings.channelAvatars,
+		available: await collectChannelImages(plugin, ctx, run),
+	};
 	// Journal dates: the base names of the notes already sitting in the
 	// configured daily-notes folder, matched once per run from the vault
 	// index with no extra reads. A dated bullet wikilinks a day only when
@@ -609,6 +613,11 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 	for (const [playlistId, record] of Object.entries(ctx.state.playlists)) {
 		if (!ctx.trackedIds.has(playlistId)) continue;
 		try {
+			const videoImages: BulletImages = {
+				mode: plugin.settings.videoThumbnails,
+				available: await collectPlaylistThumbnails(plugin, ctx, run, playlistId, record),
+				blurred,
+			};
 			if (playlistId === ctx.watchLaterId) {
 				await writeNote(
 					vault,
@@ -631,6 +640,7 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 			ctx.errors.push(recordError(err, `note ${record.title}`));
 		}
 	}
+	await finishThumbnails(plugin, ctx, run);
 
 	// Superseded scripts (the pre-split lifeline-noteviews.js and the
 	// pre-rename lifeline-tables.js): only once every note above has been
@@ -962,7 +972,7 @@ function looksLikeImage(bytes: Uint8Array): boolean {
 /** Discriminated so `ok` narrows `data` and `reason` without a cast. */
 type FetchOutcome =
 	| { ok: true; data: ArrayBuffer }
-	| { ok: false; reason: 'http' | 'invalid' | 'network' };
+	| { ok: false; reason: 'http' | 'invalid' | 'network'; detail: string };
 
 /**
  * Fetch one image under an abort timeout. Returns the bytes when they are
@@ -981,138 +991,295 @@ async function fetchImage(url: string): Promise<FetchOutcome> {
 		// apply to these image hosts: both yt3.ggpht.com and i.ytimg.com were
 		// verified to respond with `access-control-allow-origin: *`.
 		const res = await fetch(url, { signal: controller.signal });
-		if (!res.ok) return { ok: false, reason: 'http' };
+		if (!res.ok) return { ok: false, reason: 'http', detail: `HTTP ${res.status}` };
 		const data = await res.arrayBuffer();
-		if (!looksLikeImage(new Uint8Array(data))) return { ok: false, reason: 'invalid' };
+		if (!looksLikeImage(new Uint8Array(data))) {
+			const type = res.headers.get('content-type') ?? 'no content-type';
+			return { ok: false, reason: 'invalid', detail: `not an image (${type}, ${data.byteLength} bytes)` };
+		}
 		return { ok: true, data };
-	} catch {
+	} catch (err) {
 		// Aborted, DNS failure, or reset: indistinguishable here, all "network".
-		return { ok: false, reason: 'network' };
+		const message = err instanceof Error ? err.message : String(err);
+		return { ok: false, reason: 'network', detail: `network: ${message}` };
 	} finally {
 		window.clearTimeout(timer);
 	}
 }
 
+/** Pause between batches that fetched anything, so one run's bursts stay small. */
+const THUMBNAIL_BATCH_PAUSE_MS = 1500;
+
+/** Failed images named in the sync log per run; the rest are only counted. */
+const THUMBNAIL_SAMPLE_LIMIT = 10;
+
 /**
- * Download every thumbnail this run's notes will reference, before any note
- * is written, and return the file base names now present in the thumbnails
- * folder.
- *
- * Costs nothing when both image settings are off (the default). Existing
- * files are never re-fetched: the folder is listed once instead of checking
- * file by file. Nothing here ever throws: an image that cannot be fetched
- * leaves that one bullet on its remote URL field or with no image, and the
- * run still writes every note.
+ * Download state shared by every batch of one run, so the run reports one
+ * aggregated error rather than one per batch.
  */
-async function collectThumbnails(plugin: LifelinePlugin, ctx: WriteContext): Promise<ReadonlySet<string>> {
-	const { channelAvatars, videoThumbnails } = plugin.settings;
-	if (channelAvatars !== 'download' && videoThumbnails !== 'download') return NO_THUMBNAILS;
+interface ThumbnailRun {
+	/** Base names sitting in the thumbnails root, from before the per-folder layout. */
+	legacy: Set<string>;
+	/** Root copies already copied into a new folder; removed when the run ends. */
+	legacyUsed: Set<string>;
+	attempted: number;
+	failed: number;
+	network: number;
+	consecutiveNetwork: number;
+	bailed: boolean;
+	skipped: number;
+	fetchedBatches: number;
+	/** First few failures, each naming the image, its URL and the reason. */
+	samples: string[];
+}
 
-	const folder = ctx.paths.thumbnails;
-	const adapter = plugin.app.vault.adapter;
+interface ThumbnailJob {
+	folder: string;
+	base: string;
+	url: string;
+}
 
-	const present = new Set<string>();
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+/** Base names of the .jpg files directly inside one folder. */
+async function listBases(vault: Vault, folder: string): Promise<Set<string>> {
+	const bases = new Set<string>();
 	try {
-		const { files } = await adapter.list(folder);
+		const { files } = await vault.adapter.list(folder);
 		for (const path of files) {
 			if (!path.toLowerCase().endsWith('.jpg')) continue;
-			present.add(path.slice(path.lastIndexOf('/') + 1, -4));
+			bases.add(path.slice(path.lastIndexOf('/') + 1, -4));
 		}
 	} catch {
 		// Folder absent or unreadable: an empty set means "fetch them all".
 	}
+	return bases;
+}
 
-	const jobs: Array<{ base: string; url: string }> = [];
-	const queued = new Set<string>();
-	const queue = (base: string, url: string): void => {
-		if (!url || present.has(base) || queued.has(base)) return;
-		queued.add(base);
-		jobs.push({ base, url });
+async function startThumbnails(vault: Vault, thumbnailsRoot: string): Promise<ThumbnailRun> {
+	return {
+		legacy: await listBases(vault, thumbnailsRoot),
+		legacyUsed: new Set<string>(),
+		attempted: 0,
+		failed: 0,
+		network: 0,
+		consecutiveNetwork: 0,
+		bailed: false,
+		skipped: 0,
+		fetchedBatches: 0,
+		samples: [],
 	};
+}
 
-	if (channelAvatars === 'download') {
-		for (const [id, channel] of Object.entries(ctx.state.channels)) {
-			queue(channelImageBase(id), channel.avatar ?? '');
-			// The banner rides the same toggle and folder; a channel without one
-			// simply queues nothing.
-			queue(channelBannerImageBase(id), channel.banner ?? '');
-		}
+/** Copy one image from the thumbnails root into its folder. */
+async function adoptLegacy(vault: Vault, run: ThumbnailRun, from: string, to: string): Promise<boolean> {
+	try {
+		const data = await vault.adapter.readBinary(from);
+		await ensureFolder(vault, to.slice(0, to.lastIndexOf('/')));
+		await vault.adapter.writeBinary(to, data);
+		run.legacyUsed.add(from);
+		return true;
+	} catch {
+		return false;
 	}
-	if (videoThumbnails === 'download') {
-		for (const [playlistId, record] of Object.entries(ctx.state.playlists)) {
-			if (!ctx.trackedIds.has(playlistId)) continue;
-			for (const [videoId, video] of Object.entries(record.videos)) {
-				// The same set the bullets come from: never fetch for a hidden entry.
-				if (video.removed || video.unavailable) continue;
-				queue(videoImageBase(videoId), videoThumbnailUrl(videoId));
-			}
+}
+
+async function renameFolder(vault: Vault, from: string, to: string): Promise<void> {
+	try {
+		if ((await vault.adapter.exists(from)) && !(await vault.adapter.exists(to))) {
+			await vault.adapter.rename(from, to);
 		}
+	} catch {
+		// Best effort: the images just download again into the new folder.
 	}
-	if (jobs.length === 0) return present;
+}
 
-	await ensureFolder(plugin.app.vault, folder);
+/**
+ * Narrow a wanted list to the images still missing. A missing image that
+ * an earlier build left in the thumbnails root is copied across instead of
+ * fetched again.
+ */
+async function takeJobs(
+	vault: Vault,
+	run: ThumbnailRun,
+	thumbnailsRoot: string,
+	wanted: ThumbnailJob[],
+	present: Set<string>,
+): Promise<ThumbnailJob[]> {
+	const jobs: ThumbnailJob[] = [];
+	const queued = new Set<string>();
+	for (const job of wanted) {
+		if (!job.url || present.has(job.base) || queued.has(job.base)) continue;
+		queued.add(job.base);
+		if (
+			run.legacy.has(job.base) &&
+			(await adoptLegacy(vault, run, `${thumbnailsRoot}/${job.base}.jpg`, `${job.folder}/${job.base}.jpg`))
+		) {
+			present.add(job.base);
+			continue;
+		}
+		jobs.push(job);
+	}
+	return jobs;
+}
 
-	let attempted = 0;
-	let http = 0;
-	let invalid = 0;
-	let network = 0;
-	let consecutiveNetwork = 0;
-	let bailed = false;
+/**
+ * Fetch and write one batch, returning the base names written. A batch after
+ * an earlier fetching one waits first, and nothing runs once the run bailed.
+ */
+async function fetchBatch(vault: Vault, run: ThumbnailRun, jobs: ThumbnailJob[]): Promise<Set<string>> {
+	const written = new Set<string>();
+	if (jobs.length === 0) return written;
+	if (run.bailed) {
+		run.skipped += jobs.length;
+		return written;
+	}
+	if (run.fetchedBatches > 0) await sleep(THUMBNAIL_BATCH_PAUSE_MS);
+	run.fetchedBatches++;
+	for (const folder of new Set(jobs.map((job) => job.folder))) {
+		await ensureFolder(vault, folder);
+	}
 
 	let next = 0;
 	const worker = async (): Promise<void> => {
-		while (!bailed && next < jobs.length) {
+		while (!run.bailed && next < jobs.length) {
 			const job = jobs[next++];
 			if (!job) break;
-			attempted++;
+			run.attempted++;
 			const outcome = await fetchImage(job.url);
 			if (outcome.ok) {
-				consecutiveNetwork = 0;
+				run.consecutiveNetwork = 0;
 				try {
-					await adapter.writeBinary(`${folder}/${job.base}.jpg`, outcome.data);
-					present.add(job.base);
-				} catch {
+					await vault.adapter.writeBinary(`${job.folder}/${job.base}.jpg`, outcome.data);
+					written.add(job.base);
+				} catch (err) {
 					// One unwritable file is still one file: the bullet falls back
 					// to a link and the run carries on.
-					invalid++;
+					run.failed++;
+					const message = err instanceof Error ? err.message : String(err);
+					if (run.samples.length < THUMBNAIL_SAMPLE_LIMIT) {
+						run.samples.push(`${job.base} (${job.folder}): write failed: ${message}`);
+					}
 				}
 				continue;
 			}
+			run.failed++;
+			if (run.samples.length < THUMBNAIL_SAMPLE_LIMIT) {
+				run.samples.push(`${job.base} (${job.url}): ${outcome.detail}`);
+			}
 			if (outcome.reason === 'network') {
-				network++;
-				consecutiveNetwork++;
-				if (consecutiveNetwork >= THUMBNAIL_NETWORK_BAIL) bailed = true;
-			} else if (outcome.reason === 'http') {
-				http++;
-			} else {
-				invalid++;
+				run.network++;
+				run.consecutiveNetwork++;
+				if (run.consecutiveNetwork >= THUMBNAIL_NETWORK_BAIL) run.bailed = true;
 			}
 		}
 	};
 
-	await Promise.all(
-		Array.from({ length: Math.min(THUMBNAIL_CONCURRENCY, jobs.length) }, () => worker()),
-	);
+	await Promise.all(Array.from({ length: Math.min(THUMBNAIL_CONCURRENCY, jobs.length) }, () => worker()));
+	run.skipped += Math.max(0, jobs.length - next);
+	return written;
+}
 
-	const failed = http + invalid + network;
-	if (failed > 0) {
+/**
+ * Channel avatars and banners, each in its own folder. Runs before Channels.md
+ * is written, and returns the base names now present in either folder.
+ * Nothing here throws: an image that cannot be fetched leaves that one bullet
+ * on its remote URL field or with no image.
+ */
+async function collectChannelImages(
+	plugin: LifelinePlugin,
+	ctx: WriteContext,
+	run: ThumbnailRun,
+): Promise<ReadonlySet<string>> {
+	if (plugin.settings.channelAvatars !== 'download') return NO_THUMBNAILS;
+	const vault = plugin.app.vault;
+	const { avatars, banners, thumbnails } = ctx.paths;
+
+	const present = new Set<string>([...(await listBases(vault, avatars)), ...(await listBases(vault, banners))]);
+	const wanted: ThumbnailJob[] = [];
+	for (const [id, channel] of Object.entries(ctx.state.channels)) {
+		// The banner rides the same toggle, in its own folder; a channel
+		// without one simply queues nothing.
+		wanted.push({ folder: avatars, base: channelImageBase(channel.title, id), url: channel.avatar ?? '' });
+		wanted.push({ folder: banners, base: channelBannerImageBase(channel.title, id), url: channel.banner ?? '' });
+	}
+	const jobs = await takeJobs(vault, run, thumbnails, wanted, present);
+	for (const base of await fetchBatch(vault, run, jobs)) present.add(base);
+	return present;
+}
+
+/**
+ * One playlist's video thumbnails, in a sub-folder of thumbnails/ named after
+ * the playlist's note. Runs just before that playlist's note is written, and
+ * returns the base names now present in its folder. A renamed playlist
+ * carries its folder across.
+ */
+async function collectPlaylistThumbnails(
+	plugin: LifelinePlugin,
+	ctx: WriteContext,
+	run: ThumbnailRun,
+	playlistId: string,
+	record: PlaylistRecord,
+): Promise<ReadonlySet<string>> {
+	if (plugin.settings.videoThumbnails !== 'download') return NO_THUMBNAILS;
+	const vault = plugin.app.vault;
+	const { thumbnails } = ctx.paths;
+	const folder = `${thumbnails}/${record.fileName}`;
+
+	const previous = ctx.previousFiles.get(playlistId);
+	if (previous && previous !== record.fileName) {
+		await renameFolder(vault, `${thumbnails}/${previous}`, folder);
+	}
+
+	const present = await listBases(vault, folder);
+	const wanted: ThumbnailJob[] = [];
+	for (const [videoId, video] of Object.entries(record.videos)) {
+		// The same set the bullets come from: never fetch for a hidden entry.
+		if (video.removed || video.unavailable) continue;
+		wanted.push({
+			folder,
+			base: videoImageBase(video.channelTitle, video.title, videoId),
+			url: videoThumbnailUrl(videoId),
+		});
+	}
+	const jobs = await takeJobs(vault, run, thumbnails, wanted, present);
+	for (const base of await fetchBatch(vault, run, jobs)) present.add(base);
+	return present;
+}
+
+/**
+ * End of the thumbnail phase: drop the root copies that were adopted, and
+ * record one error for the whole run.
+ */
+async function finishThumbnails(plugin: LifelinePlugin, ctx: WriteContext, run: ThumbnailRun): Promise<void> {
+	for (const path of run.legacyUsed) {
+		try {
+			await plugin.app.vault.adapter.remove(path);
+		} catch {
+			// A leftover copy is harmless; the next run skips it.
+		}
+	}
+	if (run.failed > 0) {
 		// One record for the whole run: per-file lines would bury the log.
-		const detail = bailed
-			? `; ${jobs.length - attempted} skipped after ${THUMBNAIL_NETWORK_BAIL} consecutive network failures`
+		const detail = run.bailed
+			? `; ${run.skipped} skipped after ${THUMBNAIL_NETWORK_BAIL} consecutive network failures`
 			: '';
 		ctx.errors.push(
 			recordError(
 				new SyncError(
-					network > 0 ? 'network' : 'api',
+					run.network > 0 ? 'network' : 'api',
 					'thumbnails',
-					`${failed} of ${attempted} thumbnail downloads failed${detail}`,
+					`${run.failed} of ${run.attempted} thumbnail downloads failed${detail}`,
 				),
 				'thumbnails',
 			),
 		);
+		for (const sample of run.samples) {
+			ctx.errors.push(recordError(new SyncError('api', 'thumbnails', sample), 'thumbnails'));
+		}
 	}
-
-	return present;
 }
 
 async function ensureFolder(vault: Vault, folder: string): Promise<void> {

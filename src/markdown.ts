@@ -23,8 +23,10 @@ export interface OutputPaths {
 	playlistsFolder: string;
 	watchLater: string;
 	dashboard: string;
-	/** Vault folder receiving downloaded avatars and thumbnails (download mode). */
+	/** Vault folders receiving downloaded images (download mode), one per kind. */
 	thumbnails: string;
+	avatars: string;
+	banners: string;
 }
 
 export const DEFAULT_OUTPUT_FOLDER = '95 - Notes/YouTube';
@@ -52,7 +54,7 @@ function joinPath(base: string, name: string): string {
 /**
  * Where the notes go. `imagesFolder` is the parent folder chosen for
  * downloaded images: empty means "keep them beside the notes", and files
- * always land in its `thumbnails/` sub-folder.
+ * always land in its `thumbnails/`, `avatars/` or `banners/` sub-folder.
  */
 export function outputPaths(outputFolder: string, imagesFolder?: string | null): OutputPaths {
 	const folder = cleanFolder(outputFolder) ?? DEFAULT_OUTPUT_FOLDER;
@@ -64,6 +66,8 @@ export function outputPaths(outputFolder: string, imagesFolder?: string | null):
 		watchLater: joinPath(folder, 'Watch Later.md'),
 		dashboard: joinPath(folder, 'Dashboard.md'),
 		thumbnails: joinPath(parent, 'thumbnails'),
+		avatars: joinPath(parent, 'avatars'),
+		banners: joinPath(parent, 'banners'),
 	};
 }
 
@@ -99,19 +103,35 @@ export interface BulletImages {
 	blurred?: ReadonlySet<string>;
 }
 
-/** Base name (no extension) of a downloaded channel avatar. */
-export function channelImageBase(channelId: string): string {
-	return `channel-${channelId}`;
+/**
+ * One title as a file-name part. `#`, `^`, `[` and `]` are stripped on top of
+ * the usual filesystem characters, because they would break the `[[...]]`
+ * wikilink that points at the downloaded file.
+ */
+function imageNamePart(title: string, fallback: string): string {
+	return sanitizeFileName(title.replace(/[#^[\]]/g, ' '), fallback);
 }
 
-/** Base name (no extension) of a downloaded channel banner. */
-export function channelBannerImageBase(channelId: string): string {
-	return `channel-${channelId}-banner`;
+/**
+ * Base name (no extension) of a downloaded channel avatar: `{channel}_{id}_avatar`.
+ * The channel id keeps it unique, as for video thumbnails.
+ */
+export function channelImageBase(channelTitle: string, channelId: string): string {
+	return `${imageNamePart(channelTitle, channelId)}_${channelId}_avatar`;
 }
 
-/** Base name (no extension) of a downloaded video thumbnail. */
-export function videoImageBase(videoId: string): string {
-	return videoId;
+/** Base name (no extension) of a downloaded channel banner: `{channel}_{id}_banner`. */
+export function channelBannerImageBase(channelTitle: string, channelId: string): string {
+	return `${imageNamePart(channelTitle, channelId)}_${channelId}_banner`;
+}
+
+/**
+ * Base name (no extension) of a downloaded video thumbnail: `{channel}_{video}_{id}`.
+ * The id keeps it unique: titles can differ only by case, which Windows treats
+ * as the same file name.
+ */
+export function videoImageBase(channelTitle: string, videoTitle: string, videoId: string): string {
+	return `${imageNamePart(channelTitle, 'unknown channel')}_${imageNamePart(videoTitle, videoId)}_${videoId}`;
 }
 
 /**
@@ -312,11 +332,19 @@ export function renderChannelsNote(
 		// writes nothing when the row is off, so avatars and banners can be
 		// picked apart instead of being all-or-nothing.
 		if (fields.avatar) {
-			parts.push(...bulletImageFields(images, channelImageBase(id), channel.avatar, 'avatar_url', 'avatar'));
+			parts.push(
+				...bulletImageFields(images, channelImageBase(channel.title, id), channel.avatar, 'avatar_url', 'avatar'),
+			);
 		}
 		if (fields.banner) {
 			parts.push(
-				...bulletImageFields(images, channelBannerImageBase(id), channel.banner, 'banner_url', 'banner'),
+				...bulletImageFields(
+					images,
+					channelBannerImageBase(channel.title, id),
+					channel.banner,
+					'banner_url',
+					'banner',
+				),
 			);
 		}
 		lines.push(`- ${parts.join(' ')}`);
@@ -405,7 +433,7 @@ export function renderPlaylistNote(
 		if (video.dateAdded) parts.push(`[date:: ${journalDate(video.dateAdded, journal)}]`);
 		const imageParts = bulletImageFields(
 			images,
-			videoImageBase(videoId),
+			videoImageBase(video.channelTitle, video.title, videoId),
 			videoThumbnailUrl(videoId),
 			'thumbnail_url',
 			'thumbnail',

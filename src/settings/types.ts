@@ -314,7 +314,7 @@ export interface LifelineSettings {
 	 *  age-restricted ones YouTube flags. */
 	blurredThumbnailVideos: string[];
 	/** Parent folder for downloaded images; '' = keep them beside the notes.
-	 *  Files always land in `<parent>/thumbnails/`. */
+	 *  Thumbnails land in `<parent>/thumbnails/<playlist>/`, avatars in `<parent>/avatars/`, banners in `<parent>/banners/`. */
 	imagesFolder: string;
 	/** null = never fetched → every playlist is tracked on first fetch. */
 	trackedPlaylists: string[] | null;
