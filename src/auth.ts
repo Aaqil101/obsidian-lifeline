@@ -12,7 +12,7 @@
  */
 import * as http from 'http';
 import type { AddressInfo } from 'net';
-import { Notice } from 'obsidian';
+import { Notice, requestUrl, type RequestUrlResponse } from 'obsidian';
 import { asRecord, asString, errorMessage } from './json';
 import { SyncError } from './types';
 import type LifelinePlugin from './main';
@@ -265,19 +265,22 @@ export class AuthManager {
 	}
 
 	private async postToken(params: URLSearchParams, resource: string): Promise<TokenResponse> {
-		let res: Response;
+		let res: RequestUrlResponse;
 		try {
-			res = await fetch(TOKEN_ENDPOINT, {
+			res = await requestUrl({
+				url: TOKEN_ENDPOINT,
 				method: 'POST',
 				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 				body: params.toString(),
+				throw: false,
 			});
 		} catch (err) {
 			throw new SyncError('network', resource, `Network error contacting Google: ${errorMessage(err)}`);
 		}
+		const ok = res.status >= 200 && res.status < 300;
 		let json: unknown;
 		try {
-			json = await res.json();
+			json = JSON.parse(res.text);
 		} catch {
 			throw new SyncError('auth', resource, `Google's token endpoint returned HTTP ${res.status}.`);
 		}
@@ -289,7 +292,7 @@ export class AuthManager {
 			error: asString(record.error) || undefined,
 			error_description: asString(record.error_description) || undefined,
 		};
-		if (!res.ok && !response.error) {
+		if (!ok && !response.error) {
 			throw new SyncError('auth', resource, `Google's token endpoint returned HTTP ${res.status}.`);
 		}
 		return response;

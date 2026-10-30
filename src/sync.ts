@@ -9,7 +9,7 @@
  * - State lives in state.json (plugin data, no secrets) and is saved at the
  *   end of every run so partial failures never lose known data.
  */
-import { App, Notice, TFile, type Vault } from 'obsidian';
+import { App, Notice, TFile, requestUrl, type Vault } from 'obsidian';
 import { isDataviewEnabled, renderDashboardNote, renderDisabledDashboardNote } from './dashboard';
 import {
 	DASHBOARD_CSS,
@@ -1062,21 +1062,23 @@ type FetchOutcome =
  * miss into a single sync-log line instead of one line per file.
  */
 async function fetchImage(url: string): Promise<FetchOutcome> {
-	const controller = new AbortController();
+	let timer: number | undefined;
+	// requestUrl takes no AbortSignal, so the timeout races the request and a
+	// stalled host is abandoned (its socket may linger) rather than cancelled.
 	// window.* so a timer created here belongs to the active window: Obsidian
 	// popouts would otherwise clear a timer they never created.
-	const timer = window.setTimeout(() => controller.abort(), THUMBNAIL_TIMEOUT_MS);
+	const timeout = new Promise<never>((_, reject) => {
+		timer = window.setTimeout(
+			() => reject(new Error(`no response within ${THUMBNAIL_TIMEOUT_MS} ms`)),
+			THUMBNAIL_TIMEOUT_MS,
+		);
+	});
 	try {
-		// Native fetch, not requestUrl: requestUrl accepts no AbortSignal, so it
-		// cannot honour the timeout above and a stalled host would hold a worker
-		// slot indefinitely. The CORS concern behind the fetch lint rule does not
-		// apply to these image hosts: both yt3.ggpht.com and i.ytimg.com were
-		// verified to respond with `access-control-allow-origin: *`.
-		const res = await fetch(url, { signal: controller.signal });
-		if (!res.ok) return { ok: false, reason: 'http', detail: `HTTP ${res.status}` };
-		const data = await res.arrayBuffer();
+		const res = await Promise.race([requestUrl({ url, throw: false }), timeout]);
+		if (res.status < 200 || res.status >= 300) return { ok: false, reason: 'http', detail: `HTTP ${res.status}` };
+		const data = res.arrayBuffer;
 		if (!looksLikeImage(new Uint8Array(data))) {
-			const type = res.headers.get('content-type') ?? 'no content-type';
+			const type = res.headers['content-type'] ?? 'no content-type';
 			return { ok: false, reason: 'invalid', detail: `not an image (${type}, ${data.byteLength} bytes)` };
 		}
 		return { ok: true, data };

@@ -9,6 +9,7 @@
  * - Errors are thrown as classified SyncError values; the sync engine collects
  *   them per resource and never aborts the whole run.
  */
+import { requestUrl, type RequestUrlResponse } from 'obsidian';
 import { asArray, asRecord, asString, errorMessage } from './json';
 import { SyncError, type PlaylistSummary, type SyncErrorKind } from './types';
 
@@ -534,7 +535,7 @@ async function requestJson(spec: RequestSpec, auth: ApiAuth, quota: QuotaTracker
 				res = await fetchOnce(url, auth, spec.resource);
 			}
 		}
-		if (res.ok) {
+		if (isOk(res)) {
 			quota.add(spec.quotaUnits);
 			return await readJson(res, spec.resource);
 		}
@@ -551,14 +552,20 @@ async function requestJson(spec: RequestSpec, auth: ApiAuth, quota: QuotaTracker
 	);
 }
 
-async function fetchOnce(url: string, auth: ApiAuth, resource: string): Promise<Response> {
+function isOk(res: RequestUrlResponse): boolean {
+	return res.status >= 200 && res.status < 300;
+}
+
+async function fetchOnce(url: string, auth: ApiAuth, resource: string): Promise<RequestUrlResponse> {
 	try {
 		const token = await auth.getAccessToken();
-		return await fetch(url, {
+		return await requestUrl({
+			url,
 			headers: {
 				Accept: 'application/json',
 				Authorization: `Bearer ${token}`,
 			},
+			throw: false,
 		});
 	} catch (err) {
 		if (err instanceof SyncError) throw err;
@@ -566,12 +573,12 @@ async function fetchOnce(url: string, auth: ApiAuth, resource: string): Promise<
 	}
 }
 
-async function classifyFailure(res: Response): Promise<Failure> {
-	const retryAfterMs = parseRetryAfter(res.headers.get('Retry-After'));
+async function classifyFailure(res: RequestUrlResponse): Promise<Failure> {
+	const retryAfterMs = parseRetryAfter(res.headers['retry-after'] ?? null);
 	let message = `HTTP ${res.status}`;
 	let reason = '';
 	try {
-		const body = asRecord(await res.json());
+		const body = asRecord(JSON.parse(res.text));
 		const error = asRecord(body?.error);
 		if (error) {
 			message = asString(error.message) || message;
@@ -615,9 +622,9 @@ function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-async function readJson(res: Response, resource: string): Promise<unknown> {
+async function readJson(res: RequestUrlResponse, resource: string): Promise<unknown> {
 	try {
-		return await res.json();
+		return JSON.parse(res.text);
 	} catch {
 		throw new SyncError('api', resource, 'Invalid JSON in the API response.');
 	}
