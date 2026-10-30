@@ -132,6 +132,18 @@ export class SyncLogModal extends Modal {
 			cls: 'lifeline-sync-log-counts',
 			text: `${entry.channelsSynced} ch · ${entry.playlistsSynced} pl · ${entry.videosFound} videos`,
 		});
+		// Absent while no download mode was on. A 0 is the interesting case:
+		// it means every wanted image was already on disk, so the skip
+		// behaviour is visible without opening the vault.
+		if (entry.imagesDownloaded !== undefined) {
+			head.createSpan({
+				cls: 'lifeline-sync-log-counts',
+				text:
+					entry.imagesDownloaded === 0
+						? '0 images downloaded (all on disk)'
+						: `${entry.imagesDownloaded} images downloaded`,
+			});
+		}
 		head.createSpan({ cls: 'lifeline-sync-log-quota', text: `${entry.quotaUnits} units` });
 		if (entry.quotaSoftWarn) {
 			head.createSpan({ cls: 'lifeline-sync-log-flag', text: 'soft limit' });

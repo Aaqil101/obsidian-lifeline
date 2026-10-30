@@ -147,6 +147,12 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 	let savedPlaylists: PlaylistSummary[] = [];
 	let videosFound = 0;
 	let playlistsSynced = 0;
+	// Tally of images fetched this run, recorded only while a download mode is
+	// on: 0 then means every wanted file was already on disk. Undefined while
+	// both modes are off, so the log entry carries no meaningless zero.
+	const downloadsOn =
+		plugin.settings.channelAvatars === 'download' || plugin.settings.videoThumbnails === 'download';
+	let imagesDownloaded: number | undefined;
 
 	// Pre-flight: without a token nothing below can work; the run is still logged.
 	try {
@@ -318,8 +324,13 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 			quotaSoftWarn: quota.softWarn,
 			playlistsSynced,
 			errors,
+			imagesDownloaded: 0,
 		};
 		await writeOutputs(plugin, ctx);
+		// Only while a download mode is on: a 0 here is meaningful (every
+		// wanted image was already on disk), while with both modes off it is
+		// just noise, so the field stays absent instead.
+		imagesDownloaded = downloadsOn ? ctx.imagesDownloaded : undefined;
 	}
 
 	// --- assemble result + append sync log ------------------------------------
@@ -330,6 +341,7 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 		channelsSynced: channelsOk ? channels.length : 0,
 		playlistsSynced,
 		videosFound,
+		imagesDownloaded,
 		quotaUnits: quota.used,
 		quotaSoftWarn,
 		errors,
@@ -376,6 +388,8 @@ interface WriteContext {
 	quotaSoftWarn: boolean;
 	playlistsSynced: number;
 	errors: SyncErrorRecord[];
+	/** Raised by finishThumbnails so the sync log can record the run's tally. */
+	imagesDownloaded: number;
 }
 
 function buildTargets(
@@ -1091,6 +1105,8 @@ interface ThumbnailRun {
 	/** Root copies already copied into a new folder; removed when the run ends. */
 	legacyUsed: Set<string>;
 	attempted: number;
+	/** Images whose bytes were fetched and written; legacy copies are not counted. */
+	downloaded: number;
 	failed: number;
 	network: number;
 	consecutiveNetwork: number;
@@ -1131,6 +1147,7 @@ async function startThumbnails(vault: Vault, thumbnailsRoot: string): Promise<Th
 		legacy: await listBases(vault, thumbnailsRoot),
 		legacyUsed: new Set<string>(),
 		attempted: 0,
+		downloaded: 0,
 		failed: 0,
 		network: 0,
 		consecutiveNetwork: 0,
@@ -1222,6 +1239,7 @@ async function fetchBatch(vault: Vault, run: ThumbnailRun, jobs: ThumbnailJob[])
 				try {
 					await vault.adapter.writeBinary(`${job.folder}/${job.base}.jpg`, outcome.data);
 					written.add(job.base);
+					run.downloaded++;
 				} catch (err) {
 					// One unwritable file is still one file: the bullet falls back
 					// to a link and the run carries on.
@@ -1325,10 +1343,12 @@ async function collectPlaylistThumbnails(
 }
 
 /**
- * End of the thumbnail phase: drop the root copies that were adopted, and
- * record one error for the whole run.
+ * End of the thumbnail phase: drop the root copies that were adopted, publish
+ * the run's download tally for the sync log, and record one error for the
+ * whole run.
  */
 async function finishThumbnails(plugin: LifelinePlugin, ctx: WriteContext, run: ThumbnailRun): Promise<void> {
+	ctx.imagesDownloaded = run.downloaded;
 	for (const path of run.legacyUsed) {
 		try {
 			await plugin.app.vault.adapter.remove(path);

@@ -43,6 +43,13 @@ export interface SyncRunResult {
 	channelsSynced: number;
 	playlistsSynced: number;
 	videosFound: number;
+	/**
+	 * Images fetched and written this run, recorded only while a download mode
+	 * is on. A 0 makes the skip behaviour visible: every wanted image was
+	 * already on disk, so none was fetched. Absent when no download mode was
+	 * on, so those runs carry no meaningless zero.
+	 */
+	imagesDownloaded?: number;
 	quotaUnits: number;
 	quotaSoftWarn: boolean;
 	errors: SyncErrorRecord[];
