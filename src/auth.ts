@@ -10,12 +10,45 @@
  * this vault. Nothing secret is ever written to data.json or anywhere else in
  * the vault. The keychain is per-machine, so a new computer means re-auth.
  */
-import * as http from 'http';
-import type { AddressInfo } from 'net';
+import * as nodeHttp from 'http';
 import { Notice, requestUrl, type RequestUrlResponse } from 'obsidian';
 import { asRecord, asString, errorMessage } from './json';
 import { SyncError } from './types';
 import type LifelinePlugin from './main';
+
+/**
+ * The sliver of Node's HTTP server the loopback flow actually uses.
+ *
+ * These shapes are declared here, instead of annotating with `http.Server`
+ * and `AddressInfo` from the Node types, on purpose: not every lint
+ * environment loads `@types/node`, an unresolved type silently degrades to
+ * `any` there, and `any` in a union swallows the other members. That is what
+ * the community directory's review flagged. The module itself is cast
+ * through `unknown` exactly once, in `loopbackHttp` below, and nothing else
+ * in this file touches a Node type.
+ */
+interface LoopbackHttp {
+	createServer(handler: (req: LoopbackRequest, res: LoopbackResponse) => void): LoopbackServer;
+}
+
+interface LoopbackServer {
+	close(): void;
+	on(event: 'error', handler: (err: Error) => void): void;
+	listen(port: number, host: string, callback: () => void): void;
+	address(): { port: number } | string | null;
+}
+
+interface LoopbackRequest {
+	readonly url: string | undefined;
+}
+
+interface LoopbackResponse {
+	writeHead(status: number, headers?: Record<string, string>): void;
+	end(body?: string): void;
+}
+
+/** Node's loopback listener, typed through the facade above. */
+const loopbackHttp = nodeHttp as unknown as LoopbackHttp;
 
 const SCOPE = 'https://www.googleapis.com/auth/youtube.readonly';
 const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -155,7 +188,7 @@ export class AuthManager {
 			let settled = false;
 			let redirectUri = '';
 			let timer: number | null = null;
-			let server: http.Server | null = null;
+			let server: LoopbackServer | null = null;
 
 			const settle = (fn: () => void): void => {
 				if (settled) return;
@@ -176,7 +209,7 @@ export class AuthManager {
 			};
 			this.cancelFlow = cancel;
 
-			server = http.createServer((req, res) => {
+			server = loopbackHttp.createServer((req, res) => {
 				if (typeof req.url !== 'string') {
 					res.writeHead(400);
 					res.end('Missing URL');
@@ -221,7 +254,7 @@ export class AuthManager {
 			server.listen(0, '127.0.0.1', () => {
 				const active = server;
 				if (!active) return;
-				const address: AddressInfo | string | null = active.address();
+				const address = active.address();
 				if (!address || typeof address === 'string') {
 					settle(() => reject(new SyncError('auth', 'oauth', 'Could not determine the local redirect port.')));
 					return;
