@@ -9,7 +9,7 @@
  * - State lives in state.json (plugin data, no secrets) and is saved at the
  *   end of every run so partial failures never lose known data.
  */
-import { App, Notice, TFile, requestUrl, type Vault } from 'obsidian';
+import { App, Notice, TFile, TFolder, requestUrl, type Vault } from 'obsidian';
 import { isDataviewEnabled, renderDashboardNote, renderDisabledDashboardNote } from './dashboard';
 import {
 	DASHBOARD_CSS,
@@ -645,8 +645,8 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 		available: await collectChannelImages(plugin, ctx, run),
 	};
 	// Journal dates: the base names of the notes already sitting in the
-	// configured daily-notes folder, matched once per run from the vault
-	// index with no extra reads. A dated bullet wikilinks a day only when
+	// configured daily-notes folder, matched once per run from that folder's
+	// own tree with no file reads. A dated bullet wikilinks a day only when
 	// that day's note really exists (today and later always link, since the
 	// daily note will exist when it comes around), and a folder missing from
 	// the vault means nothing can exist, so every date prints plain. The
@@ -657,14 +657,18 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 	const journalFolder = normalizeFolder(plugin.settings.journalFolder);
 	let journal: JournalDates | undefined;
 	if (journalFolder) {
-		// A vault-root journal ('/') holds files with no separator in the
-		// path; any other folder is a plain path prefix.
-		const root = journalFolder === '/';
+		// A vault-root journal ('/') reads its direct children (paths with no
+		// separator, the rule this always applied); any other folder is walked
+		// recursively, and a folder missing from the vault yields an empty set,
+		// exactly like a prefix scan that matched nothing. Nothing else in the
+		// vault is listed.
 		const names = new Set<string>();
-		for (const file of vault.getMarkdownFiles()) {
-			if (root ? !file.path.includes('/') : file.path.startsWith(`${journalFolder}/`)) {
-				names.add(file.basename);
+		if (journalFolder === '/') {
+			for (const child of vault.getRoot().children) {
+				if (child instanceof TFile && child.extension === 'md') names.add(child.basename);
 			}
+		} else {
+			for (const file of markdownUnder(vault.getFolderByPath(journalFolder))) names.add(file.basename);
 		}
 		journal = { names, today: formatDate(ctx.now) };
 	}
@@ -949,6 +953,25 @@ export async function writeNoteViewScripts(
 }
 
 /**
+ * Every markdown file at or under a folder, in tree order, and nothing when
+ * the folder isn't in the vault. Walks `children`, so a scan stays scoped to
+ * the folder it is about instead of listing every file in the vault.
+ */
+function markdownUnder(folder: TFolder | null): TFile[] {
+	if (!folder) return [];
+	const files: TFile[] = [];
+	const walk = (node: TFolder): void => {
+		for (const child of node.children) {
+			if (child instanceof TFile) {
+				if (child.extension === 'md') files.push(child);
+			} else if (child instanceof TFolder) walk(child);
+		}
+	};
+	walk(folder);
+	return files;
+}
+
+/**
  * Undo the opt-in note views the moment Views in notes is switched off:
  * strip the dv.view() blocks out of every note under the output folder
  * (Channels.md, playlist notes, Watch Later.md) and trash the three note-view
@@ -960,10 +983,11 @@ export async function writeNoteViewScripts(
 export async function removeNoteViews(plugin: LifelinePlugin): Promise<void> {
 	const vault = plugin.app.vault;
 	const root = normalizeFolder(plugin.settings.outputFolder);
-	const everywhere = !root || root === '/';
+	// '' (unset or the vault root) starts at the root folder, the same scope
+	// the old prefix scan had for both; anything else starts at that folder.
+	const start = !root || root === '/' ? vault.getRoot() : vault.getFolderByPath(root);
 	const firstErrors: Error[] = [];
-	for (const file of vault.getMarkdownFiles()) {
-		if (!everywhere && !file.path.startsWith(`${root}/`)) continue;
+	for (const file of markdownUnder(start)) {
 		try {
 			const current = await vault.cachedRead(file);
 			const stripped = stripNoteViewBlocks(current);

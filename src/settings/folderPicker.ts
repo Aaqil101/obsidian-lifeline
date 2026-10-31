@@ -32,12 +32,14 @@ function folderPath(folder: TFolder): string {
 
 /** Every folder in the vault, root first, so the list is stable and sorted. */
 function vaultFolders(app: App): TFolder[] {
-	const folders = new Map<string, TFolder>();
-	folders.set(ROOT_PATH, app.vault.getRoot());
-	for (const entry of app.vault.getAllLoadedFiles()) {
-		if (entry instanceof TFolder && entry.path !== ROOT_PATH) folders.set(entry.path, entry);
-	}
-	return Array.from(folders.values()).sort((a, b) => folderPath(a).localeCompare(folderPath(b)));
+	// Walk the folder tree only: a picker needs folder paths, never file paths.
+	const folders: TFolder[] = [];
+	const walk = (folder: TFolder): void => {
+		folders.push(folder);
+		for (const child of folder.children) if (child instanceof TFolder) walk(child);
+	};
+	walk(app.vault.getRoot());
+	return folders.sort((a, b) => folderPath(a).localeCompare(folderPath(b)));
 }
 
 /** Popover suggestions while a folder row is being typed into. */
