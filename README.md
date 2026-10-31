@@ -370,4 +370,6 @@ For a faster dev loop, point the [Hot-Reload](https://github.com/pjeby/hot-reloa
 
 ## License
 
-[0-BSD](LICENSE)
+Copyright (C) 2026 Aaqil101.
+
+Lifeline is free software licensed under the [GNU General Public License v3.0 or later](LICENSE).
