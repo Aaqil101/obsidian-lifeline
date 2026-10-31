@@ -1,7 +1,9 @@
 /**
  * Saved-playlist ID collector sub-page. Mode 1 (default, every platform):
- * numbered DevTools steps, a copy button for the console collector, and a
- * lenient paste parser with an "N IDs parsed" count plus shape warnings.
+ * numbered DevTools steps, a select-and-copy control for the console
+ * collector, and a lenient paste parser with an "N IDs parsed" count plus
+ * shape warnings. The plugin itself never touches the clipboard: it
+ * highlights the script and you copy it with Ctrl+C.
  * Mode 2 (desktop-only): open the page in Obsidian's Web viewer core plugin
  * and collect from that tab with one click. Imported IDs are persisted to
  * data.json only.
@@ -36,30 +38,39 @@ export function renderCollectIdsPage(host: SettingsHost, containerEl: HTMLElemen
 		text: 'Open developer tools and select the console tab. If the browser warns about pasting, type allow pasting and press enter first.',
 	});
 	steps.createEl('li', {
-		text: 'Paste the collector script and press enter. It scrolls to the end of the page, then prints a JSON array of playlist ids.',
+		text: 'Copy the collector script below, paste it into the console, and press enter. It scrolls to the end of the page, then prints a JSON array of playlist ids.',
 	});
 	const lastStep = steps.createEl('li');
 	lastStep.appendText('Copy the printed array, paste it below, then select ');
 	lastStep.createEl('b', { text: 'Add to tracked playlists' });
 	lastStep.appendText('. The script only reads the page; it never touches your cookies or account.');
 
+	// Created just below; the click handler runs long after both exist.
+	let scriptDisclosure: HTMLDetailsElement | null = null;
+	let scriptEl: HTMLElement | null = null;
+
 	new Setting(stepsCard)
 		.setName('Collector script')
 		.setDesc('Reads YouTube.com/feed/playlists: scrolls to the end, then collects every playlist ID it finds.')
 		.addButton((button) =>
-			button.setButtonText('Copy collector script').onClick(async () => {
-				try {
-					await navigator.clipboard.writeText(COLLECTOR_SOURCE);
-					new Notice('Collector script copied. Paste it in the YouTube console.');
-				} catch {
-					new Notice('Could not copy automatically. Expand the script below and copy it manually.', 8000);
-				}
+			button.setButtonText('Select collector script').onClick(() => {
+				// Highlight the script instead of writing to the clipboard: the
+				// plugin never reads or writes it, you press Ctrl+C yourself.
+				if (!scriptDisclosure || !scriptEl) return;
+				scriptDisclosure.open = true;
+				const range = activeDocument.createRange();
+				range.selectNodeContents(scriptEl);
+				const selection = activeWindow.getSelection();
+				selection?.removeAllRanges();
+				selection?.addRange(range);
+				if (selection) new Notice('Script selected. Press Ctrl+C to copy it.');
+				else new Notice('Could not select the script. Expand it below and copy it manually.', 8000);
 			}),
 		);
 
-	const disclosure = stepsCard.createEl('details', { cls: 'lifeline-settings-note' });
-	disclosure.createEl('summary', { text: 'Show the collector script' });
-	disclosure.createEl('pre', { cls: 'lifeline-collect-script', text: COLLECTOR_SOURCE });
+	scriptDisclosure = stepsCard.createEl('details', { cls: 'lifeline-settings-note' });
+	scriptDisclosure.createEl('summary', { text: 'Show the collector script' });
+	scriptEl = scriptDisclosure.createEl('pre', { cls: 'lifeline-collect-script', text: COLLECTOR_SOURCE });
 
 	let pasted = '';
 	let addButton: ButtonComponent | null = null;
