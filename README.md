@@ -19,13 +19,23 @@ YouTube accounts get terminated, playlists get emptied, and videos disappear wit
 
 ## Install
 
-### Option A: BRAT (recommended)
+Lifeline is listed in the Obsidian community catalog: [community.obsidian.md/plugins/lifeline](https://community.obsidian.md/plugins/lifeline).
+
+### Option A: Community plugins browser (recommended)
+
+1. Open **Settings → Community plugins** and make sure restricted mode is off.
+2. Select **Browse**, search for **Lifeline**, and install it.
+3. Enable **Lifeline**.
+
+### Option B: BRAT
+
+Use this to test a beta build before it reaches the community catalog.
 
 1. Install [BRAT](https://github.com/TfTHacker/obsidian-brat) from the community plugins browser.
 2. Open **Settings → BRAT → Add beta plugin** and enter `Aaqil101/obsidian-lifeline`.
 3. Enable **Lifeline** under **Settings → Community plugins**.
 
-### Option B: Manual
+### Option C: Manual
 
 1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/Aaqil101/obsidian-lifeline/releases/latest).
 2. Copy them into `<YourVault>/.obsidian/plugins/lifeline/`.
