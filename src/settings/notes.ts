@@ -16,11 +16,16 @@ import { normalizeScriptsFolder } from '../dashboardScript';
 import { normalizeFolder } from '../markdown';
 import { normalizeStylesFolder } from '../noteViewsScript';
 import { writeNoteViewScripts } from '../sync';
-import { DEFAULT_CHANNELS_FIELDS } from '../types';
+import { DEFAULT_CHANNELS_FIELDS, DEFAULT_VIDEO_FIELDS } from '../types';
 import { folderSetting } from './folderPicker';
 import { renderDashboardPage } from './dashboardPage';
 import { renderViewsPage } from './viewsPage';
-import { FIELD_ROWS, SHORTS_DETECTION_OPTIONS, DEFAULT_SHORTS_DETECTION } from './types';
+import {
+	FIELD_ROWS,
+	SHORTS_DETECTION_OPTIONS,
+	DEFAULT_SHORTS_DETECTION,
+	VIDEO_FIELD_ROWS,
+} from './types';
 import { group, pageDefinition, renderRow, type SettingsHost } from './ui';
 
 /** Landing group: output folder, the sub-page doors, and the shared folders. */
@@ -185,6 +190,13 @@ export function notesGroup(host: SettingsHost): SettingDefinitionGroup {
 		renderChannelsFieldsPage,
 	);
 
+	const videoFields = pageDefinition(
+		host,
+		'Video bullet fields',
+		'Pick which extra facts each playlist and Watch Later video bullet carries. All are on by default, and turning one off strips its field on the next sync.',
+		renderVideoFieldsPage,
+	);
+
 	const views = pageDefinition(
 		host,
 		'Views in notes',
@@ -210,6 +222,7 @@ export function notesGroup(host: SettingsHost): SettingDefinitionGroup {
 			outputFolder,
 			journalFolder,
 			shorts,
+			videoFields,
 			views,
 			stylesFolder,
 			scriptsFolder,
@@ -241,6 +254,39 @@ export function renderChannelsFieldsPage(host: SettingsHost, containerEl: HTMLEl
 		setting.addToggle((toggle) =>
 			toggle.setValue(settings.channelsFields[row.key]).onChange(async (on) => {
 				settings.channelsFields[row.key] = on;
+				await host.plugin.saveSettings();
+			}),
+		);
+	}
+}
+
+/**
+ * Video bullet fields sub-page: one toggle per optional playlist fact, plus a
+ * reset. Duration and Shorts stay on the Identify Shorts row rather than
+ * appearing here, since a second switch over the same fields would silently
+ * do nothing.
+ */
+export function renderVideoFieldsPage(host: SettingsHost, containerEl: HTMLElement): void {
+	const { settings } = host.plugin;
+	const card = group(containerEl, 'Video bullet fields', (heading) => {
+		heading.addExtraButton((button) =>
+			button
+				.setIcon('rotate-ccw')
+				.setTooltip('Reset all fields to defaults')
+				.onClick(async () => {
+					settings.videoFields = { ...DEFAULT_VIDEO_FIELDS };
+					await host.plugin.saveSettings();
+					host.refresh();
+				}),
+		);
+	});
+
+	for (const row of VIDEO_FIELD_ROWS) {
+		const setting = new Setting(card).setName(row.name);
+		if (row.desc) setting.setDesc(row.desc);
+		setting.addToggle((toggle) =>
+			toggle.setValue(settings.videoFields[row.key]).onChange(async (on) => {
+				settings.videoFields[row.key] = on;
 				await host.plugin.saveSettings();
 			}),
 		);

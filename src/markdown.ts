@@ -15,7 +15,7 @@
  * (query via `file.lists`).
  */
 import { normalizePath } from 'obsidian';
-import type { ChannelsFieldSettings, ChannelFace, ImageMode, PlaylistRecord, SyncState } from './types';
+import type { ChannelsFieldSettings, ChannelFace, ImageMode, PlaylistRecord, SyncState, VideoFieldSettings } from './types';
 
 export interface OutputPaths {
 	folder: string;
@@ -419,9 +419,17 @@ export function renderChannelsNote(
  * known duration gets `[duration:: N]` (whole seconds, so Dataview sorts it as
  * a number) and, when it is a Short, `[short:: true]`. Off (or omitted)
  * writes neither, which is the byte-identical path.
+ *
+ * `options.fields` is the separate video-fields checklist: `published` writes
+ * the upload date as bare ISO text (never a journal link, since an upload date
+ * is virtually always in the past), `blocked` writes `[blocked:: true]` only
+ * when the restriction means effectively global, and `live` writes
+ * `[live:: true]` or `[upcoming:: true]` for the matching liveBroadcastContent.
+ * A missing toggle or missing fact writes nothing, and all three default off.
  */
 export interface PlaylistNoteOptions {
 	shorts?: boolean;
+	fields?: VideoFieldSettings;
 }
 
 export function renderPlaylistNote(
@@ -469,6 +477,17 @@ export function renderPlaylistNote(
 			: labelText(video.channelTitle || 'unknown channel');
 		const parts = [`[title:: [${labelText(video.title)}](${watchUrl})]`, `[channel:: ${channelValue}]`];
 		if (video.dateAdded) parts.push(`[date:: ${journalDate(video.dateAdded, journal)}]`);
+		// Upload date and playability facts, each independent and each behind its
+		// own toggle. `published` is plain ISO text by design: an upload date is
+		// almost always in the past with no journal note, so linking it would
+		// only add a vault lookup and a surprise. `blocked` and the two live
+		// flags are written only when true, so the field itself is the signal.
+		if (options?.fields?.published && video.published) parts.push(`[published:: ${video.published}]`);
+		if (options?.fields?.blocked && video.blocked === true) parts.push('[blocked:: true]');
+		if (options?.fields?.live) {
+			if (video.live === true) parts.push('[live:: true]');
+			if (video.upcoming === true) parts.push('[upcoming:: true]');
+		}
 		// Shorts fields, written only while Identify Shorts is anything but Off.
 		// Duration stays absent for a live or upcoming video (P0D), and a video
 		// the classifier could not place carries no `short` field at all rather

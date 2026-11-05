@@ -48,11 +48,12 @@ export const SHORTS_PROBE_TIMEOUT_MS = 15_000;
 
 /**
  * Version of the `videos.list` metadata a record carries. Absent means "never
- * fetched", so an upgraded state.json refills once; #33 bumps this when it
- * widens the same call, and the sentinel then refills every record again
- * without a second migration.
+ * fetched", so an upgraded state.json refills once. Version 2 widened the same
+ * call to snippet + contentDetails for the region block and live/upcoming
+ * flags, so bumping the sentinel refills every existing record once without a
+ * second migration.
  */
-export const VIDEO_META_VERSION = 1;
+export const VIDEO_META_VERSION = 2;
 
 /** What one probe could tell us. `unknown` is retried, never guessed. */
 export type ShortsVerdict = 'short' | 'video' | 'unknown';

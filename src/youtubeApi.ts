@@ -86,6 +86,8 @@ export interface PlaylistVideoItem {
 	position: number;
 	/** YYYY-MM-DD the video was added to the playlist (may be empty). */
 	dateAdded: string;
+	/** YYYY-MM-DD the video was uploaded (contentDetails.videoPublishedAt, may be empty). */
+	published: string;
 	unavailable: boolean;
 }
 
@@ -448,6 +450,9 @@ export async function listPlaylistItems(
 			channelId: asString(snippet?.videoOwnerChannelId),
 			position: typeof snippet?.position === 'number' ? snippet.position : items.length,
 			dateAdded: asString(snippet?.publishedAt).slice(0, 10),
+			// The video's own upload date, as opposed to the added-on date above:
+			// both arrive in parts this call already requests.
+			published: asString(asRecord(item.contentDetails)?.videoPublishedAt).slice(0, 10),
 			unavailable: privacy === 'private' || placeholder,
 		});
 	}
@@ -459,14 +464,39 @@ export interface VideoMetadata {
 	ageRestricted: boolean;
 	/** Whole seconds; null for a missing or zero-length (P0D) duration. */
 	durationSeconds: number | null;
+	/** Effectively blocked in every country (see GLOBAL_BLOCK_MIN_COUNTRIES). */
+	blocked: boolean;
+	/** liveBroadcastContent is `live`. */
+	live: boolean;
+	/** liveBroadcastContent is `upcoming` (a premiere). */
+	upcoming: boolean;
 }
 
 /**
- * Age-restriction flag and duration for the given video ids (videos.list,
- * contentDetails). playlistItems does not carry either, so this is one extra
- * call per 50 new videos at 1 quota unit each. Every id in a chunk that
- * answered gets an entry (a missing id counts as not restricted and has no
- * duration); a failed chunk is collected as an error and leaves its ids
+ * Blocking lists at or above this many ISO 3166-1 codes count as global. The
+ * API does not know which country the user is in, so a three-country block
+ * says nothing useful; only a list this wide (roughly the world's countries)
+ * is treated as a fact about playback.
+ */
+export const GLOBAL_BLOCK_MIN_COUNTRIES = 200;
+
+/** Whether a contentDetails.regionRestriction means "blocked everywhere". */
+function isGloballyBlocked(details: Record<string, unknown> | null): boolean {
+	const region = asRecord(details?.regionRestriction);
+	if (!region) return false;
+	// An allowlist is the tighter signal: only these countries may play it.
+	if (Array.isArray(region.allowed)) return true;
+	const blocked = asArray(region.blocked);
+	return blocked !== null && blocked.length >= GLOBAL_BLOCK_MIN_COUNTRIES;
+}
+
+/**
+ * Age-restriction flag, duration, region block, and live/upcoming state for
+ * the given video ids (videos.list, snippet + contentDetails). playlistItems
+ * carries none of those beyond the upload date, so this is one extra call per
+ * 50 videos at 1 quota unit each. Every id in a chunk that answered gets an
+ * entry (a missing id counts as not restricted, unblocked, not live, and has
+ * no duration); a failed chunk is collected as an error and leaves its ids
  * unchecked for the next run.
  */
 export async function listVideoMetadata(
@@ -485,7 +515,7 @@ export async function listVideoMetadata(
 					resource: 'videos',
 					quotaUnits: 1,
 					params: {
-						part: 'contentDetails',
+						part: 'snippet,contentDetails',
 						id: chunk.join(','),
 						maxResults: String(STAT_CHUNK_SIZE),
 					},
@@ -494,7 +524,13 @@ export async function listVideoMetadata(
 				quota,
 			);
 			for (const id of chunk) {
-				videos.set(id, { ageRestricted: false, durationSeconds: null });
+				videos.set(id, {
+					ageRestricted: false,
+					durationSeconds: null,
+					blocked: false,
+					live: false,
+					upcoming: false,
+				});
 			}
 			const items = asArray(asRecord(json)?.items) ?? [];
 			for (const raw of items) {
@@ -502,10 +538,15 @@ export async function listVideoMetadata(
 				const id = asString(item?.id);
 				if (!id) continue;
 				const details = asRecord(item?.contentDetails);
+				const snippet = asRecord(item?.snippet);
 				const rating = asString(asRecord(details?.contentRating)?.ytRating);
+				const liveBroadcast = asString(snippet?.liveBroadcastContent);
 				videos.set(id, {
 					ageRestricted: rating === 'ytAgeRestricted',
 					durationSeconds: parseIsoDuration(asString(details?.duration)),
+					blocked: isGloballyBlocked(details),
+					live: liveBroadcast === 'live',
+					upcoming: liveBroadcast === 'upcoming',
 				});
 			}
 		} catch (err) {

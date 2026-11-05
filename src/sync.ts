@@ -519,6 +519,7 @@ function applyPlaylistDiff(
 			existing.channelTitle = item.channelTitle || existing.channelTitle;
 			existing.channelId = item.channelId || existing.channelId;
 			existing.dateAdded = item.dateAdded || existing.dateAdded;
+			existing.published = item.published || existing.published;
 			existing.position = item.position;
 			existing.removed = false;
 			existing.unavailable = item.unavailable;
@@ -529,6 +530,7 @@ function applyPlaylistDiff(
 				channelId: item.channelId,
 				firstSeen: today,
 				dateAdded: item.dateAdded,
+				published: item.published || undefined,
 				position: item.position,
 				removed: false,
 				unavailable: item.unavailable,
@@ -576,6 +578,11 @@ async function refreshVideoMetadata(
 			if (video.durationSeconds === undefined && meta.durationSeconds !== null) {
 				video.durationSeconds = meta.durationSeconds;
 			}
+			// The three facts this pass adds: overwritten every time the record
+			// is refetched, so a later sentinel bump can clear a stale answer.
+			video.blocked = meta.blocked;
+			video.live = meta.live;
+			video.upcoming = meta.upcoming;
 			video.metaVersion = VIDEO_META_VERSION;
 		}
 	}
@@ -906,6 +913,7 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 					ctx.paths.watchLater,
 					renderPlaylistNote(playlistId, record.title, record, ctx.now, watchLaterView, videoImages, journal, {
 						shorts: shortsOn,
+						fields: plugin.settings.videoFields,
 					}),
 				);
 			} else {
@@ -915,6 +923,7 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 					path,
 					renderPlaylistNote(playlistId, record.title, record, ctx.now, playlistView, videoImages, journal, {
 						shorts: shortsOn,
+						fields: plugin.settings.videoFields,
 					}),
 				);
 				const previous = ctx.previousFiles.get(playlistId);

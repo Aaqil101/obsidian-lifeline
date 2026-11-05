@@ -64,6 +64,10 @@ export default class LifelinePlugin extends Plugin {
 			...DEFAULT_SETTINGS.channelsFields,
 			...(loaded?.channelsFields ?? {}),
 		};
+		this.settings.videoFields = {
+			...DEFAULT_SETTINGS.videoFields,
+			...(loaded?.videoFields ?? {}),
+		};
 		this.settings.dashboardSections = {
 			...DEFAULT_SETTINGS.dashboardSections,
 			...(loaded?.dashboardSections ?? {}),

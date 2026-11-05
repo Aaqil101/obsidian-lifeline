@@ -78,7 +78,7 @@ The settings tab has five groups. Chevron rows open sub-pages.
 | Group | Rows |
 | --- | --- |
 | **Google account** | Connection status and **Authenticate with Google** / **Re-authenticate**. Sub-page **Google credentials**: OAuth client ID, OAuth client secret, and a **Security notes** button. |
-| **Notes** | **Output folder**, **Journal folder**, **Identify Shorts**, sub-page **Views in notes**, **Styles folder**, **Script folder**, sub-page **Channels.md fields**, sub-page **Dashboard**. |
+| **Notes** | **Output folder**, **Journal folder**, **Identify Shorts**, sub-page **Video bullet fields**, sub-page **Views in notes**, **Styles folder**, **Script folder**, sub-page **Channels.md fields**, sub-page **Dashboard**. |
 | **Images** | **Channel avatars and banners**, **Video thumbnails** (each Off, Link, or Download), **Blurred thumbnails**, and **Images folder** (shown only while one of the two modes is Download). |
 | **Playlists** | Sub-page **Playlists to track**, sub-page **Get saved playlist IDs**, and **Watch later playlist**. |
 | **Sync** | **Sync interval (hours)** (default 20), **Quota soft limit** (default 8000), and **Sync now**. |
@@ -176,6 +176,22 @@ There are three choices:
 
 The first sync that looks a video up raises one notice naming this setting, then never again. Changing the choice needs one sync to add or strip the fields. The fields are written whether or not **Views in notes** is on: the note carries the data, and the view only draws it.
 
+### Video bullet fields
+
+**Video bullet fields** (under **Notes**) adds optional facts to playlist and Watch Later bullets. All three are on by default, so a fresh install records them; turning one off strips its field on the next sync. An existing vault picks up the defaults on upgrade and rewrites its playlist notes once on the next sync:
+
+```markdown
+- [title:: [Video Title](https://www.youtube.com/watch?v=abc123)] [channel:: [Blender Guru](https://www.youtube.com/channel/UCxyz)] [date:: 2026-01-05] [published:: 2024-05-03] [blocked:: true]
+```
+
+- **Upload date** writes `published`, the video's own upload date (not the date it was added to the playlist). It is plain ISO text and never a journal link, because an upload date is almost always in the past. The views show it beside the channel: next to the channel name on Cinema cards and in Ticket rows, and as a **Published** column in Ledger.
+- **Region blocks** writes `blocked` only when the video is blocked effectively everywhere: an allowlist, or a block list covering at least 200 countries. YouTube does not say which country you are in, so a partial block writes nothing rather than a badge that means nothing.
+- **Live and upcoming** writes `live` for a running stream and `upcoming` for a premiere. Neither is classified as a Short, and neither carries a duration: a live video has no length yet.
+
+Duration and `short` are deliberately not part of this checklist. They follow **Identify Shorts**, and a second switch over the same fields would silently do nothing.
+
+The note views draw `blocked` as a red **Blocked** badge and `upcoming` as an amber **Upcoming** badge in Cinema, Ticket, and Ledger. The two differ in both colour and label. `live` is not drawn.
+
 ### Journal links
 
 **Journal folder** (under **Notes**, required) controls whether a bullet's date becomes a wikilink:
@@ -213,19 +229,19 @@ Each note type has its own layout row on the same sub-page: **Channels layout**,
 
 - **Poster** (default): cards.
   - Channels.md: *Ambient* cards show the channel banner as a blurred backdrop, with the avatar, name, and count chips over it.
-  - Playlist notes and Watch Later.md: *Cinema* cards show a 16:9 thumbnail with the date in a corner pill, and the title and channel over a gradient. A play button appears on hover. A video with no thumbnail shows the title's first letter.
+  - Playlist notes and Watch Later.md: *Cinema* cards show a 16:9 thumbnail with a labelled **Added** date pill in a corner, the upload date beside the channel name, and the title and channel over a gradient. A play button appears on hover. A video with no thumbnail shows the title's first letter.
 - **Chips:** one row per entry.
   - Channels.md: *Split* rows show the avatar and name on the left, and the counts and `subscribed since` date in a tinted pane on the right.
-  - Video lists: *Ticket* rows show the thumbnail, a two-line title, the channel and its avatar, and the date on a tear-off stub.
+  - Video lists: *Ticket* rows show the thumbnail, a two-line title, the channel and its avatar, the upload date, and the added date on a tear-off stub.
 - **Table:** a dense grid.
   - Channels.md: *Cover* rows show a cropped banner with the avatar over it, the handle, counts, and a Tracked column with subscribe, first seen, and last seen dates. The channel ID is shortened to a prefix, and hovering shows the full value.
-  - Video lists: *Ledger* rows show thumbnail, title, channel, and date added.
+  - Video lists: *Ledger* rows show thumbnail, title, channel, upload date, and date added.
 
 Layouts are saved per note type. Poster is the default everywhere. An old **Cards** or **Mixed** choice loads as Poster.
 
 Every view has a toolbar:
 
-- **Search** filters entries as you type. The field box beside it sets what it searches: all fields, or a single field such as name, handle, ID, country, or status for channels, and title, channel, or date for videos. The placeholder names the field. The count sits inside the search box. It shows `10 / 76` and expands to `Showing 10 of 76 channels` on hover.
+- **Search** filters entries as you type. The field box beside it sets what it searches: all fields, or a single field such as name, handle, ID, country, or status for channels, and title, channel, added date, or published date for videos. The placeholder names the field. The count sits inside the search box. It shows `10 / 76` and expands to `Showing 10 of 76 channels` on hover.
 - **Layout control** (Poster, Chips, Table) switches the view immediately, with no sync. It writes the same per-note-type setting as the Notes dropdowns, so every open view of that type follows it.
 - **Shorts control** (All, Videos, Shorts) appears in the video views once the note carries a `short` field. It filters the rows, the search count, and the paging immediately, and writes **Shorts in views** (under **Views in notes**) so the dashboard feed and every open video view follow with no sync. **All** is the default, so nothing is hidden until you choose otherwise. It stays hidden on Channels.md and on a note where **Identify Shorts** has not classified anything yet.
 - **Sort order** (under **Views in notes**) sets the order by date: **Newest first** (default) or **Oldest first**. Entries without a date go last. This setting is read at render time.

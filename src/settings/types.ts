@@ -13,6 +13,7 @@ import {
 	DEFAULT_CHANNELS_FIELDS,
 	DEFAULT_DASHBOARD_LIMITS,
 	DEFAULT_DASHBOARD_SECTIONS,
+	DEFAULT_VIDEO_FIELDS,
 	type ChannelsFieldSettings,
 	type DashboardLimits,
 	type DashboardSections,
@@ -20,6 +21,7 @@ import {
 	type PlaylistSummary,
 	type ShortsDetectionMode,
 	type ShortsFilter,
+	type VideoFieldSettings,
 } from '../types';
 
 /** Layout of one opt-in note view. The old `mixed` value is gone entirely,
@@ -226,6 +228,36 @@ export const FIELD_ROWS: FieldRow[] = [
 	},
 ];
 
+/** One row of the video-fields checklist (playlist and Watch Later bullets). */
+export interface VideoFieldRow {
+	key: keyof VideoFieldSettings;
+	name: string;
+	desc?: string;
+}
+
+/**
+ * Video-bullet checklist rows, in the order renderPlaylistNote writes them.
+ * Duration and Shorts are deliberately not members: they follow Identify
+ * Shorts, and a second switch over the same fields would do nothing.
+ */
+export const VIDEO_FIELD_ROWS: VideoFieldRow[] = [
+	{
+		key: 'published',
+		name: 'Upload date',
+		desc: 'Writes published, the video\'s own upload date, as plain ISO text. Never links into the journal, because an upload date is virtually always in the past. Duration and Shorts are not here: they follow Identify Shorts.',
+	},
+	{
+		key: 'blocked',
+		name: 'Region blocks',
+		desc: 'Writes blocked only when a video is blocked everywhere: an allowlist, or a block list covering at least 200 countries. A partial block says nothing about your own playback, so it writes nothing.',
+	},
+	{
+		key: 'live',
+		name: 'Live and upcoming',
+		desc: 'Writes live for a running stream or upcoming for a premiere. Neither is classified as a Short, since a live video has no length yet.',
+	},
+];
+
 /** Dashboard.md live-section checklist rows, in render order. */
 export const DASHBOARD_ROWS: Array<{ key: keyof DashboardSections; name: string; desc?: string }> = [
 	{ key: 'recent', name: 'New since last sync card' },
@@ -276,6 +308,10 @@ export interface LifelineSettings {
 	journalFolder: string;
 	/** Which fields render on each Channels.md entry (Manage sub-page). */
 	channelsFields: ChannelsFieldSettings;
+	/** Which optional non-duration facts playlist and Watch Later bullets
+	 *  carry (Video bullet fields sub-page). Duration and the Shorts flag are
+	 *  not here: they follow `shortsDetection`. */
+	videoFields: VideoFieldSettings;
 	/** Opt-in Dashboard.md note (requires the community Dataview plugin). */
 	dashboardNote: boolean;
 	/** Which live sections render on Dashboard.md (sub-page checklist). */
@@ -369,6 +405,7 @@ export const DEFAULT_SETTINGS: LifelineSettings = {
 	outputFolder: '',
 	journalFolder: '',
 	channelsFields: { ...DEFAULT_CHANNELS_FIELDS },
+	videoFields: { ...DEFAULT_VIDEO_FIELDS },
 	dashboardNote: false,
 	dashboardSections: { ...DEFAULT_DASHBOARD_SECTIONS },
 	dashboardHeroChannel: '',

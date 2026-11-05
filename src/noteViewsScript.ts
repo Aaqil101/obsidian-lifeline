@@ -938,6 +938,7 @@ const NOTE_VIEWS_CSS_VIDEO_CHIPS = `
 .lifeline-views .lv-chip--ticket .lv-meta--ticket {
     display: flex;
     align-items: center;
+    justify-content: flex-start;
     gap: 6px;
     min-width: 0;
 }
@@ -956,6 +957,12 @@ const NOTE_VIEWS_CSS_VIDEO_CHIPS = `
     height: 100%;
     object-fit: cover;
 }
+.lifeline-views .lv-ticket-who {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
 .lifeline-views .lv-ticket-chan {
     color: inherit;
     text-decoration: none;
@@ -966,6 +973,17 @@ const NOTE_VIEWS_CSS_VIDEO_CHIPS = `
 .lifeline-views .lv-ticket-chan:hover {
     color: var(--text-normal);
     text-decoration: underline;
+}
+.lifeline-views .lv-ticket-pub {
+    margin-left: 0 !important;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.lifeline-views .lv-ticket-pub::before {
+    content: "·";
+    margin-right: 6px;
+    color: var(--text-faint);
 }
 .lifeline-views .lv-ticket-stub {
     flex: 0 0 auto;
@@ -1136,18 +1154,40 @@ const NOTE_VIEWS_CSS_VIDEO_POSTER = `
 .lifeline-views .lv-poster-cinema:hover .lv-poster-banner img {
     transform: scale(1.045);
 }
-.lifeline-views .lv-cine-pill {
+.lifeline-views .lv-cine-dates {
     position: absolute;
     top: 10px;
     left: 10px;
     z-index: 4;
-    padding: 3px 9px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+}
+.lifeline-views .lv-cine-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
     border-radius: 999px;
-    background: rgba(0, 0, 0, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(0, 0, 0, 0.64);
     color: rgba(255, 255, 255, 0.92);
-    font-size: 0.68em;
-    font-variant-numeric: tabular-nums;
+    font-size: 0.7em;
+    line-height: 1.5;
+    white-space: nowrap;
     backdrop-filter: blur(6px);
+}
+.lifeline-views .lv-cine-pill-label {
+    color: rgba(255, 255, 255, 0.58);
+    font-size: 0.86em;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+.lifeline-views .lv-cine-date {
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
 }
 .lifeline-views a.lv-cine-pill:hover {
     color: #ffffff;
@@ -1240,6 +1280,17 @@ const NOTE_VIEWS_CSS_VIDEO_POSTER = `
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+.lifeline-views .lv-cine-pub {
+    flex: 0 0 auto;
+    color: rgba(255, 255, 255, 0.6);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.lifeline-views .lv-cine-pub::before {
+    content: "·";
+    margin-right: 6px;
+    color: rgba(255, 255, 255, 0.5);
+}
 .lifeline-views .lv-cine-badge {
     display: inline-flex;
     align-items: center;
@@ -1294,13 +1345,76 @@ const NOTE_VIEWS_CSS_VIDEO_POSTER = `
 }
 `;
 
+/** Playability badges shared by the three video layouts: blocked is a red
+ *  warning, upcoming an amber notice, and each carries a text label too, so
+ *  the two never rely on colour alone. Chips and Ledger draw them inline;
+ *  Cinema hangs them in the corner opposite the date pill. */
+const NOTE_VIEWS_CSS_VIDEO_BADGES = `
+.lifeline-views .lv-video-badge {
+    display: inline-flex;
+    align-items: center;
+    flex: 0 0 auto;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 0.66em;
+    font-weight: 650;
+    line-height: 1.55;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+.lifeline-views .lv-video-badge--blocked {
+    border: 1px solid rgba(220, 38, 38, 0.42);
+    background: rgba(220, 38, 38, 0.14);
+    color: #e5484d;
+}
+.lifeline-views .lv-video-badge--upcoming {
+    border: 1px solid rgba(245, 158, 11, 0.44);
+    background: rgba(245, 158, 11, 0.16);
+    color: #d97706;
+}
+.lifeline-views .lv-cine-flags {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 4;
+    display: flex;
+    gap: 6px;
+}
+.lifeline-views .lv-cine-flags .lv-video-badge {
+    border-color: transparent;
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(6px);
+}
+.lifeline-views .lv-cine-flags .lv-video-badge--blocked {
+    color: #ff9a9d;
+}
+.lifeline-views .lv-cine-flags .lv-video-badge--upcoming {
+    color: #f5c26b;
+}
+.lifeline-views .lv-ledger-flags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+`;
+
 /** One stylesheet per note kind: each script bakes its own file's path and
  *  reads it at view time. Every kind offers Poster, Chips, and Table, so each
  *  sheet carries the three designs for its own note shape and nothing else. */
 export const NOTE_VIEWS_CSS_BY_KIND: Record<NoteViewKind, string> = {
 	channels: NOTE_VIEWS_CSS_SHARED + NOTE_VIEWS_CSS_CHANNELS_CHIPS + NOTE_VIEWS_CSS_CHANNELS_TABLE + NOTE_VIEWS_CSS_CHANNELS_POSTER,
-	playlists: NOTE_VIEWS_CSS_SHARED + NOTE_VIEWS_CSS_VIDEO_CHIPS + NOTE_VIEWS_CSS_VIDEO_TABLE + NOTE_VIEWS_CSS_VIDEO_POSTER,
-	watchlater: NOTE_VIEWS_CSS_SHARED + NOTE_VIEWS_CSS_VIDEO_CHIPS + NOTE_VIEWS_CSS_VIDEO_TABLE + NOTE_VIEWS_CSS_VIDEO_POSTER,
+	playlists:
+		NOTE_VIEWS_CSS_SHARED +
+		NOTE_VIEWS_CSS_VIDEO_CHIPS +
+		NOTE_VIEWS_CSS_VIDEO_TABLE +
+		NOTE_VIEWS_CSS_VIDEO_POSTER +
+		NOTE_VIEWS_CSS_VIDEO_BADGES,
+	watchlater:
+		NOTE_VIEWS_CSS_SHARED +
+		NOTE_VIEWS_CSS_VIDEO_CHIPS +
+		NOTE_VIEWS_CSS_VIDEO_TABLE +
+		NOTE_VIEWS_CSS_VIDEO_POSTER +
+		NOTE_VIEWS_CSS_VIDEO_BADGES,
 };
 
 /**
@@ -1670,6 +1784,35 @@ const channelBadge = (channel, item) => {
   return node;
 };
 
+// Playability badges. sync writes blocked and upcoming only when the fact
+// holds, but Dataview can hand a hand-edited value back as the string "true",
+// so both spellings count. Blocked and upcoming read differently on purpose
+// (red warning vs amber notice); live intentionally has no badge.
+const flagTrue = (value) => value === true || String(value).toLowerCase() === "true";
+const statusBadges = (item) => {
+  const badges = [];
+  if (item && flagTrue(item.blocked)) badges.push(el("span", "lv-video-badge lv-video-badge--blocked", "Blocked"));
+  if (item && flagTrue(item.upcoming)) badges.push(el("span", "lv-video-badge lv-video-badge--upcoming", "Upcoming"));
+  return badges;
+};
+
+// One small corner pill for a video date, with its own label so the two dates
+// on a Cinema card are never mistaken for each other. A date the bullet wrote
+// as a wiki link stays clickable; the published date is plain text, so it gets
+// no target and renders as a span.
+const cineDatePill = (label, text, target, cls) => {
+  const pill = document.createElement(target ? "a" : "span");
+  pill.className = "lv-cine-pill " + cls;
+  if (target) {
+    pill.classList.add("internal-link");
+    pill.setAttribute("href", target);
+    pill.setAttribute("data-href", target);
+  }
+  pill.appendChild(el("span", "lv-cine-pill-label", label));
+  pill.appendChild(el("span", "lv-cine-date", text));
+  return pill;
+};
+
 const playGlyph = () => {
   const svgNS = "http://www.w3.org/2000/svg";
   const icon = document.createElementNS(svgNS, "svg");
@@ -1707,8 +1850,21 @@ const posterCard = (item) => {
   }
   banner.appendChild(el("span", "lv-cine-fallback", link.label.charAt(0).toUpperCase()));
 
-  const date = item.date == null || item.date === "" ? "" : fmtDate(item.date);
-  if (date && date !== "-") banner.appendChild(datePart(item.date, "lv-cine-pill"));
+  const added = item.date == null || item.date === "" ? "" : fmtDate(item.date);
+  const published = item.published == null || item.published === "" ? "" : fmtDate(item.published);
+  if (added && added !== "-") {
+    const dates = el("div", "lv-cine-dates");
+    dates.appendChild(cineDatePill("Added", added, dateTarget(item.date), "lv-cine-pill--added"));
+    banner.appendChild(dates);
+  }
+
+  // Playability flags ride the opposite corner from the date pill.
+  const flags = statusBadges(item);
+  if (flags.length > 0) {
+    const flagRow = el("div", "lv-cine-flags");
+    for (const badge of flags) flagRow.appendChild(badge);
+    banner.appendChild(flagRow);
+  }
 
   if (link.href) {
     // A button, not an anchor: no link tooltip over the art. The accessible
@@ -1727,10 +1883,15 @@ const posterCard = (item) => {
 
   const veil = el("div", "lv-cine-veil");
   veil.appendChild(linkNode(link.label, link.href, "lv-cine-title"));
-  if (channel.label) {
+  if (channel.label || (published && published !== "-")) {
     const meta = el("div", "lv-cine-meta");
-    meta.appendChild(channelBadge(channel, item));
-    meta.appendChild(linkNode(channel.label, channel.href, "lv-cine-channel"));
+    if (channel.label) {
+      meta.appendChild(channelBadge(channel, item));
+      meta.appendChild(linkNode(channel.label, channel.href, "lv-cine-channel"));
+    }
+    if (published && published !== "-") {
+      meta.appendChild(el("span", "lv-cine-pub", "Published " + published));
+    }
     veil.appendChild(meta);
   }
   banner.appendChild(veil);
@@ -1770,7 +1931,16 @@ const chipRow = (item) => {
     ring.appendChild(img);
     meta.appendChild(ring);
   }
-  if (channel.label) meta.appendChild(linkNode(channel.label, channel.href, "lv-ticket-chan"));
+  // The channel and the upload date are one flex item, so a layout rule can
+  // never open a gap between them (a stretched meta used to do exactly that).
+  const who = el("span", "lv-ticket-who");
+  if (channel.label) who.appendChild(linkNode(channel.label, channel.href, "lv-ticket-chan"));
+  const published = item.published == null || item.published === "" ? "" : fmtDate(item.published);
+  if (published && published !== "-") {
+    who.appendChild(el("span", "lv-ticket-pub", "Published " + published));
+  }
+  if (who.childElementCount) meta.appendChild(who);
+  for (const badge of statusBadges(item)) meta.appendChild(badge);
   if (meta.childElementCount) body.appendChild(meta);
   main.appendChild(body);
   row.appendChild(main);
@@ -1804,6 +1974,7 @@ const renderTableRows = (host, items, onPaint) => {
   const head = document.createElement("tr");
   head.appendChild(el("th", "", "Video"));
   head.appendChild(el("th", "", "Channel"));
+  head.appendChild(el("th", "lv-r", "Published"));
   head.appendChild(el("th", "lv-r", "Added"));
   thead.appendChild(head);
   table.appendChild(thead);
@@ -1830,6 +2001,12 @@ const renderTableRows = (host, items, onPaint) => {
     }
     const stack = el("div", "lv-ledger-stack");
     stack.appendChild(linkNode(title.label || "-", title.href, "lv-ledger-title"));
+    const flags = statusBadges(item);
+    if (flags.length > 0) {
+      const flagRow = el("div", "lv-ledger-flags");
+      for (const badge of flags) flagRow.appendChild(badge);
+      stack.appendChild(flagRow);
+    }
     who.appendChild(stack);
     first.appendChild(who);
     row.appendChild(first);
@@ -1837,6 +2014,13 @@ const renderTableRows = (host, items, onPaint) => {
     if (channel.label) chan.appendChild(linkNode(channel.label, channel.href, "lv-ledger-chan"));
     else chan.appendChild(el("span", "lv-ledger-date", "-"));
     row.appendChild(chan);
+    const published = el("td", "lv-r");
+    published.appendChild(
+      item.published == null || item.published === ""
+        ? el("span", "lv-ledger-date", "-")
+        : datePart(item.published, "lv-ledger-date"),
+    );
+    row.appendChild(published);
     const added = el("td", "lv-r");
     added.appendChild(datePart(item.date, "lv-ledger-date"));
     row.appendChild(added);
@@ -2421,6 +2605,7 @@ const scopesFor = (item) => {
     ["title", mdLink(item.title).label],
     ["channel", mdLink(item.channel).label],
     ["date", item.date == null ? "" : fmtDate(item.date)],
+    ["published", item.published == null ? "" : fmtDate(item.published)],
   ];
 };
 
@@ -2495,7 +2680,7 @@ scope.className = "lv-select";
 scope.setAttribute("aria-label", "Search in");
 const scopeOptions = section === "channels"
   ? [["all", "All fields"], ["name", "Name"], ["handle", "Handle"], ["id", "ID"], ["country", "Country"], ["status", "Status"]]
-  : [["all", "All fields"], ["title", "Title"], ["channel", "Channel"], ["date", "Date"]];
+  : [["all", "All fields"], ["title", "Title"], ["channel", "Channel"], ["date", "Added"], ["published", "Published"]];
 for (const option of scopeOptions) {
   const opt = document.createElement("option");
   opt.value = option[0];

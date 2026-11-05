@@ -144,6 +144,30 @@ export const DEFAULT_CHANNELS_FIELDS: ChannelsFieldSettings = {
 	banner: true,
 };
 
+/**
+ * Which optional non-duration facts a playlist and Watch Later bullet carries.
+ * All three default on: these are backup facts, and the upload date in
+ * particular is unrecoverable once a video is deleted, so a default install
+ * records them. Turning one off strips its field on the next sync. Duration
+ * and the Shorts flag are deliberately absent: they follow the Identify Shorts
+ * choice (see `shortsDetection`), and a second switch over the same fields
+ * would silently do nothing.
+ */
+export interface VideoFieldSettings {
+	/** `published`, the video's own upload date (contentDetails.videoPublishedAt). */
+	published: boolean;
+	/** `blocked`, true only when distribution is effectively blocked everywhere. */
+	blocked: boolean;
+	/** `live` and `upcoming` from liveBroadcastContent. */
+	live: boolean;
+}
+
+export const DEFAULT_VIDEO_FIELDS: VideoFieldSettings = {
+	published: true,
+	blocked: true,
+	live: true,
+};
+
 /** Which optional sections render on Dashboard.md (settings checklist). */
 export interface DashboardSections {
 	recent: boolean;
@@ -204,6 +228,17 @@ export interface VideoRecord {
 	unavailable: boolean;
 	/** YouTube's age-restriction flag (videos.list contentRating); absent until checked. */
 	ageRestricted?: boolean;
+	/** Upload date from contentDetails.videoPublishedAt (YYYY-MM-DD); absent until
+	 *  the playlist is refetched. Written as plain ISO text, never a journal link. */
+	published?: string;
+	/** True when regionRestriction means the video is effectively blocked
+	 *  everywhere (an allowlist, or a blocking list at or above
+	 *  GLOBAL_BLOCK_MIN_COUNTRIES). A partial block list writes nothing. */
+	blocked?: boolean;
+	/** liveBroadcastContent is `live`; absent until the metadata pass runs. */
+	live?: boolean;
+	/** liveBroadcastContent is `upcoming` (a premiere); absent until fetched. */
+	upcoming?: boolean;
 	/** Whole seconds from contentDetails.duration; absent until fetched, and for
 	 *  a live or upcoming video (P0D) that has no length yet. */
 	durationSeconds?: number;
