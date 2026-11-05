@@ -1123,6 +1123,20 @@ const liveShortsFilter = () => {
   const value = plugin && plugin.settings ? plugin.settings.shortsFilter : null;
   return value === "hide" || value === "only" ? value : "all";
 };
+
+// The two blur sources, read live beside the Shorts filter. The bullet's own
+// sensitive field says whether it is tagged; these decide whether that tag
+// turns into a blur, so an age-restricted video can stay tagged and unblurred.
+const liveBlurAgeRestricted = () => {
+  const plugin = pluginInstance();
+  const value = plugin && plugin.settings ? plugin.settings.blurAgeRestricted : null;
+  return value !== false;
+};
+const liveBlurredVideoIds = () => {
+  const plugin = pluginInstance();
+  const value = plugin && plugin.settings ? plugin.settings.blurredThumbnailVideos : null;
+  return Array.isArray(value) ? value : [];
+};
 const isShort = (item) => {
   const value = item ? item.short : null;
   return value === true || String(value).toLowerCase() === "true";
@@ -1158,10 +1172,22 @@ const add = (parent, tag, cls, text) => {
 };
 // A video tagged [sensitive:: true] is drawn blurred here. No reveal on click:
 // the cover is the whole card's click target, so a click opens the playlist
-// (the note views reveal it).
+// (the note views reveal it). The tag alone does not blur: Blur age-restricted
+// videos off leaves only the manual list blurred, and the tag stays on the
+// bullet either way.
 const isSensitive = (item) => {
   const flag = item ? item.sensitive : null;
   return flag === true || String(flag).toLowerCase() === "true";
+};
+const videoIdOf = (item) => {
+  const href = item ? linkParts(item.title).href : "";
+  const found = /(?:[?&]v=|youtu\\.be\\/|\\/shorts\\/|\\/embed\\/|\\/live\\/)([\\w-]{11})/.exec(href);
+  return found ? found[1] : "";
+};
+const shouldBlur = (item) => {
+  if (!isSensitive(item)) return false;
+  if (liveBlurAgeRestricted()) return true;
+  return liveBlurredVideoIds().indexOf(videoIdOf(item)) >= 0;
 };
 const imgInto = (parent, src, alt, item) => {
   const img = document.createElement("img");
@@ -1169,7 +1195,7 @@ const imgInto = (parent, src, alt, item) => {
   img.alt = alt || "";
   img.loading = "lazy";
   img.addEventListener("error", () => img.remove());
-  if (isSensitive(item)) img.style.filter = "blur(18px)";
+  if (shouldBlur(item)) img.style.filter = "blur(18px)";
   parent.appendChild(img);
   return img;
 };

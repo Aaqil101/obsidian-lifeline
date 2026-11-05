@@ -155,7 +155,7 @@ Each video is a single list item with Dataview inline fields:
 - Every playlist note, Watch Later included, has a `url` frontmatter field that opens the playlist on YouTube.
 - `saved: true` in frontmatter means the playlist was saved from another channel. `saved: false` means you created it. The owner channel decides the label, not the import path, so a playlist collected from the same page can still read `saved: false`.
 - Only watchable videos get a bullet. Private, deleted, and removed videos stay in `state.json`, so the backup keeps them. The frontmatter reports them as `unavailable_count` and `removed_count`. Both are always present, so `video_count - unavailable_count - removed_count` gives the number of bullets. A video that is both removed and unavailable counts once, under `removed`.
-- Age-restricted videos are blurred automatically, and any videos you list under **Blurred thumbnails** are blurred too. A blurred video's bullet carries `[sensitive:: true]`.
+- Age-restricted videos are blurred automatically by default, and any videos you list under **Blurred thumbnails** are blurred too. A video that is blurred for either reason carries `[sensitive:: true]`. Turning off **Blur age-restricted videos** keeps that field on age-restricted bullets but leaves them unblurred.
 
 ### Shorts
 
@@ -281,7 +281,7 @@ Where Download saves files:
 
 A first sync with Download fetches images a few at a time, before it writes the notes. If the connection drops partway, Lifeline stops downloading, logs one warning, and still writes the notes. A failed image keeps its remote `*_url` field as a fallback. It drops to no picture only when there is no URL either, so one bad image affects one bullet.
 
-**Video thumbnails** can also be blurred per video. Under **Images → Blurred thumbnails**, paste video links or IDs separated by spaces, commas, or new lines. Each blurred thumbnail is revealed with a click. The dashboard never reveals them.
+**Video thumbnails** can also be blurred per video. Under **Images → Blurred thumbnails**, paste video links or IDs separated by spaces, commas, or new lines. Each blurred thumbnail is revealed with a click. The dashboard never reveals them. Age-restricted videos blur by default; **Blur age-restricted videos** turns that off while keeping their `[sensitive:: true]` field, so then only the videos in the list blur.
 
 Image downloads cost no API quota. Thumbnail URLs are built from the video ID. The avatar and banner URLs come from the channel statistics call described under [Quota](#quota).
 

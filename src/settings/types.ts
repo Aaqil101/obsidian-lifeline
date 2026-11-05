@@ -378,6 +378,11 @@ export interface LifelineSettings {
 	/** Video ids whose thumbnail is drawn blurred until clicked, on top of the
 	 *  age-restricted ones YouTube flags. */
 	blurredThumbnailVideos: string[];
+	/** Blur the age-restricted videos YouTube flags as well as the manual list.
+	 *  Off leaves only `blurredThumbnailVideos` blurred; the `sensitive` field is
+	 *  still written on age-restricted bullets either way. Read live by the
+	 *  generated scripts, so changing it needs no sync. */
+	blurAgeRestricted: boolean;
 	/** Parent folder for downloaded images; '' = keep them beside the notes.
 	 *  Thumbnails land in `<parent>/thumbnails/<playlist>/`, avatars in `<parent>/avatars/`, banners in `<parent>/banners/`. */
 	imagesFolder: string;
@@ -424,6 +429,7 @@ export const DEFAULT_SETTINGS: LifelineSettings = {
 	channelAvatars: 'off',
 	videoThumbnails: 'off',
 	blurredThumbnailVideos: [],
+	blurAgeRestricted: true,
 	imagesFolder: '',
 	trackedPlaylists: null,
 	importedPlaylistIds: [],

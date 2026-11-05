@@ -2298,12 +2298,27 @@ const mdBanner = (item) => {
   return null;
 };
 
+// The id out of the title's watch link, so the age-restriction toggle and the
+// manual list can be told apart at render time. A hand-edited or legacy bullet
+// with no link yields "", which falls back to the age-restriction rule.
+const videoIdOf = (item) => {
+  const href = item ? mdLink(item.title).href : "";
+  const found = /(?:[?&]v=|youtu\\.be\\/|\\/shorts\\/|\\/embed\\/|\\/live\\/)([\\w-]{11})/.exec(href);
+  return found ? found[1] : "";
+};
+
 // A video tagged [sensitive:: true] keeps its picture but draws it blurred
 // until clicked, so a shared screen never shows it by accident. Clicking
-// toggles the blur and never follows the entry's link.
-const softened = (item, img) => {
+// toggles the blur and never follows the entry's link. The tag is metadata:
+// with Blur age-restricted videos off, an age-restricted bullet keeps the
+// field but only a video in the manual list is actually drawn blurred.
+const sensitiveFlag = (item) => {
   const flag = item ? item.sensitive : null;
-  if (flag !== true && String(flag).toLowerCase() !== "true") return;
+  return flag === true || String(flag).toLowerCase() === "true";
+};
+const softened = (item, img) => {
+  if (!sensitiveFlag(item)) return;
+  if (!liveBlurAgeRestricted() && liveBlurredVideoIds().indexOf(videoIdOf(item)) < 0) return;
   img.style.filter = "blur(18px)";
   img.style.cursor = "pointer";
   img.title = "Click to reveal";
@@ -2467,6 +2482,20 @@ const liveShortsFilter = () => {
   const plugin = pluginInstance();
   const value = plugin && plugin.settings ? plugin.settings.shortsFilter : null;
   return value === "hide" || value === "only" ? value : "all";
+};
+
+// The two blur sources, read live for the same reason: the toggle only decides
+// whether an age-restricted bullet's tag turns into a blur, and the manual list
+// always does. The bullet's own sensitive field says whether it is tagged.
+const liveBlurAgeRestricted = () => {
+  const plugin = pluginInstance();
+  const value = plugin && plugin.settings ? plugin.settings.blurAgeRestricted : null;
+  return value !== false;
+};
+const liveBlurredVideoIds = () => {
+  const plugin = pluginInstance();
+  const value = plugin && plugin.settings ? plugin.settings.blurredThumbnailVideos : null;
+  return Array.isArray(value) ? value : [];
 };
 
 // The toolbar control writes the same setting the Views in notes page edits, so

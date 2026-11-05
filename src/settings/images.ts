@@ -47,7 +47,7 @@ export function imagesGroup(host: SettingsHost): SettingDefinitionGroup {
 
 	const blurred = renderRow(
 		'Blurred thumbnails',
-		'Videos whose thumbnail is shown blurred until you click it. Paste video links or IDs, separated by spaces, commas, or new lines. Age-restricted videos are blurred automatically.',
+		'Videos whose thumbnail is shown blurred until you click it. Paste video links or IDs, separated by spaces, commas, or new lines. These videos blur whether or not age-restricted videos do.',
 		(setting) => {
 			setting.addTextArea((text) => {
 				text.setValue(settings.blurredThumbnailVideos.join('\n'));
@@ -59,6 +59,19 @@ export function imagesGroup(host: SettingsHost): SettingDefinitionGroup {
 					void plugin.saveSettings();
 				});
 			});
+		},
+	);
+
+	const autoBlur = renderRow(
+		'Blur age-restricted videos',
+		'Also blur thumbnails YouTube marks as age-restricted. Turn this off to blur only the videos listed above. Age-restricted bullets still carry sensitive:: true either way.',
+		(setting) => {
+			setting.addToggle((toggle) =>
+				toggle.setValue(settings.blurAgeRestricted).onChange(async (on) => {
+					settings.blurAgeRestricted = on;
+					await plugin.saveSettings();
+				}),
+			);
 		},
 	);
 
@@ -85,7 +98,7 @@ export function imagesGroup(host: SettingsHost): SettingDefinitionGroup {
 	return {
 		type: 'group',
 		heading: 'Images',
-		items: [avatars, thumbnails, blurred, folder],
+		items: [avatars, thumbnails, blurred, autoBlur, folder],
 	};
 }
 
