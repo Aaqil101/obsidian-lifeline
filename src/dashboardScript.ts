@@ -350,6 +350,19 @@ export const DASHBOARD_CSS = `/* Glass cockpit: a banner mosaic hero, KPI chips,
 .lifeline-dash .lifeline-sub-link:hover {
   color: var(--text-normal);
 }
+/* A Shorts row keeps a small tag in the meta line, so the feed can show
+   everything and still tell the two apart. */
+.lifeline-dash .lifeline-feed-tag {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  font-size: 0.92em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  vertical-align: 1px;
+}
 
 /* Attention stack: the dot pulses while something is hidden. */
 .lifeline-dash .lifeline-attn-head {
@@ -1100,6 +1113,21 @@ const liveHeroFocus = () => {
   return focus ? { x: 50, y: axis(focus.y) } : { x: 50, y: 50 };
 };
 
+// Shorts in views is one live setting shared with the video note views, so the
+// feed follows the same knob without a sync. Anything but hide/only is
+// everything. A bullet carries short:: true only when the sync classified it,
+// which is also how this tells a feed with no classified rows from one that
+// should be filtered.
+const liveShortsFilter = () => {
+  const plugin = pluginInstance();
+  const value = plugin && plugin.settings ? plugin.settings.shortsFilter : null;
+  return value === "hide" || value === "only" ? value : "all";
+};
+const isShort = (item) => {
+  const value = item ? item.short : null;
+  return value === true || String(value).toLowerCase() === "true";
+};
+
 // Everything the three sections read is gathered once: the deduplicated
 // playlist notes, the Channels.md page, and its rows sorted by subscribers.
 const ALL = toArr(dv.pages(SRC).array());
@@ -1317,6 +1345,12 @@ const feedPanel = (host, fresh, since) => {
     linkInto(meta, channel.label, channel.href, "lifeline-sub-link");
     add(meta, "span", "", " · ");
     internalLink(meta, f.playlist, f.path, "lifeline-sub-link");
+    // A Short row is tagged even while the feed shows everything, so the two
+    // kinds stay distinguishable at a glance.
+    if (isShort(f.item)) {
+      add(meta, "span", "", " · ");
+      add(meta, "span", "lifeline-feed-tag", "Shorts");
+    }
   }
   if (fresh.length > rows.length) {
     add(body, "div", "lifeline-more", "+" + (fresh.length - rows.length) + " more");
@@ -1540,6 +1574,16 @@ function sectionHeader() {
   }
   fresh.sort((a, b) => b.date.localeCompare(a.date));
 
+  // Shorts in views covers the feed and the chip that counts it, so the chip
+  // never promises more rows than the panel draws. New playlist rows are never
+  // filtered (a new playlist is not a Short), and a feed whose bullets carry no
+  // short field draws exactly as it did before Identify Shorts existed.
+  const shortsFilter = liveShortsFilter();
+  const hasShortFields = fresh.some((f) => f.item != null && f.item.short != null);
+  const feed = hasShortFields && shortsFilter !== "all"
+    ? fresh.filter((f) => f.kind === "playlist" || (shortsFilter === "only" ? isShort(f.item) : !isShort(f.item)))
+    : fresh;
+
   const titleRow = add(hero, "div", "lifeline-hero-title-row");
   add(titleRow, "h1", "lifeline-hero-title", "YouTube dashboard");
   add(titleRow, "span", "lifeline-badge " + badge[0], badge[1]);
@@ -1562,13 +1606,13 @@ function sectionHeader() {
     { label: "Playlists", value: PAGES.length, click: scrollToPlaylists },
     { label: "Videos", value: videos, click: scrollToPlaylists },
   ];
-  if (since) chips.push({ label: "New since sync", value: fresh.length, click: null });
+  if (since) chips.push({ label: "New since sync", value: feed.length, click: null });
   kpiChips(hero, chips);
 
   // The delta and the attention queue side by side, gated exactly as before.
   if ((input.recent && since) || input.attention) {
     const panels = add(wrap, "div", "lifeline-panels");
-    if (input.recent && since) feedPanel(panels, fresh, since);
+    if (input.recent && since) feedPanel(panels, feed, since);
     if (input.attention) {
       const attention = [];
       for (const page of PAGES) {

@@ -414,7 +414,16 @@ export function renderChannelsNote(
  * supersedes the old unconditional `[[date]]`, so a date whose note has not
  * been journalled stops linking until it is (or until the next sync after
  * the note appears), keeping every note type under one rule.
+ *
+ * `options.shorts` is the Identify Shorts gate: while true, a video with a
+ * known duration gets `[duration:: N]` (whole seconds, so Dataview sorts it as
+ * a number) and, when it is a Short, `[short:: true]`. Off (or omitted)
+ * writes neither, which is the byte-identical path.
  */
+export interface PlaylistNoteOptions {
+	shorts?: boolean;
+}
+
 export function renderPlaylistNote(
 	playlistId: string,
 	title: string,
@@ -423,6 +432,7 @@ export function renderPlaylistNote(
 	viewBlock?: string,
 	images?: BulletImages,
 	journal?: JournalDates,
+	options?: PlaylistNoteOptions,
 ): string {
 	const entries = Object.entries(record.videos);
 	let unavailableCount = 0;
@@ -459,6 +469,14 @@ export function renderPlaylistNote(
 			: labelText(video.channelTitle || 'unknown channel');
 		const parts = [`[title:: [${labelText(video.title)}](${watchUrl})]`, `[channel:: ${channelValue}]`];
 		if (video.dateAdded) parts.push(`[date:: ${journalDate(video.dateAdded, journal)}]`);
+		// Shorts fields, written only while Identify Shorts is anything but Off.
+		// Duration stays absent for a live or upcoming video (P0D), and a video
+		// the classifier could not place carries no `short` field at all rather
+		// than a guess.
+		if (options?.shorts) {
+			if (typeof video.durationSeconds === 'number') parts.push(`[duration:: ${video.durationSeconds}]`);
+			if (video.short === true) parts.push('[short:: true]');
+		}
 		const imageParts = bulletImageFields(
 			images,
 			videoImageBase(video.channelTitle, video.title, videoId),

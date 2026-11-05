@@ -50,6 +50,13 @@ export interface SyncRunResult {
 	 * on, so those runs carry no meaningless zero.
 	 */
 	imagesDownloaded?: number;
+	/**
+	 * Watch pages fetched this run to tell Shorts from regular videos, recorded
+	 * only while Identify Shorts is on Confirm with YouTube. A 0 makes the
+	 * cache visible: every candidate was already classified. Absent for the
+	 * duration-only choice and Off, which make no request at all.
+	 */
+	shortsProbed?: number;
 	quotaUnits: number;
 	quotaSoftWarn: boolean;
 	errors: SyncErrorRecord[];
@@ -173,6 +180,15 @@ export interface DashboardLimits {
 	channels: number;
 }
 
+/** How Identify Shorts classifies videos. `confirm` reads the watch page;
+ *  `duration180` skips the request and classifies by the ceiling instead;
+ *  `off` writes no fields and strips them on the next sync. */
+export type ShortsDetectionMode = 'confirm' | 'duration180' | 'off';
+
+/** How the video views and the dashboard feed treat Shorts. Read live at
+ *  render time, so changing it needs no sync. */
+export type ShortsFilter = 'all' | 'hide' | 'only';
+
 export interface VideoRecord {
 	title: string;
 	channelTitle: string;
@@ -188,6 +204,16 @@ export interface VideoRecord {
 	unavailable: boolean;
 	/** YouTube's age-restriction flag (videos.list contentRating); absent until checked. */
 	ageRestricted?: boolean;
+	/** Whole seconds from contentDetails.duration; absent until fetched, and for
+	 *  a live or upcoming video (P0D) that has no length yet. */
+	durationSeconds?: number;
+	/** True for a Short, false for a regular video. Absent means unclassified,
+	 *  so it is retried on a later sync rather than guessed. */
+	short?: boolean;
+	/** Version of the videos.list metadata this record has (see
+	 *  VIDEO_META_VERSION). Absent means never fetched, which is what makes an
+	 *  upgraded state.json refill once instead of forever. */
+	metaVersion?: number;
 }
 
 /**

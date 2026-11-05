@@ -57,21 +57,31 @@ import {
 	listPlaylistsByIds,
 	listPlaylistItems,
 	listSubscriptions,
-	listVideoAgeRatings,
+	listVideoMetadata,
 	QuotaTracker,
 	type ChannelItem,
 	type PlaylistVideoItem,
 } from './youtubeApi';
+import {
+	SHORTS_PROBE_LIMIT,
+	VIDEO_META_VERSION,
+	probeGapMs,
+	probeShorts,
+	withinShortsCeiling,
+	type ShortsVerdict,
+} from './shorts';
 import {
 	asSyncError,
 	SyncError,
 	type ChannelFace,
 	type PlaylistRecord,
 	type PlaylistSummary,
+	type ShortsDetectionMode,
 	type SyncErrorRecord,
 	type SyncRunResult,
 	type SyncState,
 	type SyncStatus,
+	type VideoRecord,
 } from './types';
 import type { LifelineSettings } from './settings/types';
 import type LifelinePlugin from './main';
@@ -163,6 +173,13 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 	const downloadsOn =
 		plugin.settings.channelAvatars === 'download' || plugin.settings.videoThumbnails === 'download';
 	let imagesDownloaded: number | undefined;
+	// Watch pages fetched this run to identify Shorts. Mirrors imagesDownloaded:
+	// recorded only on the Confirm with YouTube choice, where 0 is meaningful
+	// (every candidate was already classified), so the duration-only choice and
+	// Off log no meaningless zero.
+	const shortsDetection = plugin.settings.shortsDetection;
+	const shortsProbeRun = shortsDetection === 'confirm';
+	let shortsProbed: number | undefined;
 
 	// Pre-flight: without a token nothing below can work; the run is still logged.
 	try {
@@ -316,10 +333,33 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 		// only the missing avatars are fetched, and only while images are on.
 		await collectChannelFaces(plugin, state, trackedIds, quota, errors);
 
-		// Ratings only matter for thumbnails, so the extra call is skipped
-		// while the video thumbnail setting is off.
-		if (plugin.settings.videoThumbnails !== 'off') {
-			await rateNewVideos(plugin, state, targets.map((target) => target.id), quota, errors);
+		// Age rating and duration arrive in the same videos.list call. Ratings
+		// only matter for thumbnails, but duration also decides Shorts, so the
+		// extra call runs while either is wanted.
+		const wantsMetadata = plugin.settings.videoThumbnails !== 'off' || shortsDetection !== 'off';
+		if (wantsMetadata) {
+			await refreshVideoMetadata(plugin, state, targets.map((target) => target.id), quota, errors);
+		}
+
+		// Identify Shorts: the duration-only choice answers from the cached
+		// duration, Confirm with YouTube probes the candidates it cannot answer,
+		// capped per run. Off writes nothing, and the renderer's gate hides any
+		// cached field.
+		// Each probe's answer is written onto the record and checkpointed to
+		// state.json as it arrives, so a run killed mid-queue keeps what it paid
+		// for. saveState() already swallows and logs its own failure, so a failed
+		// checkpoint can never abort the run.
+		if (shortsDetection !== 'off') {
+			const tally = await classifyShorts(
+				state,
+				targets.map((target) => target.id),
+				shortsDetection,
+				() => plugin.saveState(),
+			);
+			if (shortsProbeRun) {
+				shortsProbed = tally.probed;
+				await announceShortsProbes(plugin, tally);
+			}
 		}
 
 		// --- write notes (each write isolated) ---------------------------------
@@ -352,6 +392,7 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 		playlistsSynced,
 		videosFound,
 		imagesDownloaded,
+		shortsProbed,
 		quotaUnits: quota.used,
 		quotaSoftWarn,
 		errors,
@@ -497,10 +538,14 @@ function applyPlaylistDiff(
 }
 
 /**
- * Fill in the age flag for videos that do not have one yet. Videos already
- * checked keep their answer, so each video costs a rating call once.
+ * Fill in the age flag and duration for videos that do not have the current
+ * metadata version yet. A record carries `metaVersion`, so an upgraded
+ * state.json refills exactly once (one videos.list call per 50 videos) instead
+ * of a field-presence check that would leave migrated records empty. Videos
+ * already at the current version keep their answer, and removed or unavailable
+ * videos are skipped.
  */
-async function rateNewVideos(
+async function refreshVideoMetadata(
 	plugin: LifelinePlugin,
 	state: SyncState,
 	playlistIds: string[],
@@ -512,19 +557,157 @@ async function rateNewVideos(
 		const record = state.playlists[playlistId];
 		if (!record) continue;
 		for (const [videoId, video] of Object.entries(record.videos)) {
-			if (video.ageRestricted === undefined && !video.removed && !video.unavailable) pending.add(videoId);
+			if (video.metaVersion !== VIDEO_META_VERSION && !video.removed && !video.unavailable) {
+				pending.add(videoId);
+			}
 		}
 	}
 	if (pending.size === 0) return;
 
-	const { flags, syncErrors } = await listVideoAgeRatings(Array.from(pending), plugin.auth, quota);
-	errors.push(...syncErrors.map((err) => recordError(err, 'video ratings')));
+	const { videos, syncErrors } = await listVideoMetadata(Array.from(pending), plugin.auth, quota);
+	errors.push(...syncErrors.map((err) => recordError(err, 'video metadata')));
 	for (const record of Object.values(state.playlists)) {
 		for (const [videoId, video] of Object.entries(record.videos)) {
-			const flag = flags.get(videoId);
-			if (flag !== undefined && video.ageRestricted === undefined) video.ageRestricted = flag;
+			const meta = videos.get(videoId);
+			if (!meta) continue;
+			if (video.ageRestricted === undefined) video.ageRestricted = meta.ageRestricted;
+			// A live stream or upcoming premiere reports P0D, which is not a
+			// length: it stays unclassified rather than counting as 0 seconds.
+			if (video.durationSeconds === undefined && meta.durationSeconds !== null) {
+				video.durationSeconds = meta.durationSeconds;
+			}
+			video.metaVersion = VIDEO_META_VERSION;
 		}
 	}
+}
+
+interface ShortsTally {
+	/** Watch pages fetched this run. */
+	probed: number;
+	/** Videos this run placed as a Short or a regular video. */
+	classified: number;
+}
+
+/**
+ * Checkpoint the classification every this many probes. A capped run writes
+ * state.json twice, which is cheap next to the page fetches it protects: an
+ * interrupted or failed run keeps the answers it already paid for instead of
+ * refetching them next time.
+ */
+const SHORTS_SAVE_EVERY = 25;
+
+/**
+ * Place videos on the Short side of the line, from the cached duration and,
+ * for the Confirm with YouTube choice, the watch page. Long videos are
+ * answered by the ceiling with no request; the rest are probed up to
+ * SHORTS_PROBE_LIMIT in state order, one at a time with a short randomized
+ * pause between them. An ambiguous probe leaves the video unclassified so a
+ * later run retries it, and a video that sits in several playlists is probed
+ * once.
+ *
+ * Each answer is written onto every record that carries the video and the
+ * state is checkpointed as the queue advances, so the work survives a run that
+ * never reaches its end-of-run save.
+ */
+async function classifyShorts(
+	state: SyncState,
+	playlistIds: string[],
+	mode: Exclude<ShortsDetectionMode, 'off'>,
+	checkpoint: () => Promise<void>,
+): Promise<ShortsTally> {
+	const tally: ShortsTally = { probed: 0, classified: 0 };
+	// Every visible record a video appears on, across all playlists: one probe
+	// answers all of them, because being a Short is a property of the video.
+	// Removed and unavailable copies are skipped, since nothing renders them.
+	const records = new Map<string, VideoRecord[]>();
+	for (const record of Object.values(state.playlists)) {
+		for (const [videoId, video] of Object.entries(record.videos)) {
+			if (video.removed || video.unavailable) continue;
+			const copies = records.get(videoId);
+			if (copies) copies.push(video);
+			else records.set(videoId, [video]);
+		}
+	}
+
+	// Candidates come from the tracked playlists only; the others are not being
+	// rewritten this run, so they keep whatever answer they already carry.
+	const candidates: Array<{ videoId: string; seconds: number }> = [];
+	const queued = new Set<string>();
+	for (const playlistId of playlistIds) {
+		const record = state.playlists[playlistId];
+		if (!record) continue;
+		for (const [videoId, video] of Object.entries(record.videos)) {
+			if (video.removed || video.unavailable) continue;
+			if (typeof video.durationSeconds !== 'number') continue;
+			// Confirm respects a cached answer; the duration-only choice
+			// recomputes it from the same duration, so switching to it
+			// applies without touching the cache.
+			if (mode === 'confirm' && video.short !== undefined) continue;
+			if (queued.has(videoId)) continue;
+			queued.add(videoId);
+			candidates.push({ videoId, seconds: video.durationSeconds });
+		}
+	}
+
+	let sinceSave = 0;
+	const apply = (videoId: string, isShort: boolean): void => {
+		for (const video of records.get(videoId) ?? []) video.short = isShort;
+		tally.classified++;
+	};
+
+	for (const candidate of candidates) {
+		// The ceiling decides long videos in both modes: the duration-only
+		// choice takes it as the answer, Confirm takes it as a reason to skip
+		// the request entirely.
+		if (!withinShortsCeiling(candidate.seconds)) {
+			apply(candidate.videoId, false);
+			continue;
+		}
+		// Duration only: everything inside the ceiling counts as a Short.
+		if (mode === 'duration180') {
+			apply(candidate.videoId, true);
+			continue;
+		}
+		// Cap reached: the rest stay unclassified and a later run continues.
+		if (tally.probed >= SHORTS_PROBE_LIMIT) continue;
+		// Pace the requests: a gap between probes, never before the first.
+		if (tally.probed > 0) await sleep(probeGapMs());
+		tally.probed++;
+		const verdict: ShortsVerdict = await probeShorts(candidate.videoId);
+		// An unknown page is retried on a later run, so it is not worth a
+		// checkpoint: the next run probes it again either way.
+		if (verdict === 'unknown') continue;
+		apply(candidate.videoId, verdict === 'short');
+		sinceSave++;
+		if (sinceSave >= SHORTS_SAVE_EVERY) {
+			sinceSave = 0;
+			await checkpoint();
+		}
+	}
+	// Confirm's checkpoints have already landed. The duration-only choice
+	// answers from the cache in one pass with nothing to checkpoint, so the
+	// end-of-run save persists them.
+	if (sinceSave > 0) await checkpoint();
+	return tally;
+}
+
+/**
+ * The one-time disclosure for the default that fetches watch pages. Raised by
+ * the first sync that actually probes (never by a duration-only choice or
+ * Off), then suppressed by the stored flag, so it happens exactly once per
+ * install. Naming the setting is the point: a fresh install reaches this
+ * before anyone opens settings.
+ */
+async function announceShortsProbes(plugin: LifelinePlugin, tally: ShortsTally): Promise<void> {
+	if (tally.probed === 0 || plugin.settings.shortsNoticeShown) return;
+	plugin.settings.shortsNoticeShown = true;
+	await plugin.saveSettings();
+	new Notice(
+		`Lifeline checked ${tally.probed} ${tally.probed === 1 ? 'video' : 'videos'} on youtube.com to identify Shorts, ` +
+			`classifying ${tally.classified} in total. Each video is checked once and the result is cached in state.json. ` +
+			'Turn this off under Settings → Lifeline → Identify Shorts.',
+		20000,
+	);
 }
 
 /**
@@ -631,6 +814,9 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 	const watchLaterView = viewsReady
 		? dataviewBlock(viewCall(noteViewViewName('watchlater', folder), { layout: layouts.watchlater }))
 		: undefined;
+	// Identify Shorts gates the bullet fields the same way the image modes gate
+	// theirs: the data is in the note, and the view only draws it.
+	const shortsOn = plugin.settings.shortsDetection !== 'off';
 
 	// Thumbnails download in batches, each just before the note that shows
 	// it: channel images first (Channels.md needs them), then each playlist's
@@ -718,14 +904,18 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 				await writeNote(
 					vault,
 					ctx.paths.watchLater,
-					renderPlaylistNote(playlistId, record.title, record, ctx.now, watchLaterView, videoImages, journal),
+					renderPlaylistNote(playlistId, record.title, record, ctx.now, watchLaterView, videoImages, journal, {
+						shorts: shortsOn,
+					}),
 				);
 			} else {
 				const path = `${ctx.paths.playlistsFolder}/${record.fileName}.md`;
 				await writeNote(
 					vault,
 					path,
-					renderPlaylistNote(playlistId, record.title, record, ctx.now, playlistView, videoImages, journal),
+					renderPlaylistNote(playlistId, record.title, record, ctx.now, playlistView, videoImages, journal, {
+						shorts: shortsOn,
+					}),
 				);
 				const previous = ctx.previousFiles.get(playlistId);
 				if (previous && previous !== record.fileName) {

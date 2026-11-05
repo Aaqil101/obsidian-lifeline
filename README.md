@@ -78,7 +78,7 @@ The settings tab has five groups. Chevron rows open sub-pages.
 | Group | Rows |
 | --- | --- |
 | **Google account** | Connection status and **Authenticate with Google** / **Re-authenticate**. Sub-page **Google credentials**: OAuth client ID, OAuth client secret, and a **Security notes** button. |
-| **Notes** | **Output folder**, **Journal folder**, sub-page **Views in notes**, **Styles folder**, **Script folder**, sub-page **Channels.md fields**, sub-page **Dashboard**. |
+| **Notes** | **Output folder**, **Journal folder**, **Identify Shorts**, sub-page **Views in notes**, **Styles folder**, **Script folder**, sub-page **Channels.md fields**, sub-page **Dashboard**. |
 | **Images** | **Channel avatars and banners**, **Video thumbnails** (each Off, Link, or Download), **Blurred thumbnails**, and **Images folder** (shown only while one of the two modes is Download). |
 | **Playlists** | Sub-page **Playlists to track**, sub-page **Get saved playlist IDs**, and **Watch later playlist**. |
 | **Sync** | **Sync interval (hours)** (default 20), **Quota soft limit** (default 8000), and **Sync now**. |
@@ -157,6 +157,25 @@ Each video is a single list item with Dataview inline fields:
 - Only watchable videos get a bullet. Private, deleted, and removed videos stay in `state.json`, so the backup keeps them. The frontmatter reports them as `unavailable_count` and `removed_count`. Both are always present, so `video_count - unavailable_count - removed_count` gives the number of bullets. A video that is both removed and unavailable counts once, under `removed`.
 - Age-restricted videos are blurred automatically, and any videos you list under **Blurred thumbnails** are blurred too. A blurred video's bullet carries `[sensitive:: true]`.
 
+### Shorts
+
+**Identify Shorts** (under **Notes**) classifies each playlist and Watch Later video while it syncs and adds two fields to the bullet:
+
+```markdown
+- [title:: [Video Title](https://www.youtube.com/watch?v=abc123)] [channel:: [Blender Guru](https://www.youtube.com/channel/UCxyz)] [date:: 2026-01-05] [duration:: 179] [short:: true]
+```
+
+- `duration` is the video's length in whole seconds, so Dataview can sort by it as a number. The views format it for reading.
+- `short` is written only for a Short. A regular video carries no `short` field, and a video the classifier could not place carries neither `short` nor a guess.
+
+There are three choices:
+
+- **Confirm with YouTube** (default): a video longer than 3 minutes is a regular video with no request at all. Anything shorter is looked up once on `youtube.com`, where the page itself says whether it is a Short. **This makes one full page request per video under 3 minutes.** It costs no API quota, the answer is cached in `state.json`, and each video is requested at most once (an unclear page is retried on a later sync). At most 50 pages are fetched per sync, a fraction of a second apart, so a long list of Shorts fills in over several runs. Answers are saved as they arrive, so a sync you interrupt keeps the ones it already checked.
+- **Up to 3 minutes**: length only, no request. YouTube-labelled Shorts run up to 3 minutes, so this catches them, but an ordinary video under 3 minutes is mislabelled. Use it when you want a filter without the page requests.
+- **Off**: no fields, no requests, and the next sync strips both fields from the bullets.
+
+The first sync that looks a video up raises one notice naming this setting, then never again. Changing the choice needs one sync to add or strip the fields. The fields are written whether or not **Views in notes** is on: the note carries the data, and the view only draws it.
+
 ### Journal links
 
 **Journal folder** (under **Notes**, required) controls whether a bullet's date becomes a wikilink:
@@ -174,7 +193,7 @@ The note holds frontmatter (`type`, `last_synced`, `channel_count`, `playlist_co
 
 - **Header:** a hero with the title, a status badge (**Synced**, **Synced with issues**, **Sync failed**, or **Never synced**), the last sync line with counts, and KPI chips for channels, playlists, videos, and **New since sync**. The first three chips open Channels.md or scroll to the playlists panel.
   - The hero shows the top four channel banners in a mosaic by default. Under **Dashboard → Hero banner**, you can pick one channel instead, and its banner fills the hero. **Banner crop** sets which part of a wide banner stays in view. Click a point on the preview, or focus it and use the arrow keys (Shift for bigger steps, Home to recenter). Both settings apply without a sync.
-  - Two panels sit under the hero, side by side: **New since last sync** lists videos added on or after the last sync date, and **Needs attention** lists playlists with hidden, unavailable, or removed entries. It shows **All clear** when there are none.
+  - Two panels sit under the hero, side by side: **New since last sync** lists videos added on or after the last sync date, and **Needs attention** lists playlists with hidden, unavailable, or removed entries. It shows **All clear** when there are none. The feed follows **Shorts in views** (under **Views in notes**): Hide Shorts or Only Shorts filters the video rows before the **Feed entries** limit, the **New since sync** chip counts the same filtered list, and every Short row shown carries a small Shorts tag. New playlist rows are never filtered.
 - **Playlists:** a **Table / Cards** pill toggle. Cards show the newest playlists with covers. Table lists them alphabetically, with Watch Later pinned first. Both modes stop at **Playlist cards** (default 6).
 - **Top channels:** the same toggle. Cards show banner, avatar, handle, and counts. Table lists channels by subscribers. Both modes stop at **Top channels** (default 10).
 
@@ -208,6 +227,7 @@ Every view has a toolbar:
 
 - **Search** filters entries as you type. The field box beside it sets what it searches: all fields, or a single field such as name, handle, ID, country, or status for channels, and title, channel, or date for videos. The placeholder names the field. The count sits inside the search box. It shows `10 / 76` and expands to `Showing 10 of 76 channels` on hover.
 - **Layout control** (Poster, Chips, Table) switches the view immediately, with no sync. It writes the same per-note-type setting as the Notes dropdowns, so every open view of that type follows it.
+- **Shorts control** (All, Videos, Shorts) appears in the video views once the note carries a `short` field. It filters the rows, the search count, and the paging immediately, and writes **Shorts in views** (under **Views in notes**) so the dashboard feed and every open video view follow with no sync. **All** is the default, so nothing is hidden until you choose otherwise. It stays hidden on Channels.md and on a note where **Identify Shorts** has not classified anything yet.
 - **Sort order** (under **Views in notes**) sets the order by date: **Newest first** (default) or **Oldest first**. Entries without a date go last. This setting is read at render time.
 - **Refresh entries** (icon only) re-reads the note's bullets, for when you edit them by hand.
 - A count such as `Showing 10 of 412 channels`, or `Found 3 of 412 channels` while searching.

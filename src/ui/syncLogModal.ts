@@ -145,6 +145,17 @@ export class SyncLogModal extends Modal {
 			});
 		}
 		head.createSpan({ cls: 'lifeline-sync-log-quota', text: `${entry.quotaUnits} units` });
+		// Absent while Identify Shorts is Off or a duration-only choice. A 0
+		// means every candidate was already classified, so no page was fetched.
+		if (entry.shortsProbed !== undefined) {
+			head.createSpan({
+				cls: 'lifeline-sync-log-counts',
+				text:
+					entry.shortsProbed === 0
+						? '0 Shorts checks (all cached)'
+						: `${entry.shortsProbed} Shorts checks`,
+			});
+		}
 		if (entry.quotaSoftWarn) {
 			head.createSpan({ cls: 'lifeline-sync-log-flag', text: 'soft limit' });
 		}

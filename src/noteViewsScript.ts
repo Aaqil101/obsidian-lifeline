@@ -2277,6 +2277,35 @@ const liveSortOrder = () => {
   return value === "desc" ? "desc" : "asc";
 };
 
+// Read at render time like the layout, so the Shorts in views setting applies on
+// the next render with no sync. Anything but hide/only counts as everything.
+const liveShortsFilter = () => {
+  const plugin = pluginInstance();
+  const value = plugin && plugin.settings ? plugin.settings.shortsFilter : null;
+  return value === "hide" || value === "only" ? value : "all";
+};
+
+// The toolbar control writes the same setting the Views in notes page edits, so
+// the dashboard feed and every open video view follow without a sync.
+const persistShortsFilter = (value) => {
+  const plugin = pluginInstance();
+  if (!plugin || !plugin.settings || typeof plugin.saveSettings !== "function") return;
+  plugin.settings.shortsFilter = value;
+  try {
+    Promise.resolve(plugin.saveSettings()).catch(() => {});
+  } catch (err) {
+    // A failed save only means the next render falls back; harmless.
+  }
+};
+
+// A bullet carries short:: true only when the sync classified it as a Short, so
+// "any bullet has the field" also means Identify Shorts has classified
+// something here; until then the control would do nothing and stays hidden.
+const isShortField = (item) => item != null && item.short != null;
+const isShort = (item) => {
+  const value = item ? item.short : null;
+  return value === true || String(value).toLowerCase() === "true";
+};
 // Order by the dated field: subscribed_on on Channels.md, date on playlist and
 // Watch Later bullets. Compared as yyyy-MM-dd text, which sorts by date. Entries
 // with no usable date sink to the end in either order.
@@ -2362,6 +2391,8 @@ const state = {
   layout: migrateLayout(liveLayout() || baked),
   query: "",
   scope: "all",
+  // Everything until the Shorts control says otherwise; read live like layout.
+  shorts: liveShortsFilter(),
 };
 
 // Channels.md bullets carry a channel link and never a title; playlist bullets
@@ -2525,6 +2556,59 @@ const syncSeg = () => {
 };
 syncSeg();
 
+// Shorts in views: a second segmented control beside Layout, on the video notes
+// only, over a hidden native select that stays the single value source. The
+// control hides while no bullet carries a short field, which means Identify
+// Shorts has not classified anything here yet, so it never looks like a dead
+// switch. Channels.md has no Shorts and draws no control.
+let shortsWrap = null;
+let shortsSelect = null;
+const shortsButtons = [];
+const hasShortFields = () => rows.some(isShortField);
+
+const syncShortsSeg = () => {
+  if (!shortsSelect) return;
+  for (const btn of shortsButtons) {
+    const on = btn.dataset.shorts === shortsSelect.value;
+    btn.classList.toggle("on", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+};
+
+if (section === "playlist") {
+  const SHORTS_CHOICES = [["all", "All"], ["hide", "Videos"], ["only", "Shorts"]];
+  shortsSelect = document.createElement("select");
+  shortsSelect.className = "lv-select";
+  shortsSelect.setAttribute("aria-label", "Shorts filter");
+  for (const choice of SHORTS_CHOICES) {
+    const opt = document.createElement("option");
+    opt.value = choice[0];
+    opt.textContent = choice[1];
+    shortsSelect.appendChild(opt);
+  }
+  shortsSelect.value = state.shorts;
+  shortsSelect.style.display = "none";
+
+  shortsWrap = el("div", "lv-seg");
+  shortsWrap.setAttribute("role", "group");
+  shortsWrap.setAttribute("aria-label", "Shorts");
+  for (const choice of SHORTS_CHOICES) {
+    const btn = el("button", "lv-seg-btn", choice[1]);
+    btn.type = "button";
+    btn.dataset.shorts = choice[0];
+    btn.addEventListener("click", () => {
+      if (shortsSelect.value === choice[0]) return;
+      shortsSelect.value = choice[0];
+      shortsSelect.dispatchEvent(new Event("change"));
+    });
+    shortsButtons.push(btn);
+    shortsWrap.appendChild(btn);
+  }
+  shortsWrap.appendChild(shortsSelect);
+  toolbarRow.appendChild(shortsWrap);
+  syncShortsSeg();
+}
+
 // Icon-only: the accessible name is the tooltip (aria-label), so there is no
 // second, native title tooltip competing with it.
 const refresh = document.createElement("button");
@@ -2561,6 +2645,16 @@ const clear = (node) => {
   while (node.firstChild) node.removeChild(node.firstChild);
 };
 
+// The Shorts control hides itself while no bullet carries the field, so a note
+// synced before Identify Shorts existed draws exactly as it did before. Only a
+// visible control filters; the hidden one is ignored.
+const applyShortsFilter = (list) => {
+  if (!shortsWrap || shortsWrap.style.display === "none") return list;
+  if (state.shorts === "hide") return list.filter((item) => !isShort(item));
+  if (state.shorts === "only") return list.filter(isShort);
+  return list;
+};
+
 const render = () => {
   clear(host);
   // The rows are appended straight into the host, so the container class has
@@ -2570,10 +2664,22 @@ const render = () => {
   host.className =
     "lv-results" +
     (resolved === "table" ? "" : " lv-" + (resolved === "poster" ? "posters" : resolved));
-  const visible = rows.filter(matches);
+  // A note whose bullets carry no short field cannot be filtered on it, so the
+  // control stays out of sight and the rows pass through untouched.
+  if (shortsWrap) shortsWrap.style.display = hasShortFields() ? "" : "none";
+  const visible = applyShortsFilter(rows.filter(matches));
   const ordered = orderRows(visible);
+  // The count says Found (not Showing) while either filter narrows the list,
+  // and a Shorts-only empty list is a filter miss, not an empty note.
+  const filtered =
+    state.query.trim() !== "" || (shortsWrap !== null && shortsWrap.style.display !== "none" && state.shorts !== "all");
   if (visible.length === 0) {
-    host.appendChild(el("div", "lv-empty", rows.length === 0 ? "No " + noun + " synced yet." : "No entries match your search."));
+    const empty = rows.length === 0
+      ? "No " + noun + " synced yet."
+      : state.query.trim() === "" && shortsWrap !== null && shortsWrap.style.display !== "none"
+        ? "No " + noun + " match this filter."
+        : "No entries match your search.";
+    host.appendChild(el("div", "lv-empty", empty));
     setStatsText(rows.length === 0 ? "" : "Found 0 of " + rows.length + " " + noun);
     return;
   }
@@ -2581,7 +2687,6 @@ const render = () => {
   // states the hit count, and the Show more button carries the paging. The
   // pill shows only the numbers until hovered (see statsShort above).
   const setStats = (shown) => {
-    const filtered = state.query.trim() !== "";
     const text = filtered
       ? "Found " + visible.length + " of " + rows.length + " " + noun
       : "Showing " + shown + " of " + rows.length + " " + noun;
@@ -2627,6 +2732,23 @@ const applyLayout = (value) => {
   }, 0);
 };
 layoutSelect.addEventListener("change", () => applyLayout(layoutSelect.value));
+
+if (shortsSelect) {
+  shortsSelect.addEventListener("change", () => {
+    state.shorts = shortsSelect.value === "hide" || shortsSelect.value === "only" ? shortsSelect.value : "all";
+    syncShortsSeg();
+    persistShortsFilter(state.shorts);
+    // A filter switch is shared with the dashboard feed and every open video
+    // view, so stash this view's search across the refresh it triggers, then
+    // apply locally in case that refresh does not happen.
+    if (STASH) STASH[viewKey] = { query: search.value, scope: scope.value };
+    render();
+    refreshOtherViews();
+    window.setTimeout(() => {
+      if (STASH) delete STASH[viewKey];
+    }, 0);
+  });
+}
 
 refresh.addEventListener("click", () => {
   // Joined channel faces are cached on first render; drop them so newly

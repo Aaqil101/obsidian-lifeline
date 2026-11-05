@@ -18,8 +18,10 @@ import { Notice, Setting } from 'obsidian';
 import { DATAVIEW_REQUIRED_NOTICE, isDataviewEnabled } from '../dashboard';
 import {
 	DEFAULT_NOTE_LAYOUTS,
+	DEFAULT_SHORTS_FILTER,
 	LAYOUT_ROWS,
 	NOTE_LAYOUT_OPTIONS_BY_KIND,
+	SHORTS_FILTER_OPTIONS,
 	VIEW_SORT_OPTIONS,
 	type NoteLayout,
 } from './types';
@@ -107,6 +109,24 @@ export function renderViewsPage(host: SettingsHost, containerEl: HTMLElement): v
 			for (const option of VIEW_SORT_OPTIONS) dropdown.addOption(option.value, option.label);
 			dropdown.setValue(settings.viewSortOrder).onChange(async (value) => {
 				settings.viewSortOrder = value === 'desc' ? 'desc' : 'asc';
+				await plugin.saveSettings();
+			});
+		});
+
+	// Shorts in views: one setting for the three video layouts and the
+	// dashboard feed, read live at render time. It only draws a difference once
+	// a bullet carries a short field, which Identify Shorts writes, so the row
+	// points there for anyone who sets this first.
+	const shortsDesc =
+		'What the video views and the dashboard new-since-sync feed show: Everything (the default), Videos only, or Shorts only. The control in each video view changes this too. Read at render time, so no sync is needed. Only bullets classified by Identify Shorts carry the field this filters on.';
+	new Setting(card)
+		.setName('Shorts in views')
+		.setDesc(settings.noteViews ? shortsDesc : `${shortsDesc} Only applies while Views in notes is on.`)
+		.addDropdown((dropdown) => {
+			for (const option of SHORTS_FILTER_OPTIONS) dropdown.addOption(option.value, option.label);
+			dropdown.setValue(settings.shortsFilter).onChange(async (value) => {
+				settings.shortsFilter =
+					SHORTS_FILTER_OPTIONS.find((option) => option.value === value)?.value ?? DEFAULT_SHORTS_FILTER;
 				await plugin.saveSettings();
 			});
 		});

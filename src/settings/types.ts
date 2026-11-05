@@ -18,6 +18,8 @@ import {
 	type DashboardSections,
 	type ImageMode,
 	type PlaylistSummary,
+	type ShortsDetectionMode,
+	type ShortsFilter,
 } from '../types';
 
 /** Layout of one opt-in note view. The old `mixed` value is gone entirely,
@@ -101,6 +103,31 @@ export const DEFAULT_VIEW_SORT_ORDER: ViewSortOrder = 'asc';
 export const VIEW_SORT_OPTIONS: Array<{ value: ViewSortOrder; label: string }> = [
 	{ value: 'asc', label: 'Newest first' },
 	{ value: 'desc', label: 'Oldest first' },
+];
+
+/** Identify Shorts is on by default: duration answers the long ones with no
+ *  request, and the watch page answers the rest accurately. Off is the opt-out
+ *  and the only choice that leaves the bullets byte-identical. */
+export const DEFAULT_SHORTS_DETECTION: ShortsDetectionMode = 'confirm';
+
+/** The views and the dashboard feed show everything until asked otherwise. */
+export const DEFAULT_SHORTS_FILTER: ShortsFilter = 'all';
+
+/** The three Identify Shorts choices, in menu order. The 60-second rule this
+ *  used to offer was dropped: it missed more than half the Shorts measured on a
+ *  real library, which makes Hide Shorts look broken, and no user was better
+ *  served by it than by the 3-minute ceiling. */
+export const SHORTS_DETECTION_OPTIONS: Array<{ value: ShortsDetectionMode; label: string }> = [
+	{ value: 'confirm', label: 'Confirm with YouTube' },
+	{ value: 'duration180', label: 'Up to 3 minutes' },
+	{ value: 'off', label: 'Off' },
+];
+
+/** The three Shorts in views choices, in segmented-control order. */
+export const SHORTS_FILTER_OPTIONS: Array<{ value: ShortsFilter; label: string }> = [
+	{ value: 'all', label: 'Everything' },
+	{ value: 'hide', label: 'Hide Shorts' },
+	{ value: 'only', label: 'Only Shorts' },
 ];
 
 /** The three layout rows, in render order and in the order the notes appear
@@ -288,6 +315,17 @@ export interface LifelineSettings {
 	 *  Watch Later.md. Read live at render time, so changing it needs no sync.
 	 *  Ignored while `noteViews` is off. */
 	viewSortOrder: ViewSortOrder;
+	/** How Identify Shorts classifies videos during sync. Writes `duration`
+	 *  and `short` into playlist and Watch Later bullets; changing it needs one
+	 *  sync to add or strip those fields. Not gated on the views toggle: the
+	 *  note carries the data and the view only draws it. */
+	shortsDetection: ShortsDetectionMode;
+	/** How the video views and the dashboard feed treat Shorts. Read live at
+	 *  render time, so changing it needs no sync. */
+	shortsFilter: ShortsFilter;
+	/** One-time bookkeeping: the first sync that made Shorts probes showed the
+	 *  disclosure Notice. Internal, not a settings row. */
+	shortsNoticeShown: boolean;
 	/** Vault folder holding the per-view stylesheets (lifeline-channels.css,
 	 *  lifeline-playlists.css, lifeline-watchlater.css, and the dashboard's
 	 *  lifeline-dashboard.css) that the view scripts read at view time. */
@@ -341,6 +379,9 @@ export const DEFAULT_SETTINGS: LifelineSettings = {
 	noteLayouts: { ...DEFAULT_NOTE_LAYOUTS },
 	viewPageSize: DEFAULT_VIEW_PAGE_SIZE,
 	viewSortOrder: DEFAULT_VIEW_SORT_ORDER,
+	shortsDetection: DEFAULT_SHORTS_DETECTION,
+	shortsFilter: DEFAULT_SHORTS_FILTER,
+	shortsNoticeShown: false,
 	stylesFolder: '',
 	stylesFolderWritten: null,
 	channelAvatars: 'off',

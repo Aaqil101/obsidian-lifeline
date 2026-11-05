@@ -20,7 +20,7 @@ import { DEFAULT_CHANNELS_FIELDS } from '../types';
 import { folderSetting } from './folderPicker';
 import { renderDashboardPage } from './dashboardPage';
 import { renderViewsPage } from './viewsPage';
-import { FIELD_ROWS } from './types';
+import { FIELD_ROWS, SHORTS_DETECTION_OPTIONS, DEFAULT_SHORTS_DETECTION } from './types';
 import { group, pageDefinition, renderRow, type SettingsHost } from './ui';
 
 /** Landing group: output folder, the sub-page doors, and the shared folders. */
@@ -155,6 +155,29 @@ export function notesGroup(host: SettingsHost): SettingDefinitionGroup {
 			}),
 	);
 
+	// Identify Shorts: writes the two fields the video views and the dashboard
+	// feed read. Confirm with YouTube is the default because duration alone is
+	// both a false-positive and a false-negative machine; the description is the
+	// disclosure for the page requests that default makes. Changing it needs one
+	// sync to add or strip the fields, which the description says.
+	const shorts = renderRow(
+		'Identify Shorts',
+		'Writes a duration field and, for a Short, a short field into playlist and Watch Later bullets. Confirm with YouTube reads each video under 3 minutes once on youtube.com (no API quota), caches the answer, and never guesses when the page is unclear. Up to 3 minutes classifies by length only, with no request, and mislabels the ordinary videos under 3 minutes. Off writes no fields and strips them on the next sync.',
+		(setting) => {
+			setting.addDropdown((dropdown) => {
+				for (const option of SHORTS_DETECTION_OPTIONS) dropdown.addOption(option.value, option.label);
+				dropdown.setValue(settings.shortsDetection).onChange(async (value) => {
+					const next =
+						SHORTS_DETECTION_OPTIONS.find((option) => option.value === value)?.value ??
+						DEFAULT_SHORTS_DETECTION;
+					if (next === settings.shortsDetection) return;
+					settings.shortsDetection = next;
+					await plugin.saveSettings();
+				});
+			});
+		},
+	);
+
 	const channelsFields = pageDefinition(
 		host,
 		'Channels.md fields',
@@ -186,6 +209,7 @@ export function notesGroup(host: SettingsHost): SettingDefinitionGroup {
 		items: [
 			outputFolder,
 			journalFolder,
+			shorts,
 			views,
 			stylesFolder,
 			scriptsFolder,
