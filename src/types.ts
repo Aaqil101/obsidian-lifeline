@@ -213,6 +213,16 @@ export type ShortsDetectionMode = 'confirm' | 'duration180' | 'off';
  *  render time, so changing it needs no sync. */
 export type ShortsFilter = 'all' | 'hide' | 'only';
 
+/** How the video note views treat removed bullets the note carries in Keep
+ *  mode. Read live at render time, so changing it needs no sync. `hide` is the
+ *  default, matching the views' behaviour before this control existed. */
+export type RemovedFilter = 'all' | 'hide' | 'only';
+
+/** What playlist notes do with videos that left the playlist upstream.
+ *  `keep` writes them as bullets after the live ones, marked `removed`;
+ *  `count` hides them and only reports `removed_count`. */
+export type RemovedVideosMode = 'keep' | 'count';
+
 export interface VideoRecord {
 	title: string;
 	channelTitle: string;
@@ -224,6 +234,9 @@ export interface VideoRecord {
 	position: number;
 	/** Kept in state but no longer present in the live playlist. */
 	removed: boolean;
+	/** Day Lifeline first saw this video missing (YYYY-MM-DD). Absent for a
+	 *  video that was already removed before this field existed. */
+	removedOn?: string;
 	/** Private or deleted at fetch time; kept deliberately, never dropped. */
 	unavailable: boolean;
 	/** YouTube's age-restriction flag (videos.list contentRating); absent until checked. */

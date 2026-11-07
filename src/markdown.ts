@@ -15,7 +15,7 @@
  * (query via `file.lists`).
  */
 import { normalizePath } from 'obsidian';
-import type { ChannelsFieldSettings, ChannelFace, ImageMode, PlaylistRecord, SyncState, VideoFieldSettings } from './types';
+import type { ChannelsFieldSettings, ChannelFace, ImageMode, PlaylistRecord, RemovedVideosMode, SyncState, VideoFieldSettings } from './types';
 
 export interface OutputPaths {
 	folder: string;
@@ -189,7 +189,9 @@ function labelText(text: string): string {
  * written only in download mode and only while the file is really on disk,
  * holding the wikilink of the downloaded image, which the view prefers. A
  * failed download therefore degrades to the remote field rather than the
- * note, and with the mode off nothing is appended at all.
+ * note, and with the mode off nothing is appended at all. `allowLocal` is
+ * false for a removed video: its downloaded copy is deleted, so even a disk
+ * hit from a stale set must not creep back into the bullet.
  *
  * Fields only, never embeds: the image is data in the bullet, and the view
  * above it is what draws the picture.
@@ -200,11 +202,12 @@ function bulletImageFields(
 	url: string | undefined,
 	urlField: 'avatar_url' | 'thumbnail_url' | 'banner_url',
 	localField: 'avatar' | 'thumbnail' | 'banner',
+	allowLocal = true,
 ): string[] {
 	if (!images || images.mode === 'off') return [];
 	const fields: string[] = [];
 	if (url) fields.push(`[${urlField}:: ${url}]`);
-	if (images.mode === 'download' && images.available.has(base)) {
+	if (allowLocal && images.mode === 'download' && images.available.has(base)) {
 		fields.push(`[${localField}:: [[${base}.jpg]]]`);
 	}
 	return fields;
@@ -426,10 +429,26 @@ export function renderChannelsNote(
  * when the restriction means effectively global, and `live` writes
  * `[live:: true]` or `[upcoming:: true]` for the matching liveBroadcastContent.
  * A missing toggle or missing fact writes nothing, and all three default off.
+ *
+ * `options.removedMode` decides what happens to videos that left the playlist:
+ * `count` (the default when omitted) hides them as before, while `keep`
+ * appends them after the live videos with `[removed:: true]` and, when the
+ * first-missing date is known, `[removed_on:: ...]`. That date follows the
+ * same journal rule as `date`, so the field itself links the day's note when
+ * one exists. The frontmatter records the resolved mode in `removed_mode`.
+ *
+ * `options.archivedCount` is the number of entries for this playlist parked in
+ * `state_purged.json`. They are never drawn, but they are added to
+ * `video_count` and `removed_count`, so purging a bullet does not change the
+ * frontmatter. Clearing the archive drops them from both counts.
  */
 export interface PlaylistNoteOptions {
 	shorts?: boolean;
 	fields?: VideoFieldSettings;
+	removedMode?: RemovedVideosMode;
+	/** Entries in state_purged.json for this playlist: never drawn, but still
+	 *  counted in `video_count` and `removed_count` until the archive is wiped. */
+	archivedCount?: number;
 }
 
 export function renderPlaylistNote(
@@ -442,6 +461,10 @@ export function renderPlaylistNote(
 	journal?: JournalDates,
 	options?: PlaylistNoteOptions,
 ): string {
+	const removedMode: RemovedVideosMode = options?.removedMode === 'keep' ? 'keep' : 'count';
+	// Archived entries live in state_purged.json and are never drawn, but the
+	// note still reports them until the archive is cleared.
+	const archivedCount = Math.max(0, Math.floor(options?.archivedCount ?? 0));
 	const entries = Object.entries(record.videos);
 	let unavailableCount = 0;
 	let removedCount = 0;
@@ -449,9 +472,12 @@ export function renderPlaylistNote(
 		if (video.removed) removedCount++;
 		else if (video.unavailable) unavailableCount++;
 	}
-	const videos = entries
-		.filter(([, video]) => !video.removed && !video.unavailable)
-		.sort(([, a], [, b]) => a.position - b.position);
+	const ordered = entries.sort(([, a], [, b]) => a.position - b.position);
+	const live = ordered.filter(([, video]) => !video.removed && !video.unavailable);
+	// Removed bullets only in Keep mode, and never for a video that is also
+	// unavailable: that one stays count-only in both modes.
+	const removed =
+		removedMode === 'keep' ? ordered.filter(([, video]) => video.removed && !video.unavailable) : [];
 
 	const lines: string[] = [
 		'---',
@@ -459,9 +485,10 @@ export function renderPlaylistNote(
 		`playlist_id: ${playlistId}`,
 		`url: ${yamlString(`https://www.youtube.com/playlist?list=${playlistId}`)}`,
 		`title: ${yamlString(record.title)}`,
-		`video_count: ${entries.length}`,
+		`video_count: ${entries.length + archivedCount}`,
 		`unavailable_count: ${unavailableCount}`,
-		`removed_count: ${removedCount}`,
+		`removed_count: ${removedCount + archivedCount}`,
+		`removed_mode: ${removedMode}`,
 		`saved: ${record.saved === true}`,
 		`last_synced: ${yamlString(formatDateTime(syncedAt))}`,
 		'---',
@@ -470,13 +497,20 @@ export function renderPlaylistNote(
 		'',
 	];
 	if (viewBlock) lines.push(viewBlock, '');
-	for (const [videoId, video] of videos) {
+	const bullet = (videoId: string, video: PlaylistRecord['videos'][string]): string => {
 		const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
 		const channelValue = video.channelId
 			? `[${labelText(video.channelTitle || 'unknown channel')}](https://www.youtube.com/channel/${video.channelId})`
 			: labelText(video.channelTitle || 'unknown channel');
 		const parts = [`[title:: [${labelText(video.title)}](${watchUrl})]`, `[channel:: ${channelValue}]`];
 		if (video.dateAdded) parts.push(`[date:: ${journalDate(video.dateAdded, journal)}]`);
+		// Removed bullets keep every other field a live one carries, and add
+		// the removal marker. `removed_on` follows the journal rule, so it can
+		// open that day's note.
+		if (video.removed) {
+			parts.push('[removed:: true]');
+			if (video.removedOn) parts.push(`[removed_on:: ${journalDate(video.removedOn, journal)}]`);
+		}
 		// Upload date and playability facts, each independent and each behind its
 		// own toggle. `published` is plain ISO text by design: an upload date is
 		// almost always in the past with no journal note, so linking it would
@@ -502,6 +536,10 @@ export function renderPlaylistNote(
 			videoThumbnailUrl(videoId),
 			'thumbnail_url',
 			'thumbnail',
+			// A removed video keeps its remote URL but never its local copy:
+			// sync deletes that file, so a leftover or hand-restored bullet
+			// still draws the thumbnail online instead of a dead wikilink.
+			!video.removed,
 		);
 		if (imageParts.length > 0 && images?.blurred?.has(videoId)) imageParts.push('[sensitive:: true]');
 		parts.push(...imageParts);
@@ -521,8 +559,9 @@ export function renderPlaylistNote(
 				),
 			);
 		}
-		lines.push(`- ${parts.join(' ')}`);
-	}
+		return parts.join(' ');
+	};
+	for (const entry of [...live, ...removed]) lines.push(`- ${bullet(entry[0], entry[1])}`);
 	lines.push('');
 	return lines.join('\n');
 }

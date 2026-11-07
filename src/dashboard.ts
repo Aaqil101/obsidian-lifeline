@@ -64,6 +64,10 @@ export interface DashboardContext {
 	status: SyncStatus | null;
 	/** User-configured folder holding lifeline-dashboard.js (settings value). */
 	scriptsFolder: string;
+	/** Entries in state_purged.json across the tracked playlists. They have no
+	 *  bullet, but they still count toward `video_count` until the archive is
+	 *  cleared. */
+	archivedVideoCount?: number;
 }
 
 /**
@@ -102,7 +106,9 @@ export function renderDashboardNote(state: SyncState, ctx: DashboardContext): st
 	const playlists = Object.entries(state.playlists)
 		.filter(([id]) => trackedIds.has(id))
 		.sort(([, a], [, b]) => a.title.localeCompare(b.title));
-	const videoCount = playlists.reduce((sum, [, record]) => sum + Object.keys(record.videos).length, 0);
+	const videoCount =
+		playlists.reduce((sum, [, record]) => sum + Object.keys(record.videos).length, 0) +
+		Math.max(0, Math.floor(ctx.archivedVideoCount ?? 0));
 
 	const lines: string[] = ['---', 'type: lifeline-dashboard'];
 	if (status !== null) lines.push(`last_synced: ${yamlString(formatDateTime(syncedAt))}`);

@@ -18,9 +18,11 @@ import { Notice, Setting } from 'obsidian';
 import { DATAVIEW_REQUIRED_NOTICE, isDataviewEnabled } from '../dashboard';
 import {
 	DEFAULT_NOTE_LAYOUTS,
+	DEFAULT_REMOVED_FILTER,
 	DEFAULT_SHORTS_FILTER,
 	LAYOUT_ROWS,
 	NOTE_LAYOUT_OPTIONS_BY_KIND,
+	REMOVED_FILTER_OPTIONS,
 	SHORTS_FILTER_OPTIONS,
 	VIEW_SORT_OPTIONS,
 	type NoteLayout,
@@ -127,6 +129,24 @@ export function renderViewsPage(host: SettingsHost, containerEl: HTMLElement): v
 			dropdown.setValue(settings.shortsFilter).onChange(async (value) => {
 				settings.shortsFilter =
 					SHORTS_FILTER_OPTIONS.find((option) => option.value === value)?.value ?? DEFAULT_SHORTS_FILTER;
+				await plugin.saveSettings();
+			});
+		});
+
+	// Removed in views: what the three video layouts do with the removed
+	// bullets a Keep-mode note carries. Hidden by default, which is how the
+	// views behaved before this control existed. Read live, so no sync is
+	// needed, and the control in each video view changes this too.
+	const removedDesc =
+		'What the video views show for videos that left a playlist: Everything, Hide removed (the default), or Only removed. The views never draw a purged entry, because it is no longer in the note. The control in each video view changes this too. Read at render time, so no sync is needed.';
+	new Setting(card)
+		.setName('Removed in views')
+		.setDesc(settings.noteViews ? removedDesc : `${removedDesc} Only applies while Views in notes is on.`)
+		.addDropdown((dropdown) => {
+			for (const option of REMOVED_FILTER_OPTIONS) dropdown.addOption(option.value, option.label);
+			dropdown.setValue(settings.removedFilter).onChange(async (value) => {
+				settings.removedFilter =
+					REMOVED_FILTER_OPTIONS.find((option) => option.value === value)?.value ?? DEFAULT_REMOVED_FILTER;
 				await plugin.saveSettings();
 			});
 		});

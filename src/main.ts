@@ -15,10 +15,19 @@ import {
 	DEFAULT_SETTINGS,
 	LifelineSettingTab,
 	expandLegacyLayout,
+	normalizeRemovedMode,
+	normalizeRemovedOverrides,
 	normalizeStoredLayouts,
 	type LifelineSettings,
 } from './settings';
-import { createDefaultState, SyncError, type SyncRunResult, type SyncState } from './types';
+import { createDefaultState, SyncError, type SyncRunResult, type SyncState, type VideoRecord } from './types';
+import {
+	createDefaultPurgedState,
+	migratePurgedFlags,
+	pruneReturnedVideos,
+	type PurgedPlaylist,
+	type PurgedState,
+} from './purgedState';
 
 /** Delay before the startup auto-sync check fires, so the vault can settle. */
 const AUTO_SYNC_DELAY_MS = 15_000;
@@ -26,6 +35,8 @@ const AUTO_SYNC_DELAY_MS = 15_000;
 export default class LifelinePlugin extends Plugin {
 	settings!: LifelineSettings;
 	state!: SyncState;
+	/** Purged-video archive (state_purged.json), kept out of state.json. */
+	purgedState!: PurgedState;
 	auth!: AuthManager;
 	private statusBarItem!: HTMLElement;
 
@@ -72,12 +83,40 @@ export default class LifelinePlugin extends Plugin {
 			...DEFAULT_SETTINGS.dashboardSections,
 			...(loaded?.dashboardSections ?? {}),
 		};
+		// Removed-video modes: an unknown stored value falls back to the
+		// default, and override keys that are not real modes are dropped. Both
+		// are new keys, so an ordinary load writes nothing.
+		const storedRemovedMode = this.settings.removedVideosMode;
+		const storedRemovedOverrides = this.settings.removedVideoOverrides;
+		this.settings.removedVideosMode = normalizeRemovedMode(storedRemovedMode);
+		this.settings.removedVideoOverrides = normalizeRemovedOverrides(storedRemovedOverrides);
+		const removedSettingsChanged =
+			this.settings.removedVideosMode !== storedRemovedMode ||
+			Object.keys(this.settings.removedVideoOverrides).length !==
+				Object.keys(storedRemovedOverrides ?? {}).length ||
+			Object.entries(this.settings.removedVideoOverrides).some(
+				([id, mode]) => storedRemovedOverrides?.[id] !== mode,
+			);
 		// Persist the migrations once, and only when a legacy or retired key was
 		// actually found. Startup stays read-only on every other load, and the
 		// stale noteTables and noteLayout keys are purged from data.json instead
 		// of waiting for some later settings change to happen to write them out.
-		if (hadLegacyTables || hadStaleLayout || normalizedLayouts) await this.saveSettings();
+		if (hadLegacyTables || hadStaleLayout || normalizedLayouts || removedSettingsChanged) await this.saveSettings();
 		this.state = await this.loadState();
+		this.purgedState = await this.loadPurgedState();
+		// Earlier builds kept purged records in state.json with a flag. Move
+		// them to the archive once, and drop any archive copy that is active
+		// again, so a stale duplicate never counts twice.
+		const migratedPurged = migratePurgedFlags(this.purgedState, this.state);
+		const prunedPurged = pruneReturnedVideos(this.purgedState, this.state);
+		if (migratedPurged) await this.saveState();
+		if (migratedPurged || prunedPurged) {
+			try {
+				await this.savePurgedState();
+			} catch (err) {
+				console.error('Lifeline: could not write state_purged.json', err);
+			}
+		}
 		this.auth = new AuthManager(this);
 
 		this.addSettingTab(new LifelineSettingTab(this.app, this));
@@ -238,6 +277,11 @@ export default class LifelinePlugin extends Plugin {
 		return this.pluginDataPath('state.json');
 	}
 
+	/** Archive of purged videos; disposable and not part of the live backup. */
+	private purgedStateFilePath(): string {
+		return this.pluginDataPath('state_purged.json');
+	}
+
 	/** Sync log path: JSON run history written by sync.ts, shown by the log modal. */
 	syncLogPath(): string {
 		return this.pluginDataPath('sync-log.json');
@@ -270,5 +314,66 @@ export default class LifelinePlugin extends Plugin {
 		} catch (err) {
 			console.error('Lifeline: could not write state.json', err);
 		}
+	}
+
+	/**
+	 * Read the purged-video archive. A missing file is an intentional empty
+	 * archive (the user wiped it); a corrupt one is copied aside before it is
+	 * treated as empty, so a bad parse never silently destroys the history.
+	 */
+	private async loadPurgedState(): Promise<PurgedState> {
+		const adapter = this.app.vault.adapter;
+		const path = this.purgedStateFilePath();
+		let raw = '';
+		try {
+			if (!(await adapter.exists(path))) return createDefaultPurgedState();
+			raw = await adapter.read(path);
+			const parsed = JSON.parse(raw) as Partial<PurgedState> | null;
+			const playlists: Record<string, PurgedPlaylist> = {};
+			const source = parsed?.playlists;
+			if (source && typeof source === 'object') {
+				for (const [playlistId, value] of Object.entries(source)) {
+					if (!value || typeof value !== 'object') continue;
+					const entry = value as Partial<PurgedPlaylist>;
+					if (!entry.videos || typeof entry.videos !== 'object') continue;
+					const videos: Record<string, VideoRecord> = {};
+					for (const [videoId, video] of Object.entries(entry.videos)) {
+						if (video && typeof video === 'object') videos[videoId] = video;
+					}
+					playlists[playlistId] = {
+						title: typeof entry.title === 'string' ? entry.title : playlistId,
+						fileName: typeof entry.fileName === 'string' ? entry.fileName : playlistId,
+						videos,
+					};
+				}
+			}
+			return { version: 1, playlists };
+		} catch (err) {
+			console.error('Lifeline: could not read state_purged.json, starting with an empty archive', err);
+			if (raw) {
+				// Keep the unreadable copy next to the original rather than
+				// letting the next save overwrite history silently.
+				try {
+					const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+					await adapter.write(`${path}.corrupt-${stamp}`, raw);
+				} catch (copyErr) {
+					console.error('Lifeline: could not preserve the corrupt archive', copyErr);
+				}
+			}
+			return createDefaultPurgedState();
+		}
+	}
+
+	/** Persist the archive. Throws so purge/restore can refuse to half-apply. */
+	async savePurgedState(): Promise<void> {
+		await this.app.vault.adapter.write(
+			this.purgedStateFilePath(),
+			JSON.stringify(this.purgedState, null, '\t'),
+		);
+	}
+
+	/** Re-read the archive from disk, picking up an external wipe or edit. */
+	async reloadPurgedState(): Promise<void> {
+		this.purgedState = await this.loadPurgedState();
 	}
 }

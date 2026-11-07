@@ -19,6 +19,8 @@ import {
 	type DashboardSections,
 	type ImageMode,
 	type PlaylistSummary,
+	type RemovedFilter,
+	type RemovedVideosMode,
 	type ShortsDetectionMode,
 	type ShortsFilter,
 	type VideoFieldSettings,
@@ -131,6 +133,60 @@ export const SHORTS_FILTER_OPTIONS: Array<{ value: ShortsFilter; label: string }
 	{ value: 'hide', label: 'Hide Shorts' },
 	{ value: 'only', label: 'Only Shorts' },
 ];
+
+/** Removed bullets are hidden in the views by default, which is what every
+ *  layout did before the filter existed. */
+export const DEFAULT_REMOVED_FILTER: RemovedFilter = 'hide';
+
+/** The three Removed in views choices, in segmented-control order. */
+export const REMOVED_FILTER_OPTIONS: Array<{ value: RemovedFilter; label: string }> = [
+	{ value: 'all', label: 'Everything' },
+	{ value: 'hide', label: 'Hide removed' },
+	{ value: 'only', label: 'Only removed' },
+];
+
+/** The global Removed videos in notes choices, in menu order. */
+export const REMOVED_MODE_OPTIONS: Array<{ value: RemovedVideosMode; label: string }> = [
+	{ value: 'keep', label: 'Keep' },
+	{ value: 'count', label: 'Count only' },
+];
+
+/** The per-playlist dropdown: '' means no override, follow the global mode. */
+export const REMOVED_OVERRIDE_OPTIONS: Array<{ value: '' | RemovedVideosMode; label: string }> = [
+	{ value: '', label: 'Same as global' },
+	...REMOVED_MODE_OPTIONS,
+];
+
+/** The default keeps removed videos in the note, because the note is the
+ *  user-facing backup artifact. */
+export const DEFAULT_REMOVED_MODE: RemovedVideosMode = 'keep';
+
+/** A stored or hand-edited mode that is not one of the two choices reads as
+ *  the default, so no renderer ever sees an unknown value. */
+export function normalizeRemovedMode(value: unknown): RemovedVideosMode {
+	return value === 'count' ? 'count' : 'keep';
+}
+
+/** Drop override entries that are not a real mode, keeping only explicit
+ *  playlist picks. */
+export function normalizeRemovedOverrides(value: unknown): Record<string, RemovedVideosMode> {
+	const source = value != null && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+	const next: Record<string, RemovedVideosMode> = {};
+	for (const [playlistId, mode] of Object.entries(source)) {
+		if (mode === 'keep' || mode === 'count') next[playlistId] = mode;
+	}
+	return next;
+}
+
+/** The mode one playlist note is rendered with: an explicit override wins,
+ *  otherwise the global choice. */
+export function resolveRemovedMode(
+	settings: Pick<LifelineSettings, 'removedVideosMode' | 'removedVideoOverrides'>,
+	playlistId: string,
+): RemovedVideosMode {
+	const override = settings.removedVideoOverrides?.[playlistId];
+	return override === 'keep' || override === 'count' ? override : normalizeRemovedMode(settings.removedVideosMode);
+}
 
 /** The three layout rows, in render order and in the order the notes appear
  *  in the vault. Each names the note it drives: a bare "Playlists" would read
@@ -359,6 +415,18 @@ export interface LifelineSettings {
 	/** How the video views and the dashboard feed treat Shorts. Read live at
 	 *  render time, so changing it needs no sync. */
 	shortsFilter: ShortsFilter;
+	/** How the video views treat removed bullets the note carries in Keep
+	 *  mode. Read live at render time, so changing it needs no sync. */
+	removedFilter: RemovedFilter;
+	/** What playlist notes do with videos that left the playlist upstream.
+	 *  Global default for every playlist note; `removedVideoOverrides` can
+	 *  change one playlist in either direction. Changing it rewrites the
+	 *  affected notes immediately, with no sync and no network. */
+	removedVideosMode: RemovedVideosMode;
+	/** Explicit per-playlist overrides of `removedVideosMode`, keyed by
+	 *  playlist id. A missing key follows the global mode, so changing the
+	 *  global choice still reaches every playlist without an explicit pick. */
+	removedVideoOverrides: Record<string, RemovedVideosMode>;
 	/** One-time bookkeeping: the first sync that made Shorts probes showed the
 	 *  disclosure Notice. Internal, not a settings row. */
 	shortsNoticeShown: boolean;
@@ -423,6 +491,9 @@ export const DEFAULT_SETTINGS: LifelineSettings = {
 	viewSortOrder: DEFAULT_VIEW_SORT_ORDER,
 	shortsDetection: DEFAULT_SHORTS_DETECTION,
 	shortsFilter: DEFAULT_SHORTS_FILTER,
+	removedFilter: DEFAULT_REMOVED_FILTER,
+	removedVideosMode: DEFAULT_REMOVED_MODE,
+	removedVideoOverrides: {},
 	shortsNoticeShown: false,
 	stylesFolder: '',
 	stylesFolderWritten: null,
