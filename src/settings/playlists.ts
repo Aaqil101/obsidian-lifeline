@@ -5,6 +5,8 @@
  */
 import { Notice, Setting, type SettingDefinitionGroup } from 'obsidian';
 import { renderCollectIdsPage } from './collectPage';
+import { removedVideosPage, rewriteRemovedNotes } from './removedVideos';
+import { normalizeRemovedMode, REMOVED_MODE_OPTIONS } from './types';
 import { authErrorMessage, group, noteParagraph, pageDefinition, renderRow, type SettingsHost } from './ui';
 
 /** Landing group: the two sub-page doors and the watch-later substitute. */
@@ -50,10 +52,28 @@ export function playlistsGroup(host: SettingsHost): SettingDefinitionGroup {
 		},
 	);
 
+	const removedVideos = renderRow(
+		'Removed videos in notes',
+		'What a playlist note does when a video leaves the playlist upstream. Keep writes it as a bullet after the live videos; Count only hides it and reports removed_count in the frontmatter. Override one playlist under Removed videos.',
+		(setting) => {
+			setting.addDropdown((dropdown) => {
+				for (const option of REMOVED_MODE_OPTIONS) dropdown.addOption(option.value, option.label);
+				dropdown.setValue(normalizeRemovedMode(settings.removedVideosMode));
+				dropdown.onChange(async (value) => {
+					settings.removedVideosMode = normalizeRemovedMode(value);
+					await host.plugin.saveSettings();
+					await rewriteRemovedNotes(host.plugin);
+				});
+			});
+		},
+	);
+
+	const removedPage = removedVideosPage(host);
+
 	return {
 		type: 'group',
 		heading: 'Playlists',
-		items: [toTrack, collect, watchLater],
+		items: [toTrack, collect, watchLater, removedVideos, removedPage],
 	};
 }
 

@@ -941,7 +941,24 @@ const playlistPages = (all) => {
   return out;
 };
 
-const listItems = (page) => toArr(page.file?.lists ?? page.lists);
+const isRemoved = (item) => {
+  const value = item ? item.removed : null;
+  return value === true || String(value).toLowerCase() === "true";
+};
+// Removed bullets are a backup, not dashboard content: never list, count, or
+// feed them. Their frontmatter still reports them, which is why the hidden
+// total below reads the counts rather than the bullets.
+const listItems = (page) => toArr(page.file?.lists ?? page.lists).filter((item) => !isRemoved(item));
+
+// A note without removed_mode predates the setting, when removed videos were
+// only counted, so a missing value means count.
+const removedMode = (page) => (page && page.removed_mode === "keep" ? "keep" : "count");
+
+// Only Count only mode hides removed videos. Keep mode draws them as bullets,
+// so adding removed_count there would count them twice (or as hidden at all).
+const hiddenCount = (page) =>
+  Number(page.unavailable_count ?? 0) +
+  (removedMode(page) === "count" ? Number(page.removed_count ?? 0) : 0);
 
 // The playlist date field arrives three ways: a wikilink (bullet dates were
 // written unconditionally as [[YYYY-MM-DD]] once), a bare ISO string (the
@@ -1587,7 +1604,7 @@ function sectionHeader() {
   for (const page of PAGES) {
     const items = listItems(page);
     videos += items.length;
-    hidden += Number(page.unavailable_count ?? 0) + Number(page.removed_count ?? 0);
+    hidden += hiddenCount(page);
     if (!since) continue;
     for (const item of items) {
       const ds = itemDate(item);
@@ -1643,7 +1660,7 @@ function sectionHeader() {
       const attention = [];
       for (const page of PAGES) {
         const un = Number(page.unavailable_count ?? 0);
-        const rm = Number(page.removed_count ?? 0);
+        const rm = removedMode(page) === "count" ? Number(page.removed_count ?? 0) : 0;
         if (un || rm) attention.push({ name: page.file.name, path: page.file.path, un: un, rm: rm });
       }
       attention.sort((a, b) => (b.un + b.rm) - (a.un + a.rm) || a.name.localeCompare(b.name));

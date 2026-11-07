@@ -80,7 +80,7 @@ The settings tab has five groups. Chevron rows open sub-pages.
 | **Google account** | Connection status and **Authenticate with Google** / **Re-authenticate**. Sub-page **Google credentials**: OAuth client ID, OAuth client secret, and a **Security notes** button. |
 | **Notes** | **Output folder**, **Journal folder**, **Identify Shorts**, sub-page **Video bullet fields**, sub-page **Views in notes**, **Styles folder**, **Script folder**, sub-page **Channels.md fields**, sub-page **Dashboard**. |
 | **Images** | **Channel avatars and banners**, **Video thumbnails** (each Off, Link, or Download), **Blurred thumbnails**, and **Images folder** (shown only while one of the two modes is Download). |
-| **Playlists** | Sub-page **Playlists to track**, sub-page **Get saved playlist IDs**, and **Watch later playlist**. |
+| **Playlists** | Sub-page **Playlists to track**, sub-page **Get saved playlist IDs**, **Watch later playlist**, **Removed videos in notes**, and sub-page **Removed videos**. |
 | **Sync** | **Sync interval (hours)** (default 20), **Quota soft limit** (default 8000), and **Sync now**. |
 
 Each sub-page has its own rows, described below.
@@ -154,8 +154,25 @@ Each video is a single list item with Dataview inline fields:
 - `date` is the day the video was added to the playlist.
 - Every playlist note, Watch Later included, has a `url` frontmatter field that opens the playlist on YouTube.
 - `saved: true` in frontmatter means the playlist was saved from another channel. `saved: false` means you created it. The owner channel decides the label, not the import path, so a playlist collected from the same page can still read `saved: false`.
-- Only watchable videos get a bullet. Private, deleted, and removed videos stay in `state.json`, so the backup keeps them. The frontmatter reports them as `unavailable_count` and `removed_count`. Both are always present, so `video_count - unavailable_count - removed_count` gives the number of bullets. A video that is both removed and unavailable counts once, under `removed`.
+- Only watchable videos get a bullet, except for removed videos in **Keep** mode (see below). Private and deleted videos stay in `state.json`, so the backup keeps them. The frontmatter reports them as `unavailable_count` and `removed_count`. Both are always present. In **Count only** mode, `video_count - unavailable_count - removed_count` gives the number of bullets. A video that is both removed and unavailable counts once, under `removed`, and never gets a bullet.
 - Age-restricted videos are blurred automatically by default, and any videos you list under **Blurred thumbnails** are blurred too. A video that is blurred for either reason carries `[sensitive:: true]`. Turning off **Blur age-restricted videos** keeps that field on age-restricted bullets but leaves them unblurred.
+
+### Removed videos
+
+A video that leaves a playlist upstream stays in `state.json` as part of the backup. **Playlists → Removed videos in notes** decides what the note does with it:
+
+```markdown
+- [title:: [Video Title](https://www.youtube.com/watch?v=abc123)] [channel:: [Blender Guru](https://www.youtube.com/channel/UCxyz)] [date:: 2026-01-05] [removed:: true] [removed_on:: 2026-02-14]
+```
+
+- **Keep** (default): the removed video stays in the note as a bullet after the live videos, marked `removed` and, when known, `removed_on`. Every other field stays as it was, the thumbnail is never downloaded again, and any local thumbnail already on disk is deleted. The bullet then carries `thumbnail_url` only, so its picture still draws online.
+- **Count only**: the bullet disappears and only `removed_count` reports it, which is how Lifeline behaved before this setting.
+
+Frontmatter records the resolved choice as `removed_mode: keep` or `removed_mode: count`, so a note is self-describing. **Playlists → Removed videos** lists every playlist as its own page. Open one to see the videos it lost, set its **Same as global / Keep / Count only** override, and **Purge** an entry: its bullet leaves the note and the full record moves to `state_purged.json` in the plugin folder. The entry still counts in `video_count` and `removed_count`; **Restore** moves it back so the bullet returns. Changing a mode, purging, or restoring rewrites the affected notes immediately, with no sync, no network, and no quota.
+
+`state_purged.json` is a view-only history of what you deleted, not a second backup. The Removed videos page has a **Clear archive** button. Clearing it, or deleting the file yourself, forgets those entries: they disappear from that page, can no longer be restored, and their contribution to `video_count` and `removed_count` drops on the next rewrite. Keep-mode bullets are unaffected, because archived entries were never drawn. A missing file is treated as an intentional wipe; a corrupt file is copied aside before the archive starts empty.
+
+`removed_on` follows the [journal rule](#journal-links), so it opens that day's note when the note exists. A video removed before this version has no `removed_on` field until it returns and is removed again. Unavailable videos stay count-only in both modes. The dashboard never draws a removed bullet, and the note views hide them by default but can show them with the **Removed** control (see [Views in notes](#views-in-notes)).
 
 ### Shorts
 
@@ -199,7 +216,7 @@ The note views draw `blocked` as a red **Blocked** badge and `upcoming` as an am
 - A date becomes `[[YYYY-MM-DD]]` only when that day's note exists somewhere under the journal folder, or when the date is today or later.
 - Otherwise the date stays plain text. A missing journal folder means every date stays plain.
 
-Dated fields are the playlist `date` and Watch Later `date`, plus Channels.md `subscribed_on`. `first_seen` and `last_seen` are sync bookkeeping and never link. The check runs at sync time, so the next sync after a daily note appears updates the links.
+Dated fields are the playlist `date` and Watch Later `date`, `removed_on` on a removed bullet, plus Channels.md `subscribed_on`. `first_seen` and `last_seen` are sync bookkeeping and never link. The check runs at sync time, so the next sync after a daily note appears updates the links.
 
 ## Dashboard note
 
@@ -209,7 +226,7 @@ The note holds frontmatter (`type`, `last_synced`, `channel_count`, `playlist_co
 
 - **Header:** a hero with the title, a status badge (**Synced**, **Synced with issues**, **Sync failed**, or **Never synced**), the last sync line with counts, and KPI chips for channels, playlists, videos, and **New since sync**. The first three chips open Channels.md or scroll to the playlists panel.
   - The hero shows the top four channel banners in a mosaic by default. Under **Dashboard → Hero banner**, you can pick one channel instead, and its banner fills the hero. **Banner crop** sets which part of a wide banner stays in view. Click a point on the preview, or focus it and use the arrow keys (Shift for bigger steps, Home to recenter). Both settings apply without a sync.
-  - Two panels sit under the hero, side by side: **New since last sync** lists videos added on or after the last sync date, and **Needs attention** lists playlists with hidden, unavailable, or removed entries. It shows **All clear** when there are none. The feed follows **Shorts in views** (under **Views in notes**): Hide Shorts or Only Shorts filters the video rows before the **Feed entries** limit, the **New since sync** chip counts the same filtered list, and every Short row shown carries a small Shorts tag. New playlist rows are never filtered.
+  - Two panels sit under the hero, side by side: **New since last sync** lists videos added on or after the last sync date, and **Needs attention** lists playlists with unavailable entries, plus removed entries while a playlist is in **Count only** mode. It shows **All clear** when there are none. Removed bullets are never listed or counted as videos. The feed follows **Shorts in views** (under **Views in notes**): Hide Shorts or Only Shorts filters the video rows before the **Feed entries** limit, the **New since sync** chip counts the same filtered list, and every Short row shown carries a small Shorts tag. New playlist rows are never filtered.
 - **Playlists:** a **Table / Cards** pill toggle. Cards show the newest playlists with covers. Table lists them alphabetically, with Watch Later pinned first. Both modes stop at **Playlist cards** (default 6).
 - **Top channels:** the same toggle. Cards show banner, avatar, handle, and counts. Table lists channels by subscribers. Both modes stop at **Top channels** (default 10).
 
@@ -244,13 +261,14 @@ Every view has a toolbar:
 - **Search** filters entries as you type. The field box beside it sets what it searches: all fields, or a single field such as name, handle, ID, country, or status for channels, and title, channel, added date, or published date for videos. The placeholder names the field. The count sits inside the search box. It shows `10 / 76` and expands to `Showing 10 of 76 channels` on hover.
 - **Layout control** (Poster, Chips, Table) switches the view immediately, with no sync. It writes the same per-note-type setting as the Notes dropdowns, so every open view of that type follows it.
 - **Shorts control** (All, Videos, Shorts) appears in the video views once the note carries a `short` field. It filters the rows, the search count, and the paging immediately, and writes **Shorts in views** (under **Views in notes**) so the dashboard feed and every open video view follow with no sync. **All** is the default, so nothing is hidden until you choose otherwise. It stays hidden on Channels.md and on a note where **Identify Shorts** has not classified anything yet.
+- **Removed control** (All, Live, Removed) appears in the video views once the note carries a `removed` bullet, which a playlist in **Keep** mode writes. **Live** (the default) hides removed videos, **All** shows them beside the live ones, and **Removed** shows only them. It filters the rows, the search count, and the paging immediately, and writes **Removed in views** (under **Views in notes**) so every open video view follows with no sync. It stays hidden on Channels.md, on a note in **Count only** mode, and on a note whose removed entries were all purged.
 - **Sort order** (under **Views in notes**) sets the order by date: **Newest first** (default) or **Oldest first**. Entries without a date go last. This setting is read at render time.
 - **Refresh entries** (icon only) re-reads the note's bullets, for when you edit them by hand.
 - A count such as `Showing 10 of 412 channels`, or `Found 3 of 412 channels` while searching.
 
 Each view paints one page of entries and puts the rest behind a **Show more** button. The page holds 10 entries by default. Change it with **Items per page**, and it takes effect on the next render.
 
-The views read the note's own list entries (`dv.current().file.lists`), so they always match the bullets beneath them. Dates that are journal links stay clickable in the views: the Cinema pill, Ticket stub, Ledger Added column, Split `subscribed since` date, and Cover rows Tracked dates all open that note.
+The views read the note's own list entries (`dv.current().file.lists`), so they always match the bullets beneath them. Removed bullets stay in the note as backup; the **Removed** control hides them by default, and a purged entry is never drawn because it is no longer in the note. Dates that are journal links stay clickable in the views: the Cinema pill, Ticket stub, Ledger Added column, Split `subscribed since` date, and Cover rows Tracked dates all open that note.
 
 The stylesheets, one per note type, are regenerated on every sync while the views are on. Each script reads its CSS file when it renders, so a missing file leaves that view unstyled but still working. Hand edits to the CSS are overwritten.
 
@@ -269,7 +287,7 @@ Each setting has three modes:
 
 - **Off** (default): no image fields. The notes are byte-for-byte what Lifeline wrote before this option existed.
 - **Link**: the bullet carries the remote URL, for example `[thumbnail_url:: https://i.ytimg.com/vi/abc123/mqdefault.jpg]`. The view loads it from Google's image hosts (`yt3.ggpht.com` for avatars and banners, `i.ytimg.com` for thumbnails) **every time the view renders**. That is one request per render, and it tells those hosts which note you opened.
-- **Download**: Lifeline fetches each image **once, during sync**, checks the bytes are really an image (JPEG, PNG, GIF, or WebP), and saves it. The bullet then also carries a local wikilink, for example `[avatar:: [[Blender Guru_UCxyz_avatar.jpg]]]`, `[banner:: [[Blender Guru_UCxyz_banner.jpg]]]`, or `[thumbnail:: [[Some Channel_abc123_Video Title_abc123.jpg]]]`. The view prefers the local file, so nothing is requested when you open a note. Images already on disk are never fetched again. Banners are large, often 100-300 KB each.
+- **Download**: Lifeline fetches each image **once, during sync**, checks the bytes are really an image (JPEG, PNG, GIF, or WebP), and saves it. The bullet then also carries a local wikilink, for example `[avatar:: [[Blender Guru_UCxyz_avatar.jpg]]]`, `[banner:: [[Blender Guru_UCxyz_banner.jpg]]]`, or `[thumbnail:: [[Some Channel_abc123_Video Title_abc123.jpg]]]`. The view prefers the local file, so nothing is requested when you open a note. Images already on disk are never fetched again. Banners are large, often 100-300 KB each. A removed or unavailable video's downloaded thumbnail is deleted on the next sync, and its bullet keeps only `thumbnail_url`.
 
 Where Download saves files:
 

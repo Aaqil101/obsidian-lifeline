@@ -83,15 +83,54 @@ import {
 	type SyncStatus,
 	type VideoRecord,
 } from './types';
-import type { LifelineSettings } from './settings/types';
+import {
+	archivedCount,
+	archivedTotal,
+	clearArchive,
+	pruneReturnedVideos,
+	purgeVideoToArchive,
+	restoreVideoFromArchive,
+} from './purgedState';
+import { resolveRemovedMode, type LifelineSettings } from './settings/types';
 import type LifelinePlugin from './main';
 
 let inFlight: Promise<SyncRunResult> | null = null;
 
+/** Serializes archive mutations with sync, so a reload cannot clobber a
+ *  purge that has not hit disk yet. */
+let archiveLock: Promise<void> | null = null;
+
+async function waitForArchiveOperation(): Promise<void> {
+	while (archiveLock) {
+		try {
+			await archiveLock;
+		} catch {
+			// The operation reports its own failure.
+		}
+	}
+}
+
+async function withArchiveLock<T>(fn: () => Promise<T>): Promise<T> {
+	await waitForArchiveOperation();
+	let release!: () => void;
+	archiveLock = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	try {
+		return await fn();
+	} finally {
+		archiveLock = null;
+		release();
+	}
+}
+
 /** Deduplicated sync entry point used by the command, ribbon, and auto-sync. */
 export function runSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 	if (inFlight) return inFlight;
-	const promise = doSync(plugin).finally(() => {
+	const promise = (async () => {
+		await waitForArchiveOperation();
+		return doSync(plugin);
+	})().finally(() => {
 		inFlight = null;
 	});
 	inFlight = promise;
@@ -150,6 +189,9 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 	const paths = outputPaths(plugin.settings.outputFolder, plugin.settings.imagesFolder);
 	const quota = new QuotaTracker(plugin.settings.quotaSoftLimit);
 	const state = plugin.state;
+	// Re-read the archive each run so deleting state_purged.json outside the
+	// app counts as an intentional wipe on this sync.
+	await plugin.reloadPurgedState();
 	const unset = unsetFolders(plugin.settings);
 	if (unset.length > 0) {
 		errors.push(
@@ -326,6 +368,16 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 			}
 		}
 
+		// A video that came back is live again; drop any stale archive copy so
+		// it is not counted twice and Restore cannot resurrect it.
+		if (pruneReturnedVideos(plugin.purgedState, state)) {
+			try {
+				await plugin.savePurgedState();
+			} catch (err) {
+				errors.push(recordError(err, 'state_purged'));
+			}
+		}
+
 		// --- channel faces for playlist owners absent from Channels.md --------
 		// A channel you do not subscribe to has no row for the video views to
 		// join a face from, so they would fall back to the letter badge. Pruned
@@ -443,6 +495,29 @@ interface WriteContext {
 	imagesDownloaded: number;
 }
 
+/**
+ * One playlist note's text. Shared by the sync write path and the offline
+ * rewrite, so both always resolve the Shorts gate, the field checklist, and
+ * the removed-video mode the same way.
+ */
+function playlistNoteContent(
+	plugin: LifelinePlugin,
+	playlistId: string,
+	record: PlaylistRecord,
+	now: Date,
+	viewBlock: string | undefined,
+	images: BulletImages,
+	journal: JournalDates | undefined,
+	archived: number,
+): string {
+	return renderPlaylistNote(playlistId, record.title, record, now, viewBlock, images, journal, {
+		shorts: plugin.settings.shortsDetection !== 'off',
+		fields: plugin.settings.videoFields,
+		removedMode: resolveRemovedMode(plugin.settings, playlistId),
+		archivedCount: archived,
+	});
+}
+
 function buildTargets(
 	plugin: LifelinePlugin,
 	playlistsOk: boolean,
@@ -510,7 +585,13 @@ function applyPlaylistDiff(
 
 	const seen = new Set(items.map((item) => item.videoId));
 	for (const [videoId, video] of Object.entries(record.videos)) {
-		if (!seen.has(videoId)) video.removed = true;
+		if (!seen.has(videoId)) {
+			// Stamp only the transition into "removed". A record that was
+			// already removed before this field existed keeps its unknown date
+			// rather than being backfilled with the current run's day.
+			if (!video.removed) video.removedOn = today;
+			video.removed = true;
+		}
 	}
 	for (const item of items) {
 		const existing = record.videos[item.videoId];
@@ -522,6 +603,9 @@ function applyPlaylistDiff(
 			existing.published = item.published || existing.published;
 			existing.position = item.position;
 			existing.removed = false;
+			// A video that came back is live again, so the marker and its date
+			// both disappear on the rewrite. Any archive copy is pruned too.
+			delete existing.removedOn;
 			existing.unavailable = item.unavailable;
 		} else {
 			record.videos[item.videoId] = {
@@ -738,8 +822,13 @@ async function collectChannelFaces(
 	const wanted = new Map<string, string>();
 	for (const [playlistId, record] of Object.entries(state.playlists)) {
 		if (!trackedIds.has(playlistId)) continue;
+		// Keep-mode removed bullets draw the same channel face a live one does,
+		// so their channels stay in the set (and their known avatar survives
+		// the prune). Count-only removed entries are not drawn, so they cost
+		// nothing here.
+		const keepRemoved = resolveRemovedMode(plugin.settings, playlistId) === 'keep';
 		for (const video of Object.values(record.videos)) {
-			if (video.removed || video.unavailable || !video.channelId) continue;
+			if ((!keepRemoved && video.removed) || video.unavailable || !video.channelId) continue;
 			// A channel with a Channels.md row is joined by the view from there.
 			if (state.channels[video.channelId]) continue;
 			if (!wanted.has(video.channelId)) wanted.set(video.channelId, video.channelTitle);
@@ -821,10 +910,6 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 	const watchLaterView = viewsReady
 		? dataviewBlock(viewCall(noteViewViewName('watchlater', folder), { layout: layouts.watchlater }))
 		: undefined;
-	// Identify Shorts gates the bullet fields the same way the image modes gate
-	// theirs: the data is in the note, and the view only draws it.
-	const shortsOn = plugin.settings.shortsDetection !== 'off';
-
 	// Thumbnails download in batches, each just before the note that shows
 	// it: channel images first (Channels.md needs them), then each playlist's
 	// own folder inside the loop below. A bullet names the local copy only
@@ -847,24 +932,7 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 	// at load, so the setting always names a folder after onload. Recursion
 	// is free: basenames are vault-wide-wikilinkable either way, and
 	// year/month daily-note layouts get picked up as well.
-	const journalFolder = normalizeFolder(plugin.settings.journalFolder);
-	let journal: JournalDates | undefined;
-	if (journalFolder) {
-		// A vault-root journal ('/') reads its direct children (paths with no
-		// separator, the rule this always applied); any other folder is walked
-		// recursively, and a folder missing from the vault yields an empty set,
-		// exactly like a prefix scan that matched nothing. Nothing else in the
-		// vault is listed.
-		const names = new Set<string>();
-		if (journalFolder === '/') {
-			for (const child of vault.getRoot().children) {
-				if (child instanceof TFile && child.extension === 'md') names.add(child.basename);
-			}
-		} else {
-			for (const file of markdownUnder(vault.getFolderByPath(journalFolder))) names.add(file.basename);
-		}
-		journal = { names, today: formatDate(ctx.now) };
-	}
+	const journal = collectJournalDates(vault, plugin.settings, ctx.now);
 	// Where the error list stands before any note write: the legacy-script
 	// cleanup below may only run once every note has been rewritten onto the
 	// current view names, and a failed write leaves its note pointing at the
@@ -907,24 +975,19 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 					channels: ctx.state.faces,
 				},
 			};
+			const archived = archivedCount(plugin.purgedState, ctx.state, playlistId);
 			if (playlistId === ctx.watchLaterId) {
 				await writeNote(
 					vault,
 					ctx.paths.watchLater,
-					renderPlaylistNote(playlistId, record.title, record, ctx.now, watchLaterView, videoImages, journal, {
-						shorts: shortsOn,
-						fields: plugin.settings.videoFields,
-					}),
+					playlistNoteContent(plugin, playlistId, record, ctx.now, watchLaterView, videoImages, journal, archived),
 				);
 			} else {
 				const path = `${ctx.paths.playlistsFolder}/${record.fileName}.md`;
 				await writeNote(
 					vault,
 					path,
-					renderPlaylistNote(playlistId, record.title, record, ctx.now, playlistView, videoImages, journal, {
-						shorts: shortsOn,
-						fields: plugin.settings.videoFields,
-					}),
+					playlistNoteContent(plugin, playlistId, record, ctx.now, playlistView, videoImages, journal, archived),
 				);
 				const previous = ctx.previousFiles.get(playlistId);
 				if (previous && previous !== record.fileName) {
@@ -967,6 +1030,7 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 				syncedAt: ctx.now,
 				status,
 				scriptsFolder: plugin.settings.dashboardScriptsFolder,
+				archivedVideoCount: archivedTotal(plugin.purgedState, ctx.state, ctx.trackedIds),
 			}));
 		} catch (err) {
 			ctx.errors.push(recordError(err, ctx.paths.dashboard));
@@ -978,6 +1042,229 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 			ctx.errors.push(recordError(err, ctx.paths.dashboard));
 		}
 	}
+}
+
+/**
+ * Rewrite playlist notes without a sync: no network, no quota, no sync log.
+ * Used when a removed-video mode changes or a removed video is purged, so the
+ * note reflects the choice immediately instead of waiting for the next run.
+ * `last_synced` keeps the last sync's time, and only already-downloaded images
+ * are named, so the rewrite never downloads anything.
+ */
+export async function rewritePlaylistNotes(
+	plugin: LifelinePlugin,
+	playlistIds?: string[],
+): Promise<{ rewritten: number; errors: SyncErrorRecord[] }> {
+	const unset = unsetFolders(plugin.settings);
+	if (unset.length > 0) {
+		throw new SyncError('io', 'settings', `Set these folders in Lifeline settings first: ${unset.join(', ')}.`);
+	}
+	const settings = plugin.settings;
+	const state = plugin.state;
+	const vault = plugin.app.vault;
+	const paths = outputPaths(settings.outputFolder, settings.imagesFolder);
+	// The last sync's time, not the clock: an offline rewrite must not make the
+	// note claim it was synced just now.
+	const now = state.lastSync ? new Date(state.lastSync.at) : new Date();
+	const journal = collectJournalDates(vault, settings);
+	const errors: SyncErrorRecord[] = [];
+
+	// The generated scripts are rewritten too when their features are on, so
+	// an upgraded install's older script also learns to skip removed bullets
+	// before the next sync.
+	if (settings.noteViews) {
+		try {
+			await writeNoteViewScripts(plugin, (err, path) => errors.push(recordError(err, path)));
+		} catch (err) {
+			errors.push(recordError(err, 'note view scripts'));
+		}
+	}
+	if (settings.dashboardNote) {
+		try {
+			await writeDashboardScript(plugin);
+		} catch (err) {
+			errors.push(recordError(err, dashboardScriptPath(settings.dashboardScriptsFolder)));
+		}
+	}
+
+	const viewsReady = settings.noteViews && isDataviewEnabled(plugin.app);
+	const folder = settings.dashboardScriptsFolder;
+	const layouts = settings.noteLayouts;
+	const playlistView = viewsReady
+		? dataviewBlock(viewCall(noteViewViewName('playlists', folder), { layout: layouts.playlists }))
+		: undefined;
+	const watchLaterView = viewsReady
+		? dataviewBlock(viewCall(noteViewViewName('watchlater', folder), { layout: layouts.watchlater }))
+		: undefined;
+	const blurred = blurredVideoIds(state.playlists, settings.blurredThumbnailVideos);
+	const channelAvailable = await localChannelImageBases(plugin, paths);
+
+	const tracked = offlineTrackedIds(settings, state);
+	const ids = (playlistIds ?? Array.from(tracked))
+		.map((id) => ({ id, record: state.playlists[id] }))
+		.filter(
+			(entry): entry is { id: string; record: PlaylistRecord } =>
+				tracked.has(entry.id) && entry.record !== undefined,
+		);
+	let rewritten = 0;
+	for (const { id: playlistId, record } of ids) {
+		const available = await localPlaylistImageBases(plugin, paths, record);
+		const images: BulletImages = {
+			mode: settings.videoThumbnails,
+			available,
+			blurred,
+			faces: {
+				mode: settings.channelAvatars,
+				available: channelAvailable,
+				channels: state.faces,
+			},
+		};
+		const viewBlock = playlistId === settings.watchLaterPlaylistId ? watchLaterView : playlistView;
+		const path =
+			playlistId === settings.watchLaterPlaylistId
+				? paths.watchLater
+				: `${paths.playlistsFolder}/${record.fileName}.md`;
+		try {
+			await writeNote(
+				vault,
+				path,
+				playlistNoteContent(
+					plugin,
+					playlistId,
+					record,
+					now,
+					viewBlock,
+					images,
+					journal,
+					archivedCount(plugin.purgedState, state, playlistId),
+				),
+			);
+			rewritten++;
+		} catch (err) {
+			errors.push(recordError(err, `note ${record.title}`));
+		}
+	}
+	return { rewritten, errors };
+}
+
+/** Ids whose notes a rewrite may touch: the tracked set, resolved offline. */
+export function offlineTrackedIds(settings: LifelineSettings, state: SyncState): Set<string> {
+	const ids =
+		settings.trackedPlaylists === null
+			? Object.keys(state.playlists)
+			: [...(settings.trackedPlaylists ?? [])];
+	const tracked = new Set(ids);
+	if (settings.watchLaterPlaylistId) tracked.add(settings.watchLaterPlaylistId);
+	return tracked;
+}
+
+/** Wait for a running sync to finish before rewriting, so two writers never
+ *  race over the same note. A failed run is still awaited; its notes are on
+ *  disk and the rewrite is the newer intent. */
+export async function waitForSync(): Promise<void> {
+	const running = inFlight;
+	if (!running) return;
+	try {
+		await running;
+	} catch {
+		// The rewrite still runs; doSync reports its own failure.
+	}
+}
+
+/** Downloaded channel image base names, from disk only. */
+async function localChannelImageBases(
+	plugin: LifelinePlugin,
+	paths: OutputPaths,
+): Promise<ReadonlySet<string>> {
+	if (plugin.settings.channelAvatars !== 'download') return NO_THUMBNAILS;
+	const vault = plugin.app.vault;
+	return new Set<string>([...(await listBases(vault, paths.avatars)), ...(await listBases(vault, paths.banners))]);
+}
+
+/** One playlist's downloaded thumbnail base names, from disk only. */
+async function localPlaylistImageBases(
+	plugin: LifelinePlugin,
+	paths: OutputPaths,
+	record: PlaylistRecord,
+): Promise<ReadonlySet<string>> {
+	if (plugin.settings.videoThumbnails !== 'download') return NO_THUMBNAILS;
+	return listBases(plugin.app.vault, `${paths.thumbnails}/${record.fileName}`);
+}
+
+/**
+ * Move one removed video out of state.json into the purged archive, then
+ * rewrite its note. The bullet disappears, but the entry still counts in the
+ * frontmatter until the archive itself is cleared. Returns false when there
+ * was nothing to purge.
+ */
+export async function purgeRemovedVideo(
+	plugin: LifelinePlugin,
+	playlistId: string,
+	videoId: string,
+): Promise<boolean> {
+	await waitForSync();
+	return withArchiveLock(async () => {
+		if (!purgeVideoToArchive(plugin.purgedState, plugin.state, playlistId, videoId)) return false;
+		try {
+			await plugin.savePurgedState();
+		} catch (err) {
+			// Put the record back so a failed archive write cannot lose it.
+			restoreVideoFromArchive(plugin.purgedState, plugin.state, playlistId, videoId);
+			throw err;
+		}
+		await plugin.saveState();
+		const result = await rewritePlaylistNotes(plugin, [playlistId]);
+		const first = result.errors[0];
+		if (first) throw new Error(`${first.resource}: ${first.message}`);
+		return true;
+	});
+}
+
+/**
+ * Move one archived video back into state.json as a removed entry, so its
+ * bullet returns in Keep mode. The archive save is best effort: if it fails
+ * after state was written, the duplicate is pruned on the next load/sync.
+ */
+export async function restoreRemovedVideo(
+	plugin: LifelinePlugin,
+	playlistId: string,
+	videoId: string,
+): Promise<boolean> {
+	await waitForSync();
+	return withArchiveLock(async () => {
+		if (!restoreVideoFromArchive(plugin.purgedState, plugin.state, playlistId, videoId)) return false;
+		await plugin.saveState();
+		try {
+			await plugin.savePurgedState();
+		} catch (err) {
+			console.error('Lifeline: could not update state_purged.json after restore', err);
+		}
+		const result = await rewritePlaylistNotes(plugin, [playlistId]);
+		const first = result.errors[0];
+		if (first) throw new Error(`${first.resource}: ${first.message}`);
+		return true;
+	});
+}
+
+/**
+ * Wipe the archive. Counts drop on the rewrite, because the archive is the
+ * only place those entries lived; Keep-mode bullets are unaffected because
+ * archived entries were never drawn.
+ */
+export async function clearPurgedArchive(plugin: LifelinePlugin): Promise<number> {
+	await waitForSync();
+	return withArchiveLock(async () => {
+		const cleared = Object.values(plugin.purgedState.playlists).reduce(
+			(sum, entry) => sum + Object.keys(entry.videos).length,
+			0,
+		);
+		clearArchive(plugin.purgedState);
+		await plugin.savePurgedState();
+		const result = await rewritePlaylistNotes(plugin);
+		const first = result.errors[0];
+		if (first) throw new Error(`${first.resource}: ${first.message}`);
+		return cleared;
+	});
 }
 
 /**
@@ -1152,6 +1439,26 @@ export async function writeNoteViewScripts(
 }
 
 /**
+ * The journal-name set both the sync and an offline note rewrite use. '' or
+ * an absent folder means no links at all; '/' reads the vault root's direct
+ * children, anything else is walked recursively. `today` is the render day, so
+ * a date on or after it links even before its daily note exists.
+ */
+function collectJournalDates(vault: Vault, settings: LifelineSettings, today: Date = new Date()): JournalDates | undefined {
+	const journalFolder = normalizeFolder(settings.journalFolder);
+	if (!journalFolder) return undefined;
+	const names = new Set<string>();
+	if (journalFolder === '/') {
+		for (const child of vault.getRoot().children) {
+			if (child instanceof TFile && child.extension === 'md') names.add(child.basename);
+		}
+	} else {
+		for (const file of markdownUnder(vault.getFolderByPath(journalFolder))) names.add(file.basename);
+	}
+	return { names, today: formatDate(today) };
+}
+
+/**
  * Every markdown file at or under a folder, in tree order, and nothing when
  * the folder isn't in the vault. Walks `children`, so a scan stays scoped to
  * the folder it is about instead of listing every file in the vault.
@@ -1235,6 +1542,7 @@ export async function writeDashboardNote(plugin: LifelinePlugin): Promise<string
 		syncedAt: last ? new Date(last.at) : new Date(),
 		status: last?.status ?? null,
 		scriptsFolder: plugin.settings.dashboardScriptsFolder,
+		archivedVideoCount: archivedTotal(plugin.purgedState, plugin.state, trackedIds),
 	});
 	await writeNote(plugin.app.vault, paths.dashboard, content);
 	return paths.dashboard;
@@ -1566,17 +1874,30 @@ async function collectPlaylistThumbnails(
 
 	const present = await listBases(vault, folder);
 	const wanted: ThumbnailJob[] = [];
+	const stale: string[] = [];
 	for (const [videoId, video] of Object.entries(record.videos)) {
-		// The same set the bullets come from: never fetch for a hidden entry.
-		if (video.removed || video.unavailable) continue;
-		wanted.push({
-			folder,
-			base: videoImageBase(video.channelTitle, video.title, videoId),
-			url: videoThumbnailUrl(videoId),
-		});
+		const base = videoImageBase(video.channelTitle, video.title, videoId);
+		// Removed and unavailable entries never draw a bullet picture from a
+		// local file, so their downloaded copy is dead weight. Drop it from the
+		// present set (so the bullet gets the remote URL only) and delete the
+		// file, which also frees space for a video that may never return.
+		if (video.removed || video.unavailable) {
+			if (present.delete(base)) stale.push(base);
+			continue;
+		}
+		wanted.push({ folder, base, url: videoThumbnailUrl(videoId) });
 	}
 	const jobs = await takeJobs(vault, run, thumbnails, wanted, present);
 	for (const base of await fetchBatch(vault, run, jobs)) present.add(base);
+	// Deleting after the fetch loop keeps the run's own list stable; a failed
+	// delete is harmless, because the renderer already refuses the local field.
+	for (const base of stale) {
+		try {
+			await vault.adapter.remove(`${folder}/${base}.jpg`);
+		} catch {
+			// Already gone or locked: the bullet still names only the URL.
+		}
+	}
 	return present;
 }
 

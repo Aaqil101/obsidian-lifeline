@@ -27,6 +27,8 @@ export {
 	DEFAULT_SETTINGS,
 	DEFAULT_NOTE_LAYOUTS,
 	expandLegacyLayout,
+	normalizeRemovedMode,
+	normalizeRemovedOverrides,
 	normalizeStoredLayouts,
 	type LifelineSettings,
 	type NoteLayout,

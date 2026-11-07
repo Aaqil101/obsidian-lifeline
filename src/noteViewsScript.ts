@@ -1729,9 +1729,9 @@ const resetKindCache = () => {
 // image field), then the remote URL, then nothing at all.
 const mdFace = (item) => {
   if (!item) return null;
-  const local = imageField(item.avatar);
-  if (local) return { local: true, target: local };
   const remote = imageField(item.avatar_url);
+  const local = imageField(item.avatar);
+  if (local) return { local: true, target: local, remote };
   return remote ? { local: false, target: remote } : null;
 };
 
@@ -1741,13 +1741,13 @@ const mdFace = (item) => {
 // embed path is kept for notes written before the fields existed.
 const mdThumb = (item) => {
   if (!item) return null;
-  const local = imageField(item.thumbnail);
-  if (local) return { local: true, target: local };
   const remote = imageField(item.thumbnail_url);
+  const local = imageField(item.thumbnail);
+  if (local) return { local: true, target: local, remote };
   if (remote) return { local: false, target: remote };
   const s = item.text != null ? String(item.text) : "";
   const oldLocal = /!\\[\\[([^\\]|]+)(?:\\|[^\\]]*)?\\]\\]/.exec(s);
-  if (oldLocal) return { local: true, target: oldLocal[1].trim() };
+  if (oldLocal) return { local: true, target: oldLocal[1].trim(), remote };
   const oldRemote = /!\\[\\]\\(([^)]+)\\)/.exec(s);
   return oldRemote ? { local: false, target: oldRemote[1] } : null;
 };
@@ -1832,7 +1832,8 @@ const posterCard = (item) => {
   const link = mdLink(item.title);
   const channel = mdLink(item.channel);
   const node = el("article", "lv-poster-card lv-poster-cinema");
-  const bannerSrc = imageSrc(mdThumb(item));
+  const thumbData = mdThumb(item);
+  const bannerSrc = imageSrc(thumbData);
   const banner = el("div", "lv-poster-banner");
   if (!bannerSrc) banner.classList.add("lv-cine-noimg");
 
@@ -1842,8 +1843,10 @@ const posterCard = (item) => {
     img.alt = "";
     img.loading = "lazy";
     img.addEventListener("error", () => {
-      img.remove();
-      banner.classList.add("lv-cine-noimg");
+      handleImageError(img, thumbData, () => {
+        img.remove();
+        banner.classList.add("lv-cine-noimg");
+      });
     });
     softened(item, img);
     banner.appendChild(img);
@@ -2125,6 +2128,13 @@ await ensureStyle();
 
 // List entries of the calling note, in document order: channels are already
 // alphabetical and playlist entries already in playlist position order.
+// Removed videos stay in the note as a backup in Keep mode. They are read here
+// and filtered later by the Removed control, which defaults to hiding them, so
+// a note whose filter is untouched draws exactly as it did before the control.
+const isRemoved = (item) => {
+  const value = item ? item.removed : null;
+  return value === true || String(value).toLowerCase() === "true";
+};
 const listEntries = () => {
   const current = dv.current();
   return toArr(current && current.file ? current.file.lists : current ? current.lists : null);
@@ -2270,8 +2280,10 @@ const imageField = (v) =>
       : String(v).trim();
 const mdImage = (item) => {
   if (!item) return null;
-  const local = imageField(item.avatar) || imageField(item.thumbnail);
-  if (local) return { local: true, target: local };
+  const localAvatar = imageField(item.avatar);
+  if (localAvatar) return { local: true, target: localAvatar, remote: imageField(item.avatar_url) };
+  const localThumb = imageField(item.thumbnail);
+  if (localThumb) return { local: true, target: localThumb, remote: imageField(item.thumbnail_url) };
   const remote = imageField(item.avatar_url) || imageField(item.thumbnail_url);
   if (remote) return { local: false, target: remote };
   // Bullets written before the fields existed can still carry an embed; read
@@ -2291,9 +2303,9 @@ const mdImage = (item) => {
 // legacy-embed path, because bullets never carried a banner embed.
 const mdBanner = (item) => {
   if (!item) return null;
-  const local = imageField(item.banner);
-  if (local) return { local: true, target: local };
   const remote = imageField(item.banner_url);
+  const local = imageField(item.banner);
+  if (local) return { local: true, target: local, remote };
   if (remote) return { local: false, target: remote };
   return null;
 };
@@ -2347,15 +2359,36 @@ const imageSrc = (img, fromPath) => {
       from = current && current.file ? current.file.path : "";
     }
     const file = app.metadataCache.getFirstLinkpathDest(img.target, from);
-    return file ? app.vault.getResourcePath(file) : null;
+    if (file) return app.vault.getResourcePath(file);
+    // The downloaded copy was deleted (a removed video's thumbnail, or any
+    // file the user cleaned up) while the bullet still names it. The remote
+    // field is the fallback, so a stale bullet keeps its picture online
+    // instead of dropping to the letter.
+    return img.remote || null;
   } catch (err) {
-    return null;
+    return img.remote || null;
   }
 };
 
 const initialOf = (label) => {
   const s = label == null ? "" : String(label).trim();
   return s ? s.charAt(0).toUpperCase() : "?";
+};
+
+// A remote URL is the safety net for a local file that has gone away: the
+// downloaded copy of a removed video is deleted during sync, and a note view
+// can still hold the previous rows until Refresh is clicked. One error is
+// retried against the remote field before the layout gives up and draws its
+// letter, so a stale local reference never hides a picture the URL can serve.
+const remoteFallback = (data) => (data && data.local && data.remote ? data.remote : "");
+const handleImageError = (img, data, onDead) => {
+  const remote = remoteFallback(data);
+  if (remote && img.dataset.remoteTried !== "1") {
+    img.dataset.remoteTried = "1";
+    img.src = remote;
+    return;
+  }
+  onDead();
 };
 
 // The entry's image, or null when the bullet carries no image fields (both
@@ -2368,7 +2401,8 @@ const initialOf = (label) => {
 // their own thumbnail reader, because a video bullet can carry a channel
 // avatar too and mdImage() would rather draw that than the video's own art.
 const thumb = (item, label, pick) => {
-  const src = imageSrc((pick || mdImage)(item));
+  const data = (pick || mdImage)(item);
+  const src = imageSrc(data);
   if (!src) return null;
   const box = el("div", "lv-thumb");
   const img = document.createElement("img");
@@ -2376,7 +2410,9 @@ const thumb = (item, label, pick) => {
   img.alt = label == null ? "" : String(label);
   img.loading = "lazy";
   img.addEventListener("error", () => {
-    box.textContent = initialOf(label);
+    handleImageError(img, data, () => {
+      box.textContent = initialOf(label);
+    });
   });
   softened(item, img);
   box.appendChild(img);
@@ -2484,6 +2520,15 @@ const liveShortsFilter = () => {
   return value === "hide" || value === "only" ? value : "all";
 };
 
+// Read at render time too. Hide is the fallback, matching the views before the
+// control existed, so a missing or hand-edited value never draws a removed
+// bullet the user did not ask for.
+const liveRemovedFilter = () => {
+  const plugin = pluginInstance();
+  const value = plugin && plugin.settings ? plugin.settings.removedFilter : null;
+  return value === "all" || value === "only" ? value : "hide";
+};
+
 // The two blur sources, read live for the same reason: the toggle only decides
 // whether an age-restricted bullet's tag turns into a blur, and the manual list
 // always does. The bullet's own sensitive field says whether it is tagged.
@@ -2504,6 +2549,19 @@ const persistShortsFilter = (value) => {
   const plugin = pluginInstance();
   if (!plugin || !plugin.settings || typeof plugin.saveSettings !== "function") return;
   plugin.settings.shortsFilter = value;
+  try {
+    Promise.resolve(plugin.saveSettings()).catch(() => {});
+  } catch (err) {
+    // A failed save only means the next render falls back; harmless.
+  }
+};
+
+// The Removed control writes the same live setting the Views in notes page
+// edits, so every open video view follows without a sync.
+const persistRemovedFilter = (value) => {
+  const plugin = pluginInstance();
+  if (!plugin || !plugin.settings || typeof plugin.saveSettings !== "function") return;
+  plugin.settings.removedFilter = value;
   try {
     Promise.resolve(plugin.saveSettings()).catch(() => {});
   } catch (err) {
@@ -2606,6 +2664,9 @@ const state = {
   scope: "all",
   // Everything until the Shorts control says otherwise; read live like layout.
   shorts: liveShortsFilter(),
+  // Hidden until the Removed control says otherwise, matching the views before
+  // the control existed; read live like layout.
+  removed: liveRemovedFilter(),
 };
 
 // Channels.md bullets carry a channel link and never a title; playlist bullets
@@ -2823,6 +2884,59 @@ if (section === "playlist") {
   syncShortsSeg();
 }
 
+// Removed in views: a third segmented control on the video notes, beside
+// Shorts. It only earns its space when the note carries a removed bullet (Keep
+// mode wrote one), so it hides otherwise, exactly as the Shorts control does
+// until a bullet carries a short field. Every view defaults to hiding removed
+// bullets, the behaviour before this control existed.
+let removedWrap = null;
+let removedSelect = null;
+const removedButtons = [];
+const hasRemovedFields = () => rows.some(isRemoved);
+
+const syncRemovedSeg = () => {
+  if (!removedSelect) return;
+  for (const btn of removedButtons) {
+    const on = btn.dataset.removed === removedSelect.value;
+    btn.classList.toggle("on", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+};
+
+if (section === "playlist") {
+  const REMOVED_CHOICES = [["all", "All"], ["hide", "Live"], ["only", "Removed"]];
+  removedSelect = document.createElement("select");
+  removedSelect.className = "lv-select";
+  removedSelect.setAttribute("aria-label", "Removed filter");
+  for (const choice of REMOVED_CHOICES) {
+    const opt = document.createElement("option");
+    opt.value = choice[0];
+    opt.textContent = choice[1];
+    removedSelect.appendChild(opt);
+  }
+  removedSelect.value = state.removed;
+  removedSelect.style.display = "none";
+
+  removedWrap = el("div", "lv-seg");
+  removedWrap.setAttribute("role", "group");
+  removedWrap.setAttribute("aria-label", "Removed");
+  for (const choice of REMOVED_CHOICES) {
+    const btn = el("button", "lv-seg-btn", choice[1]);
+    btn.type = "button";
+    btn.dataset.removed = choice[0];
+    btn.addEventListener("click", () => {
+      if (removedSelect.value === choice[0]) return;
+      removedSelect.value = choice[0];
+      removedSelect.dispatchEvent(new Event("change"));
+    });
+    removedButtons.push(btn);
+    removedWrap.appendChild(btn);
+  }
+  removedWrap.appendChild(removedSelect);
+  toolbarRow.appendChild(removedWrap);
+  syncRemovedSeg();
+}
+
 // Icon-only: the accessible name is the tooltip (aria-label), so there is no
 // second, native title tooltip competing with it.
 const refresh = document.createElement("button");
@@ -2869,6 +2983,20 @@ const applyShortsFilter = (list) => {
   return list;
 };
 
+// Same rule for removed bullets: the control only exists while the note has
+// one, and a hidden control leaves the list as it was. The stored "hide"
+// value (the Live button) is the default that matched every view before this
+// filter.
+const applyRemovedFilter = (list) => {
+  if (!removedWrap || removedWrap.style.display === "none") return list;
+  if (state.removed === "hide") return list.filter((item) => !isRemoved(item));
+  if (state.removed === "only") return list.filter(isRemoved);
+  return list;
+};
+
+const removedFilterActive = () =>
+  removedWrap !== null && removedWrap.style.display !== "none" && state.removed !== "all";
+
 const render = () => {
   clear(host);
   // The rows are appended straight into the host, so the container class has
@@ -2881,16 +3009,20 @@ const render = () => {
   // A note whose bullets carry no short field cannot be filtered on it, so the
   // control stays out of sight and the rows pass through untouched.
   if (shortsWrap) shortsWrap.style.display = hasShortFields() ? "" : "none";
-  const visible = applyShortsFilter(rows.filter(matches));
+  // The Removed control appears only when the note actually carries a removed
+  // bullet, and hides again once a sync strips them (Count mode).
+  if (removedWrap) removedWrap.style.display = hasRemovedFields() ? "" : "none";
+  const visible = applyRemovedFilter(applyShortsFilter(rows.filter(matches)));
   const ordered = orderRows(visible);
   // The count says Found (not Showing) while either filter narrows the list,
-  // and a Shorts-only empty list is a filter miss, not an empty note.
+  // and a filter-only empty list is a filter miss, not an empty note.
   const filtered =
-    state.query.trim() !== "" || (shortsWrap !== null && shortsWrap.style.display !== "none" && state.shorts !== "all");
+    state.query.trim() !== "" || (shortsWrap !== null && shortsWrap.style.display !== "none" && state.shorts !== "all") || removedFilterActive();
   if (visible.length === 0) {
     const empty = rows.length === 0
       ? "No " + noun + " synced yet."
-      : state.query.trim() === "" && shortsWrap !== null && shortsWrap.style.display !== "none"
+      : state.query.trim() === "" &&
+          ((shortsWrap !== null && shortsWrap.style.display !== "none") || removedFilterActive())
         ? "No " + noun + " match this filter."
         : "No entries match your search.";
     host.appendChild(el("div", "lv-empty", empty));
@@ -2933,6 +3065,10 @@ const applyLayout = (value) => {
   layoutSelect.value = state.layout;
   syncSeg();
   persistLayout(state.layout);
+  // A sync may have rewritten the bullets since this view first rendered, so
+  // re-read them before repainting. The layout change is also a natural
+  // moment to pick up a removed video's new image fields.
+  rows = readRows();
   // Stash the search for the re-render the refresh below triggers, then
   // apply locally (instant, and the fallback when that refresh does not
   // happen, for example when Dataview's own auto refresh is switched off).
@@ -2952,9 +3088,32 @@ if (shortsSelect) {
     state.shorts = shortsSelect.value === "hide" || shortsSelect.value === "only" ? shortsSelect.value : "all";
     syncShortsSeg();
     persistShortsFilter(state.shorts);
+    // A filter switch is a read of the current note, not a repaint of an old
+    // snapshot: a sync may have rewritten the bullets since this view opened.
+    rows = readRows();
     // A filter switch is shared with the dashboard feed and every open video
     // view, so stash this view's search across the refresh it triggers, then
     // apply locally in case that refresh does not happen.
+    if (STASH) STASH[viewKey] = { query: search.value, scope: scope.value };
+    render();
+    refreshOtherViews();
+    window.setTimeout(() => {
+      if (STASH) delete STASH[viewKey];
+    }, 0);
+  });
+}
+
+if (removedSelect) {
+  removedSelect.addEventListener("change", () => {
+    state.removed = removedSelect.value === "all" || removedSelect.value === "only" ? removedSelect.value : "hide";
+    syncRemovedSeg();
+    persistRemovedFilter(state.removed);
+    // Re-read the bullets before repainting: switching to Removed right after
+    // a sync must show the new fields, not the snapshot from before the sync
+    // deleted the local thumbnail and wrote the URL.
+    rows = readRows();
+    // Shared by every open video view, so refresh them too and keep this
+    // view's search across the re-render.
     if (STASH) STASH[viewKey] = { query: search.value, scope: scope.value };
     render();
     refreshOtherViews();
