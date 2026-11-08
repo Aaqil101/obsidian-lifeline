@@ -48,7 +48,7 @@ export const SHORTS_PROBE_TIMEOUT_MS = 15_000;
 
 /**
  * Version of the `videos.list` metadata a record carries. Absent means "never
- * fetched", so an upgraded state.json refills once. Version 2 widened the same
+ * fetched", so an upgraded state/playlists.json refills once. Version 2 widened the same
  * call to snippet + contentDetails for the region block and live/upcoming
  * flags, so bumping the sentinel refills every existing record once without a
  * second migration.

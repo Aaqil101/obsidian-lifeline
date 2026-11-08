@@ -1,7 +1,7 @@
 /**
  * Removed videos sub-pages: one navigable entry per playlist, holding that
- * playlist's mode override, the removed videos still in state.json, and the
- * purged entries parked in state_purged.json. The global default lives on the
+ * playlist's mode override, the removed videos still in state/playlists.json,
+ * and the purged entries parked in state/purged.json. The global default lives on the
  * Playlists landing group; a playlist gets its own page so a library with many
  * playlists stays scannable instead of one long scroll of "No removed videos".
  */
@@ -34,9 +34,9 @@ interface PlaylistView {
 	id: string;
 	title: string;
 	record: PlaylistRecord | undefined;
-	/** Removed entries still in state.json. */
+	/** Removed entries still in state/playlists.json. */
 	active: Array<[string, VideoRecord]>;
-	/** Purged entries in state_purged.json. */
+	/** Purged entries in state/purged.json. */
 	archived: Array<[string, VideoRecord]>;
 	tracked: boolean;
 }
@@ -158,7 +158,7 @@ export function removedVideosPage(host: SettingsHost): SettingDefinitionPage {
 		pageItems.push(
 			renderRow(
 				'Clear archive',
-				`${total} purged ${total === 1 ? 'entry' : 'entries'} in state_purged.json. Clearing it forgets them, removes their bullets for good, and drops their contribution from removed_count.`,
+				`${total} purged ${total === 1 ? 'entry' : 'entries'} in state/purged.json. Clearing it forgets them, removes their bullets for good, and drops their contribution from removed_count.`,
 				(setting) => {
 					setting.addButton((button) =>
 						button
@@ -264,7 +264,7 @@ export function renderRemovedPlaylistPage(
 						const confirmed = await confirmAction(
 							plugin.app,
 							'Purge removed video?',
-							`The bullet for "${video.title || videoId}" will be removed from "${title}" and the entry moves to state_purged.json. It still counts in removed_count until you clear the archive.`,
+							`The bullet for "${video.title || videoId}" will be removed from "${title}" and the entry moves to state/purged.json. It still counts in removed_count until you clear the archive.`,
 							'Purge',
 						);
 						if (!confirmed) return;

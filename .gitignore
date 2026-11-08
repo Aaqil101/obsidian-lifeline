@@ -19,6 +19,8 @@ main.js
 data.json
 
 # Lifeline runtime files (written here because the test vault links to this repo)
+state/
+state*.migrated-*
 state.json
 state_purged.json
 sync-log.json

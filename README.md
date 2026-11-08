@@ -125,8 +125,13 @@ Default layout. Folder names are configurable, as noted in each comment.
 
 .obsidian/plugins/lifeline/
 ├── data.json                        # settings and collected playlist IDs (no secrets)
-├── state.json                       # sync state: channels, playlists, videos, faces
-└── sync-log.json                    # the most recent 200 sync runs
+├── sync-log.json                    # the most recent 200 sync runs
+└── state/                          # sync state, one file per concern (no secrets)
+    ├── channels.json                # subscriptions and their statistics
+    ├── playlists.json               # tracked playlists and every video ever seen
+    ├── faces.json                   # cached avatars for unsubscribed playlist owners
+    ├── runtime.json                 # last sync status and time
+    └── purged.json                  # the removed-video archive
 ```
 
 The Images folder defaults to the output folder, so its images land in `95 - Notes/YouTube/thumbnails/`, `avatars/`, and `banners/`. Lifeline writes the scripts and stylesheets only when the features that use them are on.
@@ -154,12 +159,12 @@ Each video is a single list item with Dataview inline fields:
 - `date` is the day the video was added to the playlist.
 - Every playlist note, Watch Later included, has a `url` frontmatter field that opens the playlist on YouTube.
 - `saved: true` in frontmatter means the playlist was saved from another channel. `saved: false` means you created it. The owner channel decides the label, not the import path, so a playlist collected from the same page can still read `saved: false`.
-- Only watchable videos get a bullet, except for removed videos in **Keep** mode (see below). Private and deleted videos stay in `state.json`, so the backup keeps them. The frontmatter reports them as `unavailable_count` and `removed_count`. Both are always present. In **Count only** mode, `video_count - unavailable_count - removed_count` gives the number of bullets. A video that is both removed and unavailable counts once, under `removed`, and never gets a bullet.
+- Only watchable videos get a bullet, except for removed videos in **Keep** mode (see below). Private and deleted videos stay in `state/playlists.json`, so the backup keeps them. The frontmatter reports them as `unavailable_count` and `removed_count`. Both are always present. In **Count only** mode, `video_count - unavailable_count - removed_count` gives the number of bullets. A video that is both removed and unavailable counts once, under `removed`, and never gets a bullet.
 - Age-restricted videos are blurred automatically by default, and any videos you list under **Blurred thumbnails** are blurred too. A video that is blurred for either reason carries `[sensitive:: true]`. Turning off **Blur age-restricted videos** keeps that field on age-restricted bullets but leaves them unblurred.
 
 ### Removed videos
 
-A video that leaves a playlist upstream stays in `state.json` as part of the backup. **Playlists → Removed videos in notes** decides what the note does with it:
+A video that leaves a playlist upstream stays in `state/playlists.json` as part of the backup. **Playlists → Removed videos in notes** decides what the note does with it:
 
 ```markdown
 - [title:: [Video Title](https://www.youtube.com/watch?v=abc123)] [channel:: [Blender Guru](https://www.youtube.com/channel/UCxyz)] [date:: 2026-01-05] [removed:: true] [removed_on:: 2026-02-14]
@@ -168,9 +173,9 @@ A video that leaves a playlist upstream stays in `state.json` as part of the bac
 - **Keep** (default): the removed video stays in the note as a bullet after the live videos, marked `removed` and, when known, `removed_on`. Every other field stays as it was, the thumbnail is never downloaded again, and any local thumbnail already on disk is deleted. The bullet then carries `thumbnail_url` only, so its picture still draws online.
 - **Count only**: the bullet disappears and only `removed_count` reports it, which is how Lifeline behaved before this setting.
 
-Frontmatter records the resolved choice as `removed_mode: keep` or `removed_mode: count`, so a note is self-describing. **Playlists → Removed videos** lists every playlist as its own page. Open one to see the videos it lost, set its **Same as global / Keep / Count only** override, and **Purge** an entry: its bullet leaves the note and the full record moves to `state_purged.json` in the plugin folder. The entry still counts in `video_count` and `removed_count`; **Restore** moves it back so the bullet returns. Changing a mode, purging, or restoring rewrites the affected notes immediately, with no sync, no network, and no quota.
+Frontmatter records the resolved choice as `removed_mode: keep` or `removed_mode: count`, so a note is self-describing. **Playlists → Removed videos** lists every playlist as its own page. Open one to see the videos it lost, set its **Same as global / Keep / Count only** override, and **Purge** an entry: its bullet leaves the note and the full record moves to `state/purged.json` in the plugin folder. The entry still counts in `video_count` and `removed_count`; **Restore** moves it back so the bullet returns. Changing a mode, purging, or restoring rewrites the affected notes immediately, with no sync, no network, and no quota.
 
-`state_purged.json` is a view-only history of what you deleted, not a second backup. The Removed videos page has a **Clear archive** button. Clearing it, or deleting the file yourself, forgets those entries: they disappear from that page, can no longer be restored, and their contribution to `video_count` and `removed_count` drops on the next rewrite. Keep-mode bullets are unaffected, because archived entries were never drawn. A missing file is treated as an intentional wipe; a corrupt file is copied aside before the archive starts empty.
+`state/purged.json` is a view-only history of what you deleted, not a second backup. The Removed videos page has a **Clear archive** button. Clearing it, or deleting the file yourself, forgets those entries: they disappear from that page, can no longer be restored, and their contribution to `video_count` and `removed_count` drops on the next rewrite. Keep-mode bullets are unaffected, because archived entries were never drawn. A missing file is treated as an intentional wipe; a corrupt file is copied aside before the archive starts empty.
 
 `removed_on` follows the [journal rule](#journal-links), so it opens that day's note when the note exists. A video removed before this version has no `removed_on` field until it returns and is removed again. Unavailable videos stay count-only in both modes. The dashboard never draws a removed bullet, and the note views hide them by default but can show them with the **Removed** control (see [Views in notes](#views-in-notes)).
 
@@ -187,7 +192,7 @@ Frontmatter records the resolved choice as `removed_mode: keep` or `removed_mode
 
 There are three choices:
 
-- **Confirm with YouTube** (default): a video longer than 3 minutes is a regular video with no request at all. Anything shorter is looked up once on `youtube.com`, where the page itself says whether it is a Short. **This makes one full page request per video under 3 minutes.** It costs no API quota, the answer is cached in `state.json`, and each video is requested at most once (an unclear page is retried on a later sync). At most 50 pages are fetched per sync, a fraction of a second apart, so a long list of Shorts fills in over several runs. Answers are saved as they arrive, so a sync you interrupt keeps the ones it already checked.
+- **Confirm with YouTube** (default): a video longer than 3 minutes is a regular video with no request at all. Anything shorter is looked up once on `youtube.com`, where the page itself says whether it is a Short. **This makes one full page request per video under 3 minutes.** It costs no API quota, the answer is cached in `state/playlists.json`, and each video is requested at most once (an unclear page is retried on a later sync). At most 50 pages are fetched per sync, a fraction of a second apart, so a long list of Shorts fills in over several runs. Answers are saved as they arrive, so a sync you interrupt keeps the ones it already checked.
 - **Up to 3 minutes**: length only, no request. YouTube-labelled Shorts run up to 3 minutes, so this catches them, but an ordinary video under 3 minutes is mislabelled. Use it when you want a filter without the page requests.
 - **Off**: no fields, no requests, and the next sync strips both fields from the bullets.
 
@@ -383,7 +388,7 @@ Image downloads cost no quota.
 
 ## Security & privacy
 
-- **Secrets stay in your system keychain.** The OAuth client ID, client secret, and refresh token are stored through Obsidian's `SecretStorage` (Obsidian 1.11.4 or newer). That uses the OS credential store, such as Windows Credential Manager or macOS Keychain. They are **never** written to `data.json`, `state.json`, or any file in your vault. Those files hold only secret names, preferences, and sync state.
+- **Secrets stay in your system keychain.** The OAuth client ID, client secret, and refresh token are stored through Obsidian's `SecretStorage` (Obsidian 1.11.4 or newer). That uses the OS credential store, such as Windows Credential Manager or macOS Keychain. They are **never** written to `data.json`, the `state/` folder, or any file in your vault. Those files hold only secret names, preferences, and sync state.
 - **What leaves your machine:**
   - OAuth calls to `accounts.google.com` and `oauth2.googleapis.com`.
   - YouTube Data API calls to `www.googleapis.com/youtube/v3`, with the `youtube.readonly` scope.
@@ -426,7 +431,7 @@ Source layout:
 - `src/ui/syncLogModal.ts`: the sync-log viewer.
 - `src/settings/`: the settings tab. `index.ts` declares the five groups. Each group and sub-page is in its own file (`notes.ts`, `viewsPage.ts`, `dashboardPage.ts`, `images.ts`, `account.ts`, `playlists.ts`, `collectPage.ts`, `syncSection.ts`, and others). `types.ts` holds the settings shape, and `ui.ts` the shared builders.
 
-Sync state persists in `state.json`, and settings persist in `data.json`. Both live in the plugin folder, next to `sync-log.json`. None of them holds secrets.
+Sync state persists in the `state/` folder, and settings persist in `data.json`. Both live in the plugin folder, next to `sync-log.json`. None of them holds secrets. Existing installs are migrated from the old single `state.json` and `state_purged.json` files on first launch, which are then renamed to `state.json.migrated-<timestamp>` and `state_purged.json.migrated-<timestamp>`. If `state/runtime.json` exists but `state/playlists.json` is missing, sync pauses instead of replacing the backup with an empty one: restore the file, or delete `state/runtime.json` and reload Obsidian to start a new backup. A corrupt state file is copied to `<name>.corrupt-<timestamp>` before Lifeline continues with defaults.
 
 Progress is tracked in [GitHub issues](https://github.com/Aaqil101/obsidian-lifeline/issues).
 

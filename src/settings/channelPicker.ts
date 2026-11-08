@@ -29,7 +29,7 @@ import type { ChannelRecord } from '../types';
 /** How many channels the typeahead offers before it stops matching. */
 const SUGGEST_LIMIT = 50;
 
-/** Live channel list (state.json, already in memory), read per interaction so
+/** Live channel list (state/channels.json, already in memory), read per interaction so
  *  an open settings page offers a channel a just-finished sync discovered. */
 export type ChannelSource = () => ChannelRecord[];
 

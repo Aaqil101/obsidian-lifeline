@@ -62,7 +62,7 @@ export interface SyncRunResult {
 	errors: SyncErrorRecord[];
 }
 
-/** Persisted in state.json; powers the status bar and sync-log summary. */
+/** Persisted in state/runtime.json; powers the status bar and sync-log summary. */
 export interface LastSyncInfo {
 	at: number;
 	status: SyncStatus;
@@ -260,7 +260,7 @@ export interface VideoRecord {
 	short?: boolean;
 	/** Version of the videos.list metadata this record has (see
 	 *  VIDEO_META_VERSION). Absent means never fetched, which is what makes an
-	 *  upgraded state.json refill once instead of forever. */
+	 *  upgraded state/playlists.json refill once instead of forever. */
 	metaVersion?: number;
 }
 

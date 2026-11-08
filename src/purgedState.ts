@@ -1,7 +1,7 @@
 /**
  * The purged-video archive: videos the user removed from a playlist note with
  * Purge. They stay here so the Removed videos page can still show what was
- * deleted and put a bullet back, but they are no longer part of state.json.
+ * deleted and put a bullet back, but they are no longer part of state/playlists.json.
  * The archive is disposable: clearing it forgets those entries, so their
  * removed_count contribution disappears on the next note rewrite.
  */
@@ -76,7 +76,7 @@ export function restoreVideoFromArchive(
 	return true;
 }
 
-/** Remove archive copies of videos that are active again in state.json. */
+/** Remove archive copies of videos that are active again in state/playlists.json. */
 export function pruneReturnedVideos(archive: PurgedState, state: SyncState): boolean {
 	let changed = false;
 	for (const [playlistId, entry] of Object.entries(archive.playlists)) {
@@ -96,7 +96,7 @@ export function pruneReturnedVideos(archive: PurgedState, state: SyncState): boo
 }
 
 /**
- * One-time move of the old `purged` flag records out of state.json. Earlier
+ * One-time move of the old `purged` flag records out of the live state. Earlier
  * builds kept them in place with `purged: true`; the archive is now the only
  * home for them, so leaving them would draw their bullets again.
  */

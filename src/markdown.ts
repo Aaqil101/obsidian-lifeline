@@ -158,7 +158,7 @@ export function videoImageBase(channelTitle: string, videoTitle: string, videoId
 
 /**
  * Remote thumbnail for a video. Never persisted: state stores the id and this
- * is derived from it, so state.json carries no URLs and a moved CDN is a
+ * is derived from it, so the state files carry no URLs and a moved CDN is a
  * one-line change rather than a data migration.
  */
 export function videoThumbnailUrl(videoId: string): string {
@@ -438,7 +438,7 @@ export function renderChannelsNote(
  * one exists. The frontmatter records the resolved mode in `removed_mode`.
  *
  * `options.archivedCount` is the number of entries for this playlist parked in
- * `state_purged.json`. They are never drawn, but they are added to
+ * `state/purged.json`. They are never drawn, but they are added to
  * `video_count` and `removed_count`, so purging a bullet does not change the
  * frontmatter. Clearing the archive drops them from both counts.
  */
@@ -446,7 +446,7 @@ export interface PlaylistNoteOptions {
 	shorts?: boolean;
 	fields?: VideoFieldSettings;
 	removedMode?: RemovedVideosMode;
-	/** Entries in state_purged.json for this playlist: never drawn, but still
+	/** Entries in state/purged.json for this playlist: never drawn, but still
 	 *  counted in `video_count` and `removed_count` until the archive is wiped. */
 	archivedCount?: number;
 }
@@ -462,7 +462,7 @@ export function renderPlaylistNote(
 	options?: PlaylistNoteOptions,
 ): string {
 	const removedMode: RemovedVideosMode = options?.removedMode === 'keep' ? 'keep' : 'count';
-	// Archived entries live in state_purged.json and are never drawn, but the
+	// Archived entries live in state/purged.json and are never drawn, but the
 	// note still reports them until the archive is cleared.
 	const archivedCount = Math.max(0, Math.floor(options?.archivedCount ?? 0));
 	const entries = Object.entries(record.videos);

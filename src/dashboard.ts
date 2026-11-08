@@ -64,7 +64,7 @@ export interface DashboardContext {
 	status: SyncStatus | null;
 	/** User-configured folder holding lifeline-dashboard.js (settings value). */
 	scriptsFolder: string;
-	/** Entries in state_purged.json across the tracked playlists. They have no
+	/** Entries in state/purged.json across the tracked playlists. They have no
 	 *  bullet, but they still count toward `video_count` until the archive is
 	 *  cleared. */
 	archivedVideoCount?: number;

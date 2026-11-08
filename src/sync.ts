@@ -6,8 +6,8 @@
  *   all funnel through runSync).
  * - Every fetch is isolated: an error in one resource is recorded and the run
  *   continues. Status is ✓ ok / ⚠ warn / ✗ error based on what succeeded.
- * - State lives in state.json (plugin data, no secrets) and is saved at the
- *   end of every run so partial failures never lose known data.
+ * - State lives in the `state/` folder (plugin data, no secrets) and is saved
+ *   at the end of every run so partial failures never lose known data.
  */
 import { App, Notice, TFile, TFolder, requestUrl, type Vault } from 'obsidian';
 import { isDataviewEnabled, renderDashboardNote, renderDisabledDashboardNote } from './dashboard';
@@ -127,6 +127,21 @@ async function withArchiveLock<T>(fn: () => Promise<T>): Promise<T> {
 /** Deduplicated sync entry point used by the command, ribbon, and auto-sync. */
 export function runSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 	if (inFlight) return inFlight;
+	// A missing playlists file means the backup is incomplete. Writing notes
+	// from an empty state would replace it with nothing, so refuse the run
+	// until the file is restored or the anchor is deleted.
+	if (plugin.stateLoadError) {
+		return Promise.resolve({
+			status: 'error',
+			startedAt: Date.now(),
+			channelsSynced: 0,
+			playlistsSynced: 0,
+			videosFound: 0,
+			quotaUnits: 0,
+			quotaSoftWarn: false,
+			errors: [{ kind: 'io', resource: 'state', message: plugin.stateLoadError }],
+		});
+	}
 	const promise = (async () => {
 		await waitForArchiveOperation();
 		return doSync(plugin);
@@ -189,7 +204,7 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 	const paths = outputPaths(plugin.settings.outputFolder, plugin.settings.imagesFolder);
 	const quota = new QuotaTracker(plugin.settings.quotaSoftLimit);
 	const state = plugin.state;
-	// Re-read the archive each run so deleting state_purged.json outside the
+	// Re-read the archive each run so deleting state/purged.json outside the
 	// app counts as an intentional wipe on this sync.
 	await plugin.reloadPurgedState();
 	const unset = unsetFolders(plugin.settings);
@@ -374,7 +389,7 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 			try {
 				await plugin.savePurgedState();
 			} catch (err) {
-				errors.push(recordError(err, 'state_purged'));
+				errors.push(recordError(err, 'purged'));
 			}
 		}
 
@@ -397,16 +412,17 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 		// duration, Confirm with YouTube probes the candidates it cannot answer,
 		// capped per run. Off writes nothing, and the renderer's gate hides any
 		// cached field.
-		// Each probe's answer is written onto the record and checkpointed to
-		// state.json as it arrives, so a run killed mid-queue keeps what it paid
-		// for. saveState() already swallows and logs its own failure, so a failed
+		// Each probe's answer is written onto the record and checkpointed as it
+		// arrives, so a run killed mid-queue keeps what it paid for. Only the
+		// playlists file is rewritten here, never the other state groups.
+		// savePlaylists() already swallows and logs its own failure, so a failed
 		// checkpoint can never abort the run.
 		if (shortsDetection !== 'off') {
 			const tally = await classifyShorts(
 				state,
 				targets.map((target) => target.id),
 				shortsDetection,
-				() => plugin.saveState(),
+				() => plugin.savePlaylists(),
 			);
 			if (shortsProbeRun) {
 				shortsProbed = tally.probed;
@@ -468,7 +484,7 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 		errorSummary: errors.length > 0 ? summarizeKinds(errors) : null,
 	};
 	if (result.status !== 'error') state.lastSuccessAt = startedAt;
-	await plugin.saveState();
+	await plugin.saveAll();
 
 	plugin.updateStatusBar();
 	new Notice(noticeFor(result), 8000);
@@ -626,7 +642,7 @@ function applyPlaylistDiff(
 /**
  * Fill in the age flag and duration for videos that do not have the current
  * metadata version yet. A record carries `metaVersion`, so an upgraded
- * state.json refills exactly once (one videos.list call per 50 videos) instead
+ * state refills exactly once (one videos.list call per 50 videos) instead
  * of a field-presence check that would leave migrated records empty. Videos
  * already at the current version keep their answer, and removed or unavailable
  * videos are skipped.
@@ -681,7 +697,7 @@ interface ShortsTally {
 
 /**
  * Checkpoint the classification every this many probes. A capped run writes
- * state.json twice, which is cheap next to the page fetches it protects: an
+ * state/playlists.json twice, which is cheap next to the page fetches it protects: an
  * interrupted or failed run keeps the answers it already paid for instead of
  * refetching them next time.
  */
@@ -795,7 +811,7 @@ async function announceShortsProbes(plugin: LifelinePlugin, tally: ShortsTally):
 	await plugin.saveSettings();
 	new Notice(
 		`Lifeline checked ${tally.probed} ${tally.probed === 1 ? 'video' : 'videos'} on youtube.com to identify Shorts, ` +
-			`classifying ${tally.classified} in total. Each video is checked once and the result is cached in state.json. ` +
+			`classifying ${tally.classified} in total. Each video is checked once and the result is cached. ` +
 			'Turn this off under Settings → Lifeline → Identify Shorts.',
 		20000,
 	);
@@ -1055,6 +1071,7 @@ export async function rewritePlaylistNotes(
 	plugin: LifelinePlugin,
 	playlistIds?: string[],
 ): Promise<{ rewritten: number; errors: SyncErrorRecord[] }> {
+	if (plugin.stateLoadError) throw new SyncError('io', 'state', plugin.stateLoadError);
 	const unset = unsetFolders(plugin.settings);
 	if (unset.length > 0) {
 		throw new SyncError('io', 'settings', `Set these folders in Lifeline settings first: ${unset.join(', ')}.`);
@@ -1192,7 +1209,7 @@ async function localPlaylistImageBases(
 }
 
 /**
- * Move one removed video out of state.json into the purged archive, then
+ * Move one removed video out of the live state into the purged archive, then
  * rewrite its note. The bullet disappears, but the entry still counts in the
  * frontmatter until the archive itself is cleared. Returns false when there
  * was nothing to purge.
@@ -1212,7 +1229,7 @@ export async function purgeRemovedVideo(
 			restoreVideoFromArchive(plugin.purgedState, plugin.state, playlistId, videoId);
 			throw err;
 		}
-		await plugin.saveState();
+		await plugin.savePlaylists();
 		const result = await rewritePlaylistNotes(plugin, [playlistId]);
 		const first = result.errors[0];
 		if (first) throw new Error(`${first.resource}: ${first.message}`);
@@ -1221,7 +1238,7 @@ export async function purgeRemovedVideo(
 }
 
 /**
- * Move one archived video back into state.json as a removed entry, so its
+ * Move one archived video back into the live state as a removed entry, so its
  * bullet returns in Keep mode. The archive save is best effort: if it fails
  * after state was written, the duplicate is pruned on the next load/sync.
  */
@@ -1233,11 +1250,11 @@ export async function restoreRemovedVideo(
 	await waitForSync();
 	return withArchiveLock(async () => {
 		if (!restoreVideoFromArchive(plugin.purgedState, plugin.state, playlistId, videoId)) return false;
-		await plugin.saveState();
+		await plugin.savePlaylists();
 		try {
 			await plugin.savePurgedState();
 		} catch (err) {
-			console.error('Lifeline: could not update state_purged.json after restore', err);
+			console.error('Lifeline: could not update state/purged.json after restore', err);
 		}
 		const result = await rewritePlaylistNotes(plugin, [playlistId]);
 		const first = result.errors[0];
