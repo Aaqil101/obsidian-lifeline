@@ -87,14 +87,14 @@ export function notesGroup(host: SettingsHost): SettingDefinitionGroup {
 
 	// Folder for the per-view stylesheets the view scripts read at render
 	// time (the quotebook.css pattern): lifeline-channels.css,
-	// lifeline-playlists.css, lifeline-watchlater.css and the dashboard's
-	// lifeline-dashboard.css. Commits only on blur/Enter, then rewrites the
-	// three view scripts (they bake their stylesheet's path) and the
-	// stylesheets themselves, which also trash the copies left in the old
-	// folder.
+	// lifeline-playlists.css, lifeline-watchlater.css, lifeline-liked.css,
+	// lifeline-liked-music.css and the dashboard's lifeline-dashboard.css.
+	// Commits only on blur/Enter, then rewrites the five view scripts (they
+	// bake their stylesheet's path) and the stylesheets themselves, which also
+	// trash the copies left in the old folder.
 	const stylesFolder = renderRow(
 		'Styles folder',
-		'Receives the four view stylesheets: lifeline-channels.css, lifeline-playlists.css, lifeline-watchlater.css, and the dashboard\'s lifeline-dashboard.css. Regenerated on every sync, so hand edits are overwritten; a missing file leaves the views unstyled but working.',
+		'Receives the five view stylesheets: lifeline-channels.css, lifeline-playlists.css, lifeline-watchlater.css, lifeline-liked.css, lifeline-liked-music.css, and the dashboard\'s lifeline-dashboard.css. Regenerated on every sync, so hand edits are overwritten; a missing file leaves the views unstyled but working.',
 		(setting) =>
 			folderSetting(setting, {
 				app: plugin.app,
@@ -107,7 +107,7 @@ export function notesGroup(host: SettingsHost): SettingDefinitionGroup {
 					// The dashboard script bakes its stylesheet's path too, so whichever
 					// of the two Dataview features is on gets re-pointed: createDashboard
 					// rewrites the script into the new folder; writeNoteViewScripts does
-					// the same for the three note-view scripts. Both pass also trash the
+					// the same for the five note-view scripts. Both pass also trash the
 					// stylesheets left in the old folder.
 					if (settings.dashboardNote) await plugin.createDashboard({ open: false });
 					if (settings.noteViews) {
@@ -122,9 +122,10 @@ export function notesGroup(host: SettingsHost): SettingDefinitionGroup {
 			}),
 	);
 
-	// Folder for all four generated view scripts, not just the dashboard one:
+	// Folder for all six generated view scripts, not just the dashboard one:
 	// lifeline-dashboard.js for Dashboard.md, plus lifeline-channels.js,
-	// lifeline-playlists.js, and lifeline-watchlater.js for the note views.
+	// lifeline-playlists.js, lifeline-watchlater.js, lifeline-liked.js, and
+	// lifeline-liked-music.js for the note views.
 	// That is why this commit fans out to both features: whichever notices a
 	// folder change rewrites its files into the new folder and trashes the
 	// ones left behind. The styles folder above has one consumer, so it does
@@ -133,7 +134,7 @@ export function notesGroup(host: SettingsHost): SettingDefinitionGroup {
 	// consumers is a setting nobody finds.
 	const scriptsFolder = renderRow(
 		'Script folder',
-		'Receives all four generated scripts: lifeline-dashboard.js, plus lifeline-channels.js, lifeline-playlists.js, and lifeline-watchlater.js for the note views. Regenerated on every sync, so hand edits are overwritten.',
+		'Receives all six generated scripts: lifeline-dashboard.js, plus lifeline-channels.js, lifeline-playlists.js, lifeline-watchlater.js, lifeline-liked.js, and lifeline-liked-music.js for the note views. Regenerated on every sync, so hand edits are overwritten.',
 		(setting) =>
 			folderSetting(setting, {
 				app: plugin.app,
@@ -146,7 +147,7 @@ export function notesGroup(host: SettingsHost): SettingDefinitionGroup {
 					// Both Dataview features keep a script in this folder, so both have
 					// to be re-pointed. The dashboard refresh also trashes the script
 					// left in the old folder; writeNoteViewScripts does the same for
-					// the three note-view scripts whose path the notes have baked in.
+					// the five note-view scripts whose path the notes have baked in.
 					if (settings.dashboardNote) await plugin.createDashboard({ open: false });
 					if (settings.noteViews) {
 						try {

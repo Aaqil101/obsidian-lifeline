@@ -1,6 +1,6 @@
 /**
  * Views in notes sub-page: the opt-in DataviewJS views (the master toggle,
- * gated on the community Dataview plugin), the three per-note layout
+ * gated on the community Dataview plugin), the five per-note layout
  * pickers, and the items-per-page count.
  *
  * The Styles folder and Script folder rows stay in the Notes group: both
@@ -39,7 +39,7 @@ export function renderViewsPage(host: SettingsHost, containerEl: HTMLElement): v
 
 	// Opt-in DataviewJS views. Same Dataview gate as the dashboard toggle:
 	// revert + Notice when the community plugin is missing. Toggling on writes
-	// the three view scripts immediately so the next sync's baked dv.view()
+	// the five view scripts immediately so the next sync's baked dv.view()
 	// calls resolve; toggling off strips the blocks from the notes and trashes
 	// the generated files right away. The page refreshes after either, so the
 	// layout rows below pick up their active or inactive description.
@@ -115,7 +115,7 @@ export function renderViewsPage(host: SettingsHost, containerEl: HTMLElement): v
 			});
 		});
 
-	// Shorts in views: one setting for the three video layouts and the
+	// Shorts in views: one setting for the four video layouts and the
 	// dashboard feed, read live at render time. It only draws a difference once
 	// a bullet carries a short field, which Identify Shorts writes, so the row
 	// points there for anyone who sets this first.
@@ -133,7 +133,7 @@ export function renderViewsPage(host: SettingsHost, containerEl: HTMLElement): v
 			});
 		});
 
-	// Removed in views: what the three video layouts do with the removed
+	// Removed in views: what the four video layouts do with the removed
 	// bullets a Keep-mode note carries. Hidden by default, which is how the
 	// views behaved before this control existed. Read live, so no sync is
 	// needed, and the control in each video view changes this too.

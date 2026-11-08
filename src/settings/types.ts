@@ -8,7 +8,7 @@
  * are persisted here. Collected playlist IDs live in data.json and nowhere
  * else.
  */
-import { DEFAULT_VIEW_PAGE_SIZE, type NoteViewKind } from '../noteViewsScript';
+import { DEFAULT_VIEW_PAGE_SIZE, NOTE_VIEW_KINDS, type NoteViewKind } from '../noteViewsScript';
 import {
 	DEFAULT_CHANNELS_FIELDS,
 	DEFAULT_DASHBOARD_LIMITS,
@@ -80,6 +80,8 @@ export const NOTE_LAYOUT_OPTIONS_BY_KIND: Record<
 	channels: NOTE_LAYOUT_OPTIONS,
 	playlists: NOTE_LAYOUT_OPTIONS,
 	watchlater: NOTE_LAYOUT_OPTIONS,
+	liked: NOTE_LAYOUT_OPTIONS,
+	likedmusic: NOTE_LAYOUT_OPTIONS,
 };
 
 /** Layout of each note type's view, one row per type in the Notes group.
@@ -95,6 +97,8 @@ export const DEFAULT_NOTE_LAYOUTS: NoteLayouts = {
 	channels: 'poster',
 	playlists: 'poster',
 	watchlater: 'poster',
+	liked: 'poster',
+	likedmusic: 'poster',
 };
 
 /** Order the entries of every note view are drawn in, by their date
@@ -188,7 +192,7 @@ export function resolveRemovedMode(
 	return override === 'keep' || override === 'count' ? override : normalizeRemovedMode(settings.removedVideosMode);
 }
 
-/** The three layout rows, in render order and in the order the notes appear
+/** The five layout rows, in render order and in the order the notes appear
  *  in the vault. Each names the note it drives: a bare "Playlists" would read
  *  as though it covered Watch Later too, which is the whole point of the
  *  third row. */
@@ -208,10 +212,20 @@ export const LAYOUT_ROWS: Array<{ key: NoteViewKind; name: string; desc: string 
 		name: 'Watch Later layout',
 		desc: 'How the view above Watch Later.md renders. Kept apart from Playlists because a long watch queue usually reads best as a table.',
 	},
+	{
+		key: 'liked',
+		name: 'Liked videos layout',
+		desc: 'How the view above Liked Videos.md renders. The list is usually long, so chips or table often scan better than posters.',
+	},
+	{
+		key: 'likedmusic',
+		name: 'Liked music layout',
+		desc: 'How the view above Liked Music.md renders. Kept apart from Liked videos because songs read differently from videos.',
+	},
 ];
 
 /**
- * Expand the pre-split `noteLayout` key, one layout for all three notes, into
+ * Expand the pre-split `noteLayout` key, one layout for every note, into
  * the per-kind `noteLayouts` object. `mixed`, `cards`, and anything else the
  * dropdowns no longer offer expand to the defaults, which are poster for every
  * kind. Returns null when there is no legacy key to migrate, so the caller can
@@ -220,12 +234,12 @@ export const LAYOUT_ROWS: Array<{ key: NoteViewKind; name: string; desc: string 
 export function expandLegacyLayout(legacy: unknown): NoteLayouts | null {
 	if (typeof legacy !== 'string') return null;
 	if (legacy === 'chips' || legacy === 'table' || legacy === 'poster') {
-		return { channels: legacy, playlists: legacy, watchlater: legacy };
+		return { channels: legacy, playlists: legacy, watchlater: legacy, liked: legacy, likedmusic: legacy };
 	}
 	return { ...DEFAULT_NOTE_LAYOUTS };
 }
 
-const LAYOUT_KINDS: NoteViewKind[] = ['channels', 'playlists', 'watchlater'];
+const LAYOUT_KINDS: NoteViewKind[] = [...NOTE_VIEW_KINDS];
 
 /**
  * Bring a stored `noteLayouts` object up to date: `cards` becomes poster, a
@@ -431,8 +445,9 @@ export interface LifelineSettings {
 	 *  disclosure Notice. Internal, not a settings row. */
 	shortsNoticeShown: boolean;
 	/** Vault folder holding the per-view stylesheets (lifeline-channels.css,
-	 *  lifeline-playlists.css, lifeline-watchlater.css, and the dashboard's
-	 *  lifeline-dashboard.css) that the view scripts read at view time. */
+	 *  lifeline-playlists.css, lifeline-watchlater.css, lifeline-liked.css,
+	 *  lifeline-liked-music.css, and the dashboard's lifeline-dashboard.css)
+	 *  that the view scripts read at view time. */
 	stylesFolder: string;
 	/** Folder the stylesheet was last written to (null = never); lets a folder
 	 *  change trash the stale copy. Internal bookkeeping, not user-facing. */
@@ -464,6 +479,10 @@ export interface LifelineSettings {
 	playlistCatalog: PlaylistSummary[];
 	/** Playlist written to Watch Later.md (YouTube's system list is API-inaccessible). */
 	watchLaterPlaylistId: string;
+	/** Back up the thumbs-up list (system playlist LL) into Liked Videos.md. */
+	likedVideosEnabled: boolean;
+	/** Back up YouTube Music's liked songs (system playlist LM) into Liked Music.md. */
+	likedMusicEnabled: boolean;
 	/** Load-time auto-sync threshold in hours; NOT a background scheduler. */
 	syncIntervalHours: number;
 	/** Soft quota cap per run (units); sync warns instead of hard-stopping. */
@@ -507,6 +526,8 @@ export const DEFAULT_SETTINGS: LifelineSettings = {
 	knownPlaylistIds: [],
 	playlistCatalog: [],
 	watchLaterPlaylistId: '',
+	likedVideosEnabled: false,
+	likedMusicEnabled: false,
 	syncIntervalHours: 20,
 	quotaSoftLimit: 8000,
 	dashboardLimits: { feed: DEFAULT_DASHBOARD_LIMITS.feed, attention: DEFAULT_DASHBOARD_LIMITS.attention, cards: DEFAULT_DASHBOARD_LIMITS.cards, channels: DEFAULT_DASHBOARD_LIMITS.channels },

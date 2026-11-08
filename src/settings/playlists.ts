@@ -4,6 +4,7 @@
  * it is a self-contained walkthrough with two modes.
  */
 import { Notice, Setting, type SettingDefinitionGroup } from 'obsidian';
+import { SYSTEM_PLAYLISTS } from '../systemPlaylists';
 import { renderCollectIdsPage } from './collectPage';
 import { removedVideosPage, rewriteRemovedNotes } from './removedVideos';
 import { normalizeRemovedMode, REMOVED_MODE_OPTIONS } from './types';
@@ -70,10 +71,31 @@ export function playlistsGroup(host: SettingsHost): SettingDefinitionGroup {
 
 	const removedPage = removedVideosPage(host);
 
+	// The two system lists are opt-in and off by default. They are not written
+	// into trackedPlaylists or importedPlaylistIds: sync adds the enabled ids to
+	// its own working sets, so switching one off leaves data.json untouched and
+	// an install that hand-tracked LL or LM keeps working exactly as before.
+	const systemRows = SYSTEM_PLAYLISTS.map((entry) =>
+		renderRow(
+			`Back up ${entry.fallbackTitle.toLowerCase()}`,
+			entry.id === 'LL'
+				? 'Brings the videos you gave a thumbs-up to into Liked Videos.md. Off by default. YouTube does not document this list id, so a refusal costs this list only.'
+				: 'Brings YouTube Music’s liked songs into Liked Music.md. Off by default. YouTube does not document this list id, so a refusal costs this list only.',
+			(setting) => {
+				setting.addToggle((toggle) =>
+					toggle.setValue(settings[entry.settingKey]).onChange(async (on) => {
+						settings[entry.settingKey] = on;
+						await host.plugin.saveSettings();
+					}),
+				);
+			},
+		),
+	);
+
 	return {
 		type: 'group',
 		heading: 'Playlists',
-		items: [toTrack, collect, watchLater, removedVideos, removedPage],
+		items: [toTrack, collect, watchLater, ...systemRows, removedVideos, removedPage],
 	};
 }
 

@@ -4,7 +4,7 @@
  * the note now.
  *
  * The Script folder row deliberately lives in the Notes group rather than
- * here: that folder receives all four generated view scripts, so it belongs
+ * here: that folder receives all six generated view scripts, so it belongs
  * at the level both Dataview features share, next to its sibling the Styles
  * folder. The toggle description points at it so the page is still a route.
  *

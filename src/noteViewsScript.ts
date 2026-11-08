@@ -22,13 +22,13 @@
  * and an icon-only Refresh button. The segmented control drives a hidden
  * native select, which stays the single value source, switches the rendering
  * immediately, writes the choice back into the plugin's settings under this
- * note type's own key (the same slot the three settings rows edit), and then
+ * note type's own key (the same slot the five settings rows edit), and then
  * refreshes every open view the way Dataview's own force-refresh command
  * does, so no sync is needed: the script prefers the live setting over the
  * layout baked into the note, and the baked value is only a fallback for
  * when the plugin instance cannot be reached.
  *
- * Sync writes the three scripts and their stylesheets whenever the "Views in
+ * Sync writes the five scripts and their stylesheets whenever the "Views in
  * notes" setting is on (sync.ts: writeNoteViewScripts), trashes copies left
  * in a previous scripts folder (shared dashboardScriptsFolderWritten
  * tracking), and does the same for the stylesheets in a previous styles
@@ -37,7 +37,8 @@
  * Dataview comes back.
  *
  * The view chrome lives in per-kind vault files: lifeline-channels.css,
- * lifeline-playlists.css, and lifeline-watchlater.css in the configured
+ * lifeline-playlists.css, lifeline-watchlater.css, lifeline-liked.css, and
+ * lifeline-liked-music.css in the configured
  * styles folder, exactly like quotebook and its quotebook.css. Sync writes
  * one file per kind, each sheet carrying that kind's three designs plus the
  * shared glass toolbar, and each generated script caches its own file's path
@@ -57,16 +58,24 @@
 import { DASHBOARD_STYLESHEET_FILE, normalizeScriptsFolder } from './dashboardScript';
 
 /** Which note a generated view script serves. */
-export type NoteViewKind = 'channels' | 'playlists' | 'watchlater';
+export type NoteViewKind = 'channels' | 'playlists' | 'watchlater' | 'liked' | 'likedmusic';
 
 /** Every kind, in write order. */
-export const NOTE_VIEW_KINDS: NoteViewKind[] = ['channels', 'playlists', 'watchlater'];
+export const NOTE_VIEW_KINDS: NoteViewKind[] = [
+	'channels',
+	'playlists',
+	'watchlater',
+	'liked',
+	'likedmusic',
+];
 
 /** Generated file names inside the scripts folder, one per note type. */
 const NOTE_VIEW_SCRIPT_FILES: Record<NoteViewKind, string> = {
 	channels: 'lifeline-channels.js',
 	playlists: 'lifeline-playlists.js',
 	watchlater: 'lifeline-watchlater.js',
+	liked: 'lifeline-liked.js',
+	likedmusic: 'lifeline-liked-music.js',
 };
 
 /** Generated stylesheet names inside the styles folder, one per note type:
@@ -76,14 +85,18 @@ const NOTE_VIEW_STYLESHEET_FILES: Record<NoteViewKind, string> = {
 	channels: 'lifeline-channels.css',
 	playlists: 'lifeline-playlists.css',
 	watchlater: 'lifeline-watchlater.css',
+	liked: 'lifeline-liked.css',
+	likedmusic: 'lifeline-liked-music.css',
 };
 
 /** The section each script bakes in: channels for Channels.md, playlist for
- *  the two video-list scripts. */
+ *  every video-list script (the two liked lists included). */
 const NOTE_VIEW_SECTIONS: Record<NoteViewKind, 'channels' | 'playlist'> = {
 	channels: 'channels',
 	playlists: 'playlist',
 	watchlater: 'playlist',
+	liked: 'playlist',
+	likedmusic: 'playlist',
 };
 
 /** The note each script serves, for the generated header comment. */
@@ -91,6 +104,8 @@ const NOTE_VIEW_NOTES: Record<NoteViewKind, string> = {
 	channels: 'Channels.md',
 	playlists: 'every playlist note under Playlists/',
 	watchlater: 'Watch Later.md',
+	liked: 'Liked Videos.md',
+	likedmusic: 'Liked Music.md',
 };
 
 /** Vault path of one generated script, e.g. `98 - Organize/Scripts/lifeline-channels.js`. */
@@ -103,7 +118,7 @@ export function noteViewViewName(kind: NoteViewKind, folder: string): string {
 	return noteViewScriptPath(kind, folder).replace(/\.js$/, '');
 }
 
-/** Pre-split name, superseded by the three scripts above. Sync deletes it
+/** Pre-split name, superseded by the five scripts above. Sync deletes it
  *  once every note has been rewritten onto the new view names. */
 export const LEGACY_NOTE_VIEWS_SCRIPT_FILE = 'lifeline-noteviews.js';
 
@@ -1415,6 +1430,18 @@ export const NOTE_VIEWS_CSS_BY_KIND: Record<NoteViewKind, string> = {
 		NOTE_VIEWS_CSS_VIDEO_TABLE +
 		NOTE_VIEWS_CSS_VIDEO_POSTER +
 		NOTE_VIEWS_CSS_VIDEO_BADGES,
+	liked:
+		NOTE_VIEWS_CSS_SHARED +
+		NOTE_VIEWS_CSS_VIDEO_CHIPS +
+		NOTE_VIEWS_CSS_VIDEO_TABLE +
+		NOTE_VIEWS_CSS_VIDEO_POSTER +
+		NOTE_VIEWS_CSS_VIDEO_BADGES,
+	likedmusic:
+		NOTE_VIEWS_CSS_SHARED +
+		NOTE_VIEWS_CSS_VIDEO_CHIPS +
+		NOTE_VIEWS_CSS_VIDEO_TABLE +
+		NOTE_VIEWS_CSS_VIDEO_POSTER +
+		NOTE_VIEWS_CSS_VIDEO_BADGES,
 };
 
 /**
@@ -2054,11 +2081,12 @@ export function renderNoteViewScript(
 ): string {
 	const section = NOTE_VIEW_SECTIONS[kind];
 	const note = NOTE_VIEW_NOTES[kind];
+	const viewFile = NOTE_VIEW_SCRIPT_FILES[kind].replace(/\.js$/, '');
 	return `/**
  * Lifeline note-view script for ${note} (generated).
  *
  * The note invokes this file once:
- *   dv.view("98 - Organize/Scripts/lifeline-${kind}", { layout: "poster"${kind === 'channels' ? ', fields: {...}' : ''} })
+ *   dv.view("98 - Organize/Scripts/${viewFile}", { layout: "poster"${kind === 'channels' ? ', fields: {...}' : ''} })
  * Layouts: poster, chips, table. Every layout reads the calling note's own
  * list entries (dv.current().file.lists), so the view mirrors the
  * inline-field entries below it. Regenerated on every sync while "Views in

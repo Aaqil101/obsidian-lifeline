@@ -51,6 +51,14 @@ import {
 	viewsStylesheetPath,
 } from './noteViewsScript';
 import {
+	enabledSystemPlaylistIds,
+	isSystemPlaylistId,
+	systemPlaylistForId,
+	systemPlaylistPath,
+	systemPlaylistTitle,
+	systemPlaylistViewKind,
+} from './systemPlaylists';
+import {
 	listChannelFaces,
 	listChannelStatistics,
 	listOwnedPlaylists,
@@ -284,7 +292,9 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 		// each resolved id is labeled owned or saved by comparing its owner
 		// channel against the one captured above (not assumed saved).
 		const catalogIds = new Set(playlists.map((playlist) => playlist.id));
-		const unresolved = (plugin.settings.importedPlaylistIds ?? []).filter((id) => !catalogIds.has(id));
+		const unresolved = Array.from(
+			new Set([...(plugin.settings.importedPlaylistIds ?? []), ...enabledSystemPlaylistIds(plugin.settings)]),
+		).filter((id) => !catalogIds.has(id));
 		if (unresolved.length > 0) {
 			try {
 				playlists = mergeCatalog(
@@ -297,7 +307,14 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 		}
 		if (playlistsOk) {
 			try {
-				await adoptCatalog(plugin, playlists);
+				// System ids are resolved into this run's catalog for titles and
+				// targets, but they must never be adopted into data.json: the two
+				// toggles are the only opt-in, and an install that hand-tracked
+				// them must keep its own arrays exactly as it wrote them.
+				await adoptCatalog(
+					plugin,
+					playlists.filter((playlist) => !isSystemPlaylistId(playlist.id)),
+				);
 			} catch (err) {
 				errors.push(recordError(err, 'playlists'));
 			}
@@ -375,7 +392,11 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 		for (const target of targets) {
 			try {
 				const { title: upstreamTitle, items } = await listPlaylistItems(target.id, plugin.auth, quota);
-				applyPlaylistDiff(state, target.id, upstreamTitle || target.title, target.saved, items, today);
+				const systemEntry = systemPlaylistForId(target.id);
+				const title = systemEntry
+					? systemPlaylistTitle(systemEntry, upstreamTitle || target.title)
+					: upstreamTitle || target.title;
+				applyPlaylistDiff(state, target.id, title, target.saved, items, today);
 				playlistsSynced++;
 				videosFound += items.length;
 			} catch (err) {
@@ -525,12 +546,14 @@ function playlistNoteContent(
 	images: BulletImages,
 	journal: JournalDates | undefined,
 	archived: number,
+	noteType?: 'lifeline-playlist' | 'lifeline-liked',
 ): string {
 	return renderPlaylistNote(playlistId, record.title, record, now, viewBlock, images, journal, {
 		shorts: plugin.settings.shortsDetection !== 'off',
 		fields: plugin.settings.videoFields,
 		removedMode: resolveRemovedMode(plugin.settings, playlistId),
 		archivedCount: archived,
+		noteType,
 	});
 }
 
@@ -542,14 +565,30 @@ function buildTargets(
 	const settings = plugin.settings;
 	const trackedIds = new Set(settings.trackedPlaylists ?? []);
 	if (settings.watchLaterPlaylistId) trackedIds.add(settings.watchLaterPlaylistId);
+	// Enabled system lists join this run's working set only. They are also
+	// treated as imported so the by-id title lookup below can resolve them
+	// without a hand edit to data.json. A system id the user tracked by hand
+	// gets the same treatment, so routing keeps working even when its toggle
+	// is off.
+	const systemIds = enabledSystemPlaylistIds(settings);
+	for (const id of systemIds) trackedIds.add(id);
 	const importedIds = new Set(settings.importedPlaylistIds ?? []);
+	for (const id of trackedIds) {
+		if (systemPlaylistForId(id)) importedIds.add(id);
+	}
 
 	const catalog = new Map(playlists.map((playlist) => [playlist.id, playlist] as const));
 	const targets: Array<{ id: string; title: string; saved: boolean }> = [];
 	for (const id of trackedIds) {
+		const systemEntry = systemPlaylistForId(id);
 		const fromCatalog = catalog.get(id);
 		if (fromCatalog) {
-			targets.push(fromCatalog);
+			targets.push({
+				...fromCatalog,
+				title: systemEntry
+					? systemPlaylistTitle(systemEntry, fromCatalog.title)
+					: fromCatalog.title,
+			});
 			continue;
 		}
 		const record = plugin.state.playlists[id];
@@ -559,7 +598,13 @@ function buildTargets(
 			// gone upstream. Sync anyway so items still back up; state keeps a
 			// known title and saved flag, else the id syncs under its last known
 			// label (default saved: the catalog above is complete when it ok'd).
-			targets.push({ id, title: record?.title ?? id, saved: record?.saved ?? true });
+			targets.push({
+				id,
+				title: systemEntry
+					? systemPlaylistTitle(systemEntry, record?.title)
+					: record?.title ?? id,
+				saved: record?.saved ?? true,
+			});
 			continue;
 		}
 		if (!playlistsOk && record) {
@@ -896,7 +941,7 @@ function uniqueFileName(state: SyncState, playlistId: string, base: string): str
 async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<void> {
 	const vault = plugin.app.vault;
 
-	// Note views (opt-in): write the three scripts first so the dv.view()
+	// Note views (opt-in): write the five scripts first so the dv.view()
 	// calls baked into the notes always resolve. Written regardless of
 	// Dataview state (a degraded note simply omits the block), matching the
 	// dashboard script precedent. Per-script error isolation, so one failing
@@ -926,6 +971,18 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 	const watchLaterView = viewsReady
 		? dataviewBlock(viewCall(noteViewViewName('watchlater', folder), { layout: layouts.watchlater }))
 		: undefined;
+	const likedView = viewsReady
+		? dataviewBlock(viewCall(noteViewViewName('liked', folder), { layout: layouts.liked }))
+		: undefined;
+	const likedMusicView = viewsReady
+		? dataviewBlock(viewCall(noteViewViewName('likedmusic', folder), { layout: layouts.likedmusic }))
+		: undefined;
+	const systemView = (id: string): string | undefined => {
+		const kind = systemPlaylistViewKind(id);
+		if (kind === 'liked') return likedView;
+		if (kind === 'likedmusic') return likedMusicView;
+		return undefined;
+	};
 	// Thumbnails download in batches, each just before the note that shows
 	// it: channel images first (Channels.md needs them), then each playlist's
 	// own folder inside the loop below. A bullet names the local copy only
@@ -992,7 +1049,33 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 				},
 			};
 			const archived = archivedCount(plugin.purgedState, ctx.state, playlistId);
-			if (playlistId === ctx.watchLaterId) {
+			const systemPath = systemPlaylistPath(ctx.paths, playlistId);
+			if (systemPath) {
+				// Routed by id, not by setting: an install that already tracked
+				// LL or LM by hand lands in the dedicated note, and any note the
+				// old path left under Playlists/ is swept so the two never
+				// compete as copies.
+				await writeNote(
+					vault,
+					systemPath,
+					playlistNoteContent(
+						plugin,
+						playlistId,
+						record,
+						ctx.now,
+						systemView(playlistId),
+						videoImages,
+						journal,
+						archived,
+						'lifeline-liked',
+					),
+				);
+				await deleteNote(plugin.app, `${ctx.paths.playlistsFolder}/${record.fileName}.md`);
+				const previous = ctx.previousFiles.get(playlistId);
+				if (previous && previous !== record.fileName) {
+					await deleteNote(plugin.app, `${ctx.paths.playlistsFolder}/${previous}.md`);
+				}
+			} else if (playlistId === ctx.watchLaterId) {
 				await writeNote(
 					vault,
 					ctx.paths.watchLater,
@@ -1037,16 +1120,21 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 		}
 		try {
 			const status = computeStatus(ctx.errors, ctx.quotaSoftWarn, ctx.channelsOk || ctx.playlistsSynced > 0);
+			// The liked notes are not playlists as far as the Dashboard is
+			// concerned: both panels and the frontmatter counts stay playlist-only.
+			const dashboardTrackedIds = new Set(
+				[...ctx.trackedIds].filter((id) => !isSystemPlaylistId(id)),
+			);
 			await writeNote(vault, ctx.paths.dashboard, renderDashboardNote(ctx.state, {
 				paths: ctx.paths,
 				sections: plugin.settings.dashboardSections,
 				dataviewReady: isDataviewEnabled(plugin.app),
-				trackedIds: ctx.trackedIds,
+				trackedIds: dashboardTrackedIds,
 				watchLaterId: ctx.watchLaterId,
 				syncedAt: ctx.now,
 				status,
 				scriptsFolder: plugin.settings.dashboardScriptsFolder,
-				archivedVideoCount: archivedTotal(plugin.purgedState, ctx.state, ctx.trackedIds),
+				archivedVideoCount: archivedTotal(plugin.purgedState, ctx.state, dashboardTrackedIds),
 			}));
 		} catch (err) {
 			ctx.errors.push(recordError(err, ctx.paths.dashboard));
@@ -1113,6 +1201,18 @@ export async function rewritePlaylistNotes(
 	const watchLaterView = viewsReady
 		? dataviewBlock(viewCall(noteViewViewName('watchlater', folder), { layout: layouts.watchlater }))
 		: undefined;
+	const likedView = viewsReady
+		? dataviewBlock(viewCall(noteViewViewName('liked', folder), { layout: layouts.liked }))
+		: undefined;
+	const likedMusicView = viewsReady
+		? dataviewBlock(viewCall(noteViewViewName('likedmusic', folder), { layout: layouts.likedmusic }))
+		: undefined;
+	const systemView = (id: string): string | undefined => {
+		const kind = systemPlaylistViewKind(id);
+		if (kind === 'liked') return likedView;
+		if (kind === 'likedmusic') return likedMusicView;
+		return undefined;
+	};
 	const blurred = blurredVideoIds(state.playlists, settings.blurredThumbnailVideos);
 	const channelAvailable = await localChannelImageBases(plugin, paths);
 
@@ -1136,11 +1236,17 @@ export async function rewritePlaylistNotes(
 				channels: state.faces,
 			},
 		};
-		const viewBlock = playlistId === settings.watchLaterPlaylistId ? watchLaterView : playlistView;
+		const systemPath = systemPlaylistPath(paths, playlistId);
+		const viewBlock = systemPath
+			? systemView(playlistId)
+			: playlistId === settings.watchLaterPlaylistId
+				? watchLaterView
+				: playlistView;
 		const path =
-			playlistId === settings.watchLaterPlaylistId
+			systemPath ??
+			(playlistId === settings.watchLaterPlaylistId
 				? paths.watchLater
-				: `${paths.playlistsFolder}/${record.fileName}.md`;
+				: `${paths.playlistsFolder}/${record.fileName}.md`);
 		try {
 			await writeNote(
 				vault,
@@ -1154,8 +1260,14 @@ export async function rewritePlaylistNotes(
 					images,
 					journal,
 					archivedCount(plugin.purgedState, state, playlistId),
+					systemPath ? 'lifeline-liked' : undefined,
 				),
 			);
+			if (systemPath) {
+				// The old hand-tracked copy under Playlists/ must not survive
+				// beside the dedicated note.
+				await deleteNote(plugin.app, `${paths.playlistsFolder}/${record.fileName}.md`);
+			}
 			rewritten++;
 		} catch (err) {
 			errors.push(recordError(err, `note ${record.title}`));
@@ -1172,6 +1284,7 @@ export function offlineTrackedIds(settings: LifelineSettings, state: SyncState):
 			: [...(settings.trackedPlaylists ?? [])];
 	const tracked = new Set(ids);
 	if (settings.watchLaterPlaylistId) tracked.add(settings.watchLaterPlaylistId);
+	for (const id of enabledSystemPlaylistIds(settings)) tracked.add(id);
 	return tracked;
 }
 
@@ -1286,8 +1399,8 @@ export async function clearPurgedArchive(plugin: LifelinePlugin): Promise<number
 
 /**
  * Write one generated view script into the configured scripts folder and
- * record which folder it landed in. All four generated scripts (the
- * dashboard script and the three note-view scripts) share the same folder
+ * record which folder it landed in. All six generated scripts (the
+ * dashboard script and the five note-view scripts) share the same folder
  * setting and the same bookkeeping key, so whichever one notices a folder
  * change trashes the copies left in the old folder, along with the legacy
  * lifeline-noteviews.js and lifeline-tables.js. Written regardless of
@@ -1354,7 +1467,8 @@ async function writeDashboardScript(plugin: LifelinePlugin): Promise<void> {
 /**
  * Write the generated view stylesheets into the configured styles folder:
  * one per note kind (lifeline-channels.css, lifeline-playlists.css,
- * lifeline-watchlater.css) plus the dashboard's lifeline-dashboard.css.
+ * lifeline-watchlater.css, lifeline-liked.css, lifeline-liked-music.css)
+ * plus the dashboard's lifeline-dashboard.css.
  * Every view script reads its own file at view time, so they must exist
  * before the notes are rendered; written alongside the scripts for the same
  * reason the dashboard script is written before the note. The bookkeeping
@@ -1365,24 +1479,13 @@ async function writeDashboardScript(plugin: LifelinePlugin): Promise<void> {
  * a failure here is recorded by the caller and never blocks the scripts.
  */
 async function writeViewStylesheets(plugin: LifelinePlugin): Promise<void> {
+	const vault = plugin.app.vault;
 	const folder = normalizeStylesFolder(plugin.settings.stylesFolder);
 	requireSet(folder, 'styles folder');
-	await writeNote(
-		plugin.app.vault,
-		viewsStylesheetPath('channels', folder),
-		NOTE_VIEWS_CSS_BY_KIND.channels,
-	);
-	await writeNote(
-		plugin.app.vault,
-		viewsStylesheetPath('playlists', folder),
-		NOTE_VIEWS_CSS_BY_KIND.playlists,
-	);
-	await writeNote(
-		plugin.app.vault,
-		viewsStylesheetPath('watchlater', folder),
-		NOTE_VIEWS_CSS_BY_KIND.watchlater,
-	);
-	await writeNote(plugin.app.vault, dashboardStylesheetPath(folder), DASHBOARD_CSS);
+	for (const kind of NOTE_VIEW_KINDS) {
+		await writeNote(vault, viewsStylesheetPath(kind, folder), NOTE_VIEWS_CSS_BY_KIND[kind]);
+	}
+	await writeNote(vault, dashboardStylesheetPath(folder), DASHBOARD_CSS);
 	const previous = plugin.settings.stylesFolderWritten;
 	if (previous !== folder) {
 		plugin.settings.stylesFolderWritten = folder;
@@ -1407,8 +1510,9 @@ async function writeViewStylesheets(plugin: LifelinePlugin): Promise<void> {
 
 /**
  * Write the generated view stylesheets (one per note kind plus the
- * dashboard's) and the three generated note-view scripts
- * (lifeline-channels.js, lifeline-playlists.js, lifeline-watchlater.js).
+ * dashboard's) and the five generated note-view scripts
+ * (lifeline-channels.js, lifeline-playlists.js, lifeline-watchlater.js,
+ * lifeline-liked.js, lifeline-liked-music.js).
  * Exported so the settings toggle-on can write them immediately, before the
  * next sync bakes the dv.view() calls into the notes. The stylesheets go
  * first: each script reads its own at view time, so they must be in place
@@ -1436,7 +1540,7 @@ export async function writeNoteViewScripts(
 		() => writeViewStylesheets(plugin),
 		dashboardStylesheetPath(plugin.settings.stylesFolder),
 	);
-	// The two video scripts join channel avatars from Channels.md, so the note's
+	// The video scripts join channel avatars from Channels.md, so the note's
 	// vault path is baked in beside the script: a local avatar belongs to that
 	// note, not to the playlist note the view is reading.
 	const channelsPath = outputPaths(plugin.settings.outputFolder).channels;
@@ -1497,7 +1601,7 @@ function markdownUnder(folder: TFolder | null): TFile[] {
 /**
  * Undo the opt-in note views the moment Views in notes is switched off:
  * strip the dv.view() blocks out of every note under the output folder
- * (Channels.md, playlist notes, Watch Later.md) and trash the three note-view
+ * (Channels.md, playlist notes, Watch Later.md, the two liked notes) and trash the five note-view
  * scripts and their stylesheets, which nothing reads once no note calls them.
  * Only notes that actually carry a block are rewritten, so an untouched
  * vault sees no modify events. Each note is isolated: one failing note is
@@ -1547,6 +1651,8 @@ export async function writeDashboardNote(plugin: LifelinePlugin): Promise<string
 	const paths = outputPaths(plugin.settings.outputFolder, plugin.settings.imagesFolder);
 	const trackedIds = new Set(plugin.settings.trackedPlaylists ?? []);
 	if (plugin.settings.watchLaterPlaylistId) trackedIds.add(plugin.settings.watchLaterPlaylistId);
+	// Liked notes carry their own type and never count as playlists here.
+	const dashboardTrackedIds = new Set([...trackedIds].filter((id) => !isSystemPlaylistId(id)));
 	const last = plugin.state.lastSync;
 	// Script first: the note's dv.view() calls would break without it.
 	await writeDashboardScript(plugin);
@@ -1554,12 +1660,12 @@ export async function writeDashboardNote(plugin: LifelinePlugin): Promise<string
 		paths,
 		sections: plugin.settings.dashboardSections,
 		dataviewReady: isDataviewEnabled(plugin.app),
-		trackedIds,
+		trackedIds: dashboardTrackedIds,
 		watchLaterId: plugin.settings.watchLaterPlaylistId,
 		syncedAt: last ? new Date(last.at) : new Date(),
 		status: last?.status ?? null,
 		scriptsFolder: plugin.settings.dashboardScriptsFolder,
-		archivedVideoCount: archivedTotal(plugin.purgedState, plugin.state, trackedIds),
+		archivedVideoCount: archivedTotal(plugin.purgedState, plugin.state, dashboardTrackedIds),
 	});
 	await writeNote(plugin.app.vault, paths.dashboard, content);
 	return paths.dashboard;

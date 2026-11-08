@@ -6,6 +6,8 @@
  *   Channels.md          - one field-list entry per subscribed channel
  *   Playlists/<name>.md  - one field-list entry per video, per tracked playlist
  *   Watch Later.md       - the designated watch-later substitute playlist
+ *   Liked Videos.md      - opt-in backup of the thumbs-up list (system LL)
+ *   Liked Music.md       - opt-in backup of YouTube Music's liked songs (LM)
  *   Dashboard.md         - opt-in home note (static summary + DataviewJS sections)
  *
  * The sync log (sync-log.json) lives in the plugin folder, not here.
@@ -22,6 +24,9 @@ export interface OutputPaths {
 	channels: string;
 	playlistsFolder: string;
 	watchLater: string;
+	/** Opt-in system-list notes, routed by id rather than by file name. */
+	likedVideos: string;
+	likedMusic: string;
 	dashboard: string;
 	/** Vault folders receiving downloaded images (download mode), one per kind. */
 	thumbnails: string;
@@ -64,6 +69,8 @@ export function outputPaths(outputFolder: string, imagesFolder?: string | null):
 		channels: joinPath(folder, 'Channels.md'),
 		playlistsFolder: joinPath(folder, 'Playlists'),
 		watchLater: joinPath(folder, 'Watch Later.md'),
+		likedVideos: joinPath(folder, 'Liked Videos.md'),
+		likedMusic: joinPath(folder, 'Liked Music.md'),
 		dashboard: joinPath(folder, 'Dashboard.md'),
 		thumbnails: joinPath(parent, 'thumbnails'),
 		avatars: joinPath(parent, 'avatars'),
@@ -275,8 +282,8 @@ export function dataviewBlock(code: string): string {
 }
 
 /**
- * Remove the note-view blocks (the three opt-in lifeline-channels/playlists/
- * watchlater dv.view() fences) from a note's text, restoring the pre-feature
+ * Remove the note-view blocks (the five opt-in lifeline-channels/playlists/
+ * watchlater/liked/liked-music dv.view() fences) from a note's text, restoring the pre-feature
  * bytes. Each block is exactly three lines plus the blank line `renderNote`
  * pushes after it, so the match takes that trailing blank line too. The
  * dashboard's own dataviewjs blocks name a different view and are untouched.
@@ -446,6 +453,10 @@ export interface PlaylistNoteOptions {
 	shorts?: boolean;
 	fields?: VideoFieldSettings;
 	removedMode?: RemovedVideosMode;
+	/** Frontmatter type. Defaults to lifeline-playlist, so ordinary playlist
+	 *  output stays byte-identical; the two liked notes write lifeline-liked
+	 *  so the Dashboard's playlist type guard skips them. */
+	noteType?: 'lifeline-playlist' | 'lifeline-liked';
 	/** Entries in state/purged.json for this playlist: never drawn, but still
 	 *  counted in `video_count` and `removed_count` until the archive is wiped. */
 	archivedCount?: number;
@@ -481,7 +492,7 @@ export function renderPlaylistNote(
 
 	const lines: string[] = [
 		'---',
-		'type: lifeline-playlist',
+		`type: ${options?.noteType === 'lifeline-liked' ? 'lifeline-liked' : 'lifeline-playlist'}`,
 		`playlist_id: ${playlistId}`,
 		`url: ${yamlString(`https://www.youtube.com/playlist?list=${playlistId}`)}`,
 		`title: ${yamlString(record.title)}`,

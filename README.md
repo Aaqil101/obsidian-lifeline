@@ -7,6 +7,7 @@ Lifeline is a **desktop-only** Obsidian plugin that exports:
 - **Channels.md**: every channel you're subscribed to, as Dataview-queryable fields
 - **Playlists/\*.md**: one note per playlist you choose to track
 - **Watch Later.md**: a dedicated note for the playlist you use as your watch-later substitute
+- **Liked Videos.md** and **Liked Music.md**: opt-in backups of the thumbs-up list and YouTube Music's liked songs
 - **sync-log.json** (in the plugin folder): a record of every sync run, capped at the most recent 200
 
 All output is plain Markdown inside your vault. There are no proprietary formats and no databases. Every entry is a record you can query with Dataview.
@@ -80,7 +81,7 @@ The settings tab has five groups. Chevron rows open sub-pages.
 | **Google account** | Connection status and **Authenticate with Google** / **Re-authenticate**. Sub-page **Google credentials**: OAuth client ID, OAuth client secret, and a **Security notes** button. |
 | **Notes** | **Output folder**, **Journal folder**, **Identify Shorts**, sub-page **Video bullet fields**, sub-page **Views in notes**, **Styles folder**, **Script folder**, sub-page **Channels.md fields**, sub-page **Dashboard**. |
 | **Images** | **Channel avatars and banners**, **Video thumbnails** (each Off, Link, or Download), **Blurred thumbnails**, and **Images folder** (shown only while one of the two modes is Download). |
-| **Playlists** | Sub-page **Playlists to track**, sub-page **Get saved playlist IDs**, **Watch later playlist**, **Removed videos in notes**, and sub-page **Removed videos**. |
+| **Playlists** | Sub-page **Playlists to track**, sub-page **Get saved playlist IDs**, **Watch later playlist**, **Back up liked videos**, **Back up liked music**, **Removed videos in notes**, and sub-page **Removed videos**. |
 | **Sync** | **Sync interval (hours)** (default 20), **Quota soft limit** (default 8000), and **Sync now**. |
 
 Each sub-page has its own rows, described below.
@@ -103,6 +104,8 @@ Default layout. Folder names are configurable, as noted in each comment.
 ├── Channels.md                      # one field-list entry per channel
 ├── Dashboard.md                     # opt-in home note (Dataview)
 ├── Watch Later.md                   # your watch-later substitute playlist
+├── Liked Videos.md                  # opt-in: the thumbs-up list
+├── Liked Music.md                   # opt-in: YouTube Music's liked songs
 ├── Playlists/
 │   ├── Favorites.md
 │   └── Watched later.md
@@ -115,12 +118,16 @@ Default layout. Folder names are configurable, as noted in each comment.
 ├── lifeline-dashboard.js            # draws Dashboard.md
 ├── lifeline-channels.js             # draws the Channels.md view (opt-in)
 ├── lifeline-playlists.js            # draws the playlist-note views (opt-in)
-└── lifeline-watchlater.js           # draws the Watch Later.md view (opt-in)
+├── lifeline-watchlater.js           # draws the Watch Later.md view (opt-in)
+├── lifeline-liked.js                # draws the Liked Videos.md view (opt-in)
+└── lifeline-liked-music.js          # draws the Liked Music.md view (opt-in)
 
 98 - Organize/Styles/                # Styles folder
 ├── lifeline-channels.css            # read by the Channels.md view (opt-in)
 ├── lifeline-playlists.css           # read by the playlist-note views (opt-in)
 ├── lifeline-watchlater.css          # read by the Watch Later.md view (opt-in)
+├── lifeline-liked.css               # read by the Liked Videos.md view (opt-in)
+├── lifeline-liked-music.css         # read by the Liked Music.md view (opt-in)
 └── lifeline-dashboard.css           # read by Dashboard.md (opt-in)
 
 .obsidian/plugins/lifeline/
@@ -157,10 +164,21 @@ Each video is a single list item with Dataview inline fields:
 ```
 
 - `date` is the day the video was added to the playlist.
-- Every playlist note, Watch Later included, has a `url` frontmatter field that opens the playlist on YouTube.
+- Every playlist note, Watch Later and the two liked notes included, has a `url` frontmatter field that opens its list on YouTube.
 - `saved: true` in frontmatter means the playlist was saved from another channel. `saved: false` means you created it. The owner channel decides the label, not the import path, so a playlist collected from the same page can still read `saved: false`.
 - Only watchable videos get a bullet, except for removed videos in **Keep** mode (see below). Private and deleted videos stay in `state/playlists.json`, so the backup keeps them. The frontmatter reports them as `unavailable_count` and `removed_count`. Both are always present. In **Count only** mode, `video_count - unavailable_count - removed_count` gives the number of bullets. A video that is both removed and unavailable counts once, under `removed`, and never gets a bullet.
 - Age-restricted videos are blurred automatically by default, and any videos you list under **Blurred thumbnails** are blurred too. A video that is blurred for either reason carries `[sensitive:: true]`. Turning off **Blur age-restricted videos** keeps that field on age-restricted bullets but leaves them unblurred.
+
+### Liked videos and Liked music
+
+Two opt-in rows under **Playlists** back up the system lists YouTube gives you no export for:
+
+- **Back up liked videos** writes `Liked Videos.md` from the thumbs-up list (`LL`).
+- **Back up liked music** writes `Liked Music.md` from YouTube Music's liked songs (`LM`).
+
+Both are off by default. They are read through the same `playlistItems.list` path as any other playlist, so every bullet keeps a real `date` from the day the item was added. Removed entries, Shorts fields, video bullet fields, thumbnails, and channel faces all behave exactly as they do in a playlist note. Their frontmatter type is `lifeline-liked`, which keeps them out of the Dashboard's playlist count, playlists panel, and new-since-sync feed.
+
+The two ids are undocumented, so Google could refuse them without notice. A refusal costs that one list for that run; the other lists still sync, and the existing note stays on disk. Turning a toggle off stops the fetch and leaves the note as a backup. Neither toggle writes anything into `trackedPlaylists` or `importedPlaylistIds`, so a hand edit that already tracked `LL` or `LM` keeps working; those installs simply get the dedicated note instead of `Playlists/LL.md`.
 
 ### Removed videos
 
@@ -232,7 +250,7 @@ The note holds frontmatter (`type`, `last_synced`, `channel_count`, `playlist_co
 - **Header:** a hero with the title, a status badge (**Synced**, **Synced with issues**, **Sync failed**, or **Never synced**), the last sync line with counts, and KPI chips for channels, playlists, videos, and **New since sync**. The first three chips open Channels.md or scroll to the playlists panel.
   - The hero shows the top four channel banners in a mosaic by default. Under **Dashboard → Hero banner**, you can pick one channel instead, and its banner fills the hero. **Banner crop** sets which part of a wide banner stays in view. Click a point on the preview, or focus it and use the arrow keys (Shift for bigger steps, Home to recenter). Both settings apply without a sync.
   - Two panels sit under the hero, side by side: **New since last sync** lists videos added on or after the last sync date, and **Needs attention** lists playlists with unavailable entries, plus removed entries while a playlist is in **Count only** mode. It shows **All clear** when there are none. Removed bullets are never listed or counted as videos. The feed follows **Shorts in views** (under **Views in notes**): Hide Shorts or Only Shorts filters the video rows before the **Feed entries** limit, the **New since sync** chip counts the same filtered list, and every Short row shown carries a small Shorts tag. New playlist rows are never filtered.
-- **Playlists:** a **Table / Cards** pill toggle. Cards show the newest playlists with covers. Table lists them alphabetically, with Watch Later pinned first. Both modes stop at **Playlist cards** (default 6).
+- **Playlists:** a **Table / Cards** pill toggle. Cards show the newest playlists with covers. Table lists them alphabetically, with Watch Later pinned first. Both modes stop at **Playlist cards** (default 6). The two liked notes are excluded from this panel, the new-since-sync feed, and the playlist and video counts.
 - **Top channels:** the same toggle. Cards show banner, avatar, handle, and counts. Table lists channels by subscribers. Both modes stop at **Top channels** (default 10).
 
 Four toggles under **Notes → Dashboard** turn each panel on or off: **New since last sync card**, **Needs attention card**, **Playlists card**, and **Top channels by subscribers**. The limits are **Feed entries** (default 8, for the new-since-sync list), **Attention entries** (default 6), **Playlist cards** (default 6), and **Top channels** (default 10).
@@ -245,13 +263,13 @@ If Dataview is disabled later, Lifeline keeps the frontmatter and replaces the s
 
 ## Views in notes
 
-**Views in notes** is an opt-in toggle, off by default, on the **Notes → Views in notes** sub-page. When it's on, a live view draws above the entries in Channels.md, in every playlist note, and in Watch Later.md. Each note type has its own script in the **Script folder**: `lifeline-channels.js`, `lifeline-playlists.js`, and `lifeline-watchlater.js`. Turning the toggle on requires Dataview. Turning it off removes the view blocks from the notes and deletes the scripts. The bullets stay where they are.
+**Views in notes** is an opt-in toggle, off by default, on the **Notes → Views in notes** sub-page. When it's on, a live view draws above the entries in Channels.md, in every playlist note, in Watch Later.md, and in the two liked notes. Each note type has its own script in the **Script folder**: `lifeline-channels.js`, `lifeline-playlists.js`, `lifeline-watchlater.js`, `lifeline-liked.js`, and `lifeline-liked-music.js`. Turning the toggle on requires Dataview. Turning it off removes the view blocks from the notes and deletes the scripts. The bullets stay where they are.
 
-Each note type has its own layout row on the same sub-page: **Channels layout**, **Playlists layout**, and **Watch Later layout**. Each offers Poster, Chips, or Table.
+Each note type has its own layout row on the same sub-page: **Channels layout**, **Playlists layout**, **Watch Later layout**, **Liked videos layout**, and **Liked music layout**. Each offers Poster, Chips, or Table.
 
 - **Poster** (default): cards.
   - Channels.md: *Ambient* cards show the channel banner as a blurred backdrop, with the avatar, name, and count chips over it.
-  - Playlist notes and Watch Later.md: *Cinema* cards show a 16:9 thumbnail with a labelled **Added** date pill in a corner, the upload date beside the channel name, and the title and channel over a gradient. A play button appears on hover. A video with no thumbnail shows the title's first letter.
+  - Playlist notes, Watch Later.md, and the two liked notes: *Cinema* cards show a 16:9 thumbnail with a labelled **Added** date pill in a corner, the upload date beside the channel name, and the title and channel over a gradient. A play button appears on hover. A video with no thumbnail shows the title's first letter.
 - **Chips:** one row per entry.
   - Channels.md: *Split* rows show the avatar and name on the left, and the counts and `subscribed since` date in a tinted pane on the right.
   - Video lists: *Ticket* rows show the thumbnail, a two-line title, the channel and its avatar, the upload date, and the added date on a tear-off stub.
@@ -377,7 +395,7 @@ A sync costs roughly:
 - **Subscriptions:** 1 unit per 50 subscribed channels.
 - **Created playlists:** 1 unit per 50 playlists.
 - **Imported playlist IDs:** 1 unit per 50 IDs.
-- **Playlist contents:** 1 unit per 50 videos in each tracked playlist (including Watch Later). A playlist of 120 videos costs 3 units.
+- **Playlist contents:** 1 unit per 50 videos in each tracked playlist (including Watch Later and either liked list). A playlist of 120 videos costs 3 units.
 - **Channel statistics:** 1 unit per 50 channels, but only while a Subscribers, Videos, Views, or Country field is on, or a channel image field is on. Avatar and banner URLs ride this same request.
 - **Playlist-owner faces:** when a video's channel is not in your Channels.md, Lifeline fetches that channel's avatar in batches of 50, 1 unit each batch, only while **Channel avatars and banners** is on. Those avatars are stored and only the missing ones are fetched.
 - **Age ratings:** 1 unit per 50 new videos, only while **Video thumbnails** is on, to detect age-restricted videos.
@@ -402,6 +420,7 @@ Image downloads cost no quota.
 
 - **Desktop only.** The OAuth flow uses a loopback redirect on `127.0.0.1`, which mobile Obsidian doesn't support.
 - **YouTube's system Watch Later list is not available through the API.** Pick a playlist as your substitute under **Playlists → Watch later playlist**. Lifeline writes it to `Watch Later.md`.
+- **Liked videos and Liked music use undocumented system playlist ids.** Google could refuse them without notice. Both are off by default, and a refusal costs only that list for that run.
 - **One Google account per vault.**
 - **No background scheduler.** A sync runs at startup if one is due, or when you start it.
 
@@ -425,7 +444,8 @@ Source layout:
 - `src/markdown.ts`: note renderers, image fields, journal links, and output paths.
 - `src/blurredThumbnails.ts`: parsing for the blurred-thumbnail list.
 - `src/dashboard.ts` and `src/dashboardScript.ts`: Dashboard.md and `lifeline-dashboard.js`.
-- `src/noteViewsScript.ts`: the three note-view scripts and their stylesheets.
+- `src/noteViewsScript.ts`: the five note-view scripts and their stylesheets.
+- `src/systemPlaylists.ts`: the LL/LM system-list table shared by routing, fetching, and settings.
 - `src/collector.ts`, `src/playlistIds.ts`, `src/webviewCompat.ts`: saved-playlist collection.
 - `src/json.ts`: type-safe JSON helpers.
 - `src/ui/syncLogModal.ts`: the sync-log viewer.
