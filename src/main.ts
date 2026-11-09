@@ -10,7 +10,8 @@ import { formatTime } from './markdown';
 import { SyncLogModal } from './ui/syncLogModal';
 import { readSyncLog, removeLegacySyncLog } from './syncLog';
 import { adoptCatalog, mergeCatalog, runSync, writeDashboardNote } from './sync';
-import { listOwnedPlaylists, listSubscriptions, QuotaTracker } from './youtubeApi';
+import { listOwnedPlaylists, listPlaylistsByIds, listSubscriptions, QuotaTracker } from './youtubeApi';
+import { isSystemPlaylistId } from './systemPlaylists';
 import {
 	DEFAULT_SETTINGS,
 	LifelineSettingTab,
@@ -178,7 +179,7 @@ export default class LifelinePlugin extends Plugin {
 		return runSync(this);
 	}
 
-	/** Fetch the playlist catalog (owned + saved) and adopt it into settings. */
+	/** Fetch the playlist catalog (owned, saved, and imported ids) and adopt it. */
 	async fetchPlaylistCatalog(): Promise<void> {
 		const quota = new QuotaTracker(this.settings.quotaSoftLimit);
 		// Saved playlists ride on subscriptions.list, the same call that feeds
@@ -187,7 +188,34 @@ export default class LifelinePlugin extends Plugin {
 			listOwnedPlaylists(this.auth, quota),
 			listSubscriptions(this.auth, quota),
 		]);
-		await adoptCatalog(this, mergeCatalog(owned.playlists, savedPlaylists));
+		let playlists = mergeCatalog(owned.playlists, savedPlaylists);
+
+		// Imported ids appear in neither list. Sync resolves them by id, so a
+		// refresh that skipped that step would drop every imported saved playlist
+		// the last sync adopted into "Not resolved yet". Resolve them here too.
+		const catalogIds = new Set(playlists.map((playlist) => playlist.id));
+		const unresolved = (this.settings.importedPlaylistIds ?? []).filter(
+			(id) => !catalogIds.has(id) && !isSystemPlaylistId(id),
+		);
+		if (unresolved.length > 0) {
+			try {
+				playlists = mergeCatalog(
+					playlists,
+					await listPlaylistsByIds(unresolved, this.auth, quota, owned.ownerChannelId),
+				);
+			} catch {
+				// A failed metadata call must not demote those ids to "Not resolved
+				// yet": keep what the previous catalog knew about them.
+				const resolved = new Set(playlists.map((playlist) => playlist.id));
+				playlists = [
+					...playlists,
+					...this.settings.playlistCatalog.filter(
+						(playlist) => unresolved.includes(playlist.id) && !resolved.has(playlist.id),
+					),
+				];
+			}
+		}
+		await adoptCatalog(this, playlists);
 	}
 
 	/**

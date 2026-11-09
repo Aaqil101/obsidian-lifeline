@@ -1,12 +1,12 @@
 /**
- * Saved-playlist ID collector sub-page. Mode 1 (default, every platform):
- * numbered DevTools steps, a select-and-copy control for the console
- * collector, and a lenient paste parser with an "N IDs parsed" count plus
- * shape warnings. The plugin itself never touches the clipboard: it
- * highlights the script and you copy it with Ctrl+C.
- * Mode 2 (desktop-only): open the page in Obsidian's Web viewer core plugin
- * and collect from that tab with one click. Imported IDs are persisted to
- * data.json only.
+ * Saved-playlist ID collector, rendered as a collapsed section of the
+ * playlist backup page. Mode 1 (default, every platform): numbered DevTools
+ * steps, a select-and-copy control for the console collector, and a lenient
+ * paste parser with an "N IDs parsed" count plus shape warnings. The plugin
+ * itself never touches the clipboard: it highlights the script and you copy
+ * it with Ctrl+C. Mode 2 (desktop-only): open the page in Obsidian's Web
+ * viewer core plugin and collect from that tab with one click. Imported IDs
+ * are persisted to data.json only.
  */
 import { Notice, Platform, Setting, type ButtonComponent } from 'obsidian';
 import { COLLECTOR_SOURCE } from '../collector';
@@ -16,7 +16,6 @@ import {
 	cleanPlaylistIds,
 	describeParse,
 	parsePlaylistIds,
-	removeImportedPlaylistId,
 } from '../playlistIds';
 import {
 	findWebViewerTab,
@@ -28,10 +27,13 @@ import {
 } from '../webviewCompat';
 import { group, noteParagraph, type SettingsHost } from './ui';
 
-export function renderCollectIdsPage(host: SettingsHost, containerEl: HTMLElement): void {
+export function renderCollectSection(host: SettingsHost, containerEl: HTMLElement): void {
 	const { settings } = host.plugin;
 
-	const stepsCard = group(containerEl, 'Get saved playlist IDs');
+	const details = containerEl.createEl('details', { cls: 'lifeline-collect-section' });
+	details.createEl('summary', { text: 'Add missing saved playlists' });
+	const body = details.createDiv();
+	const stepsCard = group(body, 'Saved playlist IDs');
 	const steps = stepsCard.createEl('ol', { cls: 'lifeline-settings-steps' });
 	steps.createEl('li', { text: 'Open YouTube.com/feed/playlists in a browser and sign in.' });
 	steps.createEl('li', {
@@ -42,7 +44,7 @@ export function renderCollectIdsPage(host: SettingsHost, containerEl: HTMLElemen
 	});
 	const lastStep = steps.createEl('li');
 	lastStep.appendText('Copy the printed array, paste it below, then select ');
-	lastStep.createEl('b', { text: 'Add to tracked playlists' });
+	lastStep.createEl('b', { text: 'Add to backed-up playlists' });
 	lastStep.appendText('. The script only reads the page; it never touches your cookies or account.');
 
 	// Created just below; the click handler runs long after both exist.
@@ -107,11 +109,11 @@ export function renderCollectIdsPage(host: SettingsHost, containerEl: HTMLElemen
 
 	new Setting(stepsCard)
 		.setName('Import')
-		.setDesc('Save the parsed IDs to data.json and start tracking them for backup.')
+		.setDesc('Save the parsed IDs to data.json and start backing them up.')
 		.addButton((button) => {
 			addButton = button;
 			button
-				.setButtonText('Add to tracked playlists')
+				.setButtonText('Add to backed-up playlists')
 				.setCta()
 				.setDisabled(true)
 				.onClick(async () => {
@@ -122,42 +124,15 @@ export function renderCollectIdsPage(host: SettingsHost, containerEl: HTMLElemen
 					new Notice(
 						added > 0
 							? `Added ${added} playlist ID${added === 1 ? '' : 's'}.`
-							: 'Those IDs are already tracked.',
+							: 'Those IDs are already backed up.',
 					);
 					host.refresh();
 				});
 		});
 	updateFeedback();
 
-	renderImportedCard(host, containerEl);
-
 	// Mode 2: the user's own Web viewer tab (core plugin), desktop-only.
-	if (!Platform.isMobile) renderWebViewerCard(host, containerEl);
-}
-
-/** Imported IDs, each removable. */
-function renderImportedCard(host: SettingsHost, containerEl: HTMLElement): void {
-	const { settings } = host.plugin;
-	const card = group(containerEl, 'Imported IDs');
-	const imported = settings.importedPlaylistIds ?? [];
-	if (imported.length === 0) {
-		noteParagraph(card, 'Nothing imported yet. Start with the steps above.');
-	}
-	const catalog = new Map(settings.playlistCatalog.map((playlist) => [playlist.id, playlist] as const));
-	for (const id of imported) {
-		const title = catalog.get(id)?.title ?? host.plugin.state.playlists[id]?.title ?? id;
-		const row = new Setting(card).setName(title).addExtraButton((button) =>
-			button
-				.setIcon('trash')
-				.setTooltip('Stop tracking this playlist')
-				.onClick(async () => {
-					removeImportedPlaylistId(settings, id);
-					await host.plugin.saveSettings();
-					host.refresh();
-				}),
-		);
-		if (title !== id) row.setDesc(id);
-	}
+	if (!Platform.isMobile) renderWebViewerCard(host, body);
 }
 
 /** Mode 2: collect straight from the user's own signed-in Web viewer tab. */
@@ -185,7 +160,7 @@ function renderWebViewerCard(host: SettingsHost, containerEl: HTMLElement): void
 	new Setting(card)
 		.setName('Collect saved playlist ids')
 		.setDesc(
-			'Run the collector in that tab: it scrolls to the end, collects every playlist ID, and starts tracking them. It only reads the page.',
+			'Run the collector in that tab: it scrolls to the end, collects every playlist ID, and starts backing them up. It only reads the page.',
 		)
 		.addButton((button) => {
 			button.setButtonText('Collect from tab').onClick(async () => {

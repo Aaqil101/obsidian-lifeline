@@ -1,35 +1,37 @@
 /**
- * Playlists: which playlists get backed up, and the door to the collector.
- * The saved-playlist collector lives in its own file (collectPage.ts) because
- * it is a self-contained walkthrough with two modes.
+ * Playlists: the door to the playlist backup page, plus the watch-later
+ * substitute, the opt-in system lists, and the removed-video settings.
+ * The catalog itself and the saved-playlist collector live in
+ * playlistBackup.ts and collectPage.ts.
  */
-import { Notice, Setting, type SettingDefinitionGroup } from 'obsidian';
-import { SYSTEM_PLAYLISTS } from '../systemPlaylists';
-import { renderCollectIdsPage } from './collectPage';
+import type { SettingDefinitionGroup } from 'obsidian';
+import { isSystemPlaylistId } from '../systemPlaylists';
+import { renderPlaylistBackupPage } from './playlistBackup';
 import { removedVideosPage, rewriteRemovedNotes } from './removedVideos';
 import { normalizeRemovedMode, REMOVED_MODE_OPTIONS } from './types';
-import { authErrorMessage, group, noteParagraph, pageDefinition, renderRow, type SettingsHost } from './ui';
+import { pageDefinition, renderRow, type SettingsHost } from './ui';
 
-/** Landing group: the two sub-page doors and the watch-later substitute. */
+/** Landing group: the backup page door, watch-later, system lists, removed videos. */
 export function playlistsGroup(host: SettingsHost): SettingDefinitionGroup {
 	const { settings } = host.plugin;
 
 	const catalog = settings.playlistCatalog;
+	const catalogIds = new Set(catalog.map((playlist) => playlist.id));
 	const tracked = new Set(settings.trackedPlaylists ?? []);
 	const trackedCount = catalog.filter((playlist) => tracked.has(playlist.id)).length;
+	const unresolvedCount = [...tracked].filter(
+		(id) => !catalogIds.has(id) && !isSystemPlaylistId(id),
+	).length;
+	const countLine =
+		unresolvedCount > 0
+			? `${trackedCount} of ${catalog.length} found playlists backed up, plus ${unresolvedCount} not in the list. `
+			: `${trackedCount} of ${catalog.length} backed up. `;
 	const desc =
 		catalog.length === 0
-			? 'Every playlist is tracked by default. Open this page after authenticating to choose which ones are backed up.'
-			: `${trackedCount} of ${catalog.length} tracked. Uncheck the ones you don’t want backed up.`;
+			? 'Everything is backed up by default on the first sync. Open this page after authenticating to see the grouped list.'
+			: `${countLine}Created, saved, and system playlists (Liked Videos, Liked Music), with import for IDs the API misses.`;
 
-	const toTrack = pageDefinition(host, 'Playlists to track', desc, renderPlaylistsPage);
-
-	const collect = pageDefinition(
-		host,
-		'Get saved playlist IDs',
-		'Import IDs collected from youtube.com/feed/playlists, a list the API never returns.',
-		renderCollectIdsPage,
-	);
+	const backupPage = pageDefinition(host, 'Backed-up playlists', desc, renderPlaylistBackupPage);
 
 	const watchLater = renderRow(
 		'Watch later playlist',
@@ -71,73 +73,9 @@ export function playlistsGroup(host: SettingsHost): SettingDefinitionGroup {
 
 	const removedPage = removedVideosPage(host);
 
-	// The two system lists are opt-in and off by default. They are not written
-	// into trackedPlaylists or importedPlaylistIds: sync adds the enabled ids to
-	// its own working sets, so switching one off leaves data.json untouched and
-	// an install that hand-tracked LL or LM keeps working exactly as before.
-	const systemRows = SYSTEM_PLAYLISTS.map((entry) =>
-		renderRow(
-			`Back up ${entry.fallbackTitle.toLowerCase()}`,
-			entry.id === 'LL'
-				? 'Brings the videos you gave a thumbs-up to into Liked Videos.md. Off by default. YouTube does not document this list id, so a refusal costs this list only.'
-				: 'Brings YouTube Music’s liked songs into Liked Music.md. Off by default. YouTube does not document this list id, so a refusal costs this list only.',
-			(setting) => {
-				setting.addToggle((toggle) =>
-					toggle.setValue(settings[entry.settingKey]).onChange(async (on) => {
-						settings[entry.settingKey] = on;
-						await host.plugin.saveSettings();
-					}),
-				);
-			},
-		),
-	);
-
 	return {
 		type: 'group',
 		heading: 'Playlists',
-		items: [toTrack, collect, watchLater, ...systemRows, removedVideos, removedPage],
+		items: [backupPage, watchLater, removedVideos, removedPage],
 	};
-}
-
-/** Playlists to track sub-page: one checkbox per playlist, with a refresh. */
-export function renderPlaylistsPage(host: SettingsHost, containerEl: HTMLElement): void {
-	const { settings } = host.plugin;
-
-	const card = group(containerEl, 'Playlists to track', (heading) => {
-		heading.addExtraButton((button) =>
-			button
-				.setIcon('refresh-cw')
-				.setTooltip('Refresh list')
-				.onClick(async () => {
-					button.setDisabled(true);
-					try {
-						await host.plugin.fetchPlaylistCatalog();
-						new Notice('Playlist list refreshed.');
-					} catch (err) {
-						new Notice(authErrorMessage(err), 15000);
-					} finally {
-						button.setDisabled(false);
-						host.refresh();
-					}
-				}),
-		);
-	});
-
-	if (settings.playlistCatalog.length === 0) {
-		noteParagraph(card, 'No playlists loaded yet. Authenticate, then refresh the list.');
-	}
-
-	const tracked = new Set(settings.trackedPlaylists ?? []);
-	for (const playlist of settings.playlistCatalog) {
-		const label = playlist.saved ? `${playlist.title} (saved)` : playlist.title;
-		new Setting(card).setName(label).addToggle((toggle) =>
-			toggle.setValue(tracked.has(playlist.id)).onChange(async (on) => {
-				const set = new Set(host.plugin.settings.trackedPlaylists ?? []);
-				if (on) set.add(playlist.id);
-				else set.delete(playlist.id);
-				host.plugin.settings.trackedPlaylists = Array.from(set);
-				await host.plugin.saveSettings();
-			}),
-		);
-	}
 }

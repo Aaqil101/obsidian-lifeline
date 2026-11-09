@@ -5,7 +5,7 @@ Back up your YouTube subscriptions, playlists, and Watch Later list into Markdow
 Lifeline is a **desktop-only** Obsidian plugin that exports:
 
 - **Channels.md**: every channel you're subscribed to, as Dataview-queryable fields
-- **Playlists/\*.md**: one note per playlist you choose to track
+- **Playlists/\*.md**: one note per playlist you choose to back up
 - **Watch Later.md**: a dedicated note for the playlist you use as your watch-later substitute
 - **Liked Videos.md** and **Liked Music.md**: opt-in backups of the thumbs-up list and YouTube Music's liked songs
 - **sync-log.json** (in the plugin folder): a record of every sync run, capped at the most recent 200
@@ -68,7 +68,7 @@ If authorization later fails with a `deleted_client` error, Google has deleted y
 3. Do the same for **OAuth client secret**. Both values are kept in your system keychain through Obsidian's secret storage. They are never written to a file in your vault. `data.json` stores only the secret names and your preferences.
 4. Go back to **Settings → Lifeline**, select **Authenticate with Google**, and approve read-only YouTube access. The row then reads **Connected** and the button becomes **Re-authenticate**.
 5. Under **Notes**, set **Output folder** (required; sync asks you to set it if blank). Folder fields suggest matches as you type, or you can select the folder icon to browse. A path that does not exist yet is fine, because the sync creates it.
-6. Under **Playlists**, optionally set **Watch later playlist**. Open **Playlists to track** to uncheck any playlists you don't want backed up. Everything is tracked by default on the first sync. Playlists you saved from other channels are included and labeled **(saved)**. The refresh icon on that page reloads the list. For playlists you saved that the API cannot list, see [Saved playlists](#saved-playlists).
+6. Under **Playlists**, optionally set **Watch later playlist**. Open **Backed-up playlists** to see the playlists you created and the ones you saved from other channels in separate groups, and toggle any you don't want backed up. Everything is backed up by default on the first sync. The refresh icon reloads the list. For playlists the API misses, expand **Add missing saved playlists**; see [Saved playlists](#saved-playlists).
 7. Optionally open **Notes → Dashboard** and turn on **Dashboard note**. See [Dashboard note](#dashboard-note).
 8. Select **Sync now** under **Sync**, use the ribbon icon, or run the command **Lifeline: Sync now**.
 
@@ -81,19 +81,19 @@ The settings tab has five groups. Chevron rows open sub-pages.
 | **Google account** | Connection status and **Authenticate with Google** / **Re-authenticate**. Sub-page **Google credentials**: OAuth client ID, OAuth client secret, and a **Security notes** button. |
 | **Notes** | **Output folder**, **Journal folder**, **Identify Shorts**, sub-page **Video bullet fields**, sub-page **Views in notes**, **Styles folder**, **Script folder**, sub-page **Channels.md fields**, sub-page **Dashboard**. |
 | **Images** | **Channel avatars and banners**, **Video thumbnails** (each Off, Link, or Download), **Blurred thumbnails**, and **Images folder** (shown only while one of the two modes is Download). |
-| **Playlists** | Sub-page **Playlists to track**, sub-page **Get saved playlist IDs**, **Watch later playlist**, **Back up liked videos**, **Back up liked music**, **Removed videos in notes**, and sub-page **Removed videos**. |
+| **Playlists** | Sub-page **Backed-up playlists**, **Watch later playlist**, **Removed videos in notes**, and sub-page **Removed videos**. |
 | **Sync** | **Sync interval (hours)** (default 20), **Quota soft limit** (default 8000), and **Sync now**. |
 
 Each sub-page has its own rows, described below.
 
 ## Saved playlists
 
-The API returns the playlists you *created*. It does not return playlists you *saved* from other channels, and no endpoint lists them. Lifeline collects those IDs from the YouTube page itself. There are two ways, and both feed the same box under **Playlists → Get saved playlist IDs**:
+The API returns the playlists you *created*. It can miss playlists you *saved* from other channels, so Lifeline can also collect those IDs from the YouTube page itself. Expand **Add missing saved playlists** under **Playlists → Backed-up playlists**; there are two ways to fill it:
 
-1. **Console steps (works everywhere).** The sub-page has four numbered steps for opening `youtube.com/feed/playlists`, opening DevTools, and pasting the script. Select **Select collector script** to highlight it, then press **Ctrl+C**; expand **Show the collector script** to copy it by hand. The plugin never touches the clipboard itself. The script scrolls the page to the end, skips Watch Later, Liked videos, and radio/mix links, and prints a JSON array of IDs. Paste that array into **Paste the copied array**. Plain lists and mixed text also parse. The count line shows how many IDs were found. Select **Add to tracked playlists** to save them.
+1. **Console steps (works everywhere).** The section has four numbered steps for opening `youtube.com/feed/playlists`, opening DevTools, and pasting the script. Select **Select collector script** to highlight it, then press **Ctrl+C**; expand **Show the collector script** to copy it by hand. The plugin never touches the clipboard itself. The script scrolls the page to the end, skips Watch Later, Liked videos, and radio/mix links, and prints a JSON array of IDs. Paste that array into **Paste the copied array**. Plain lists and mixed text also parse. The count line shows how many IDs were found. Select **Add to backed-up playlists** to save them.
 2. **Web viewer (desktop only).** The **Web viewer** card has **Open in Web viewer**, which opens the playlists page in Obsidian's built-in **Web viewer** core plugin. Enable that plugin under **Settings → Core plugins** if it is off. Lifeline never enables core plugins itself. Sign in there in your own browser session, then select **Collect from tab**. Lifeline runs the same collector in that tab and adds the IDs. If Google asks for sign-in inside that tab, Lifeline stops and asks you to sign in there yourself.
 
-Imported IDs are stored in `data.json`. They appear under **Imported IDs** on the same sub-page, and each has a trash button to stop tracking it. Lifeline never handles your Google login, and the collector never reads cookies or storage.
+Imported IDs are stored in `data.json`. They join the matching group on the same page, **Created by me** or **Saved from other channels**, once their title resolves. An ID that the latest list did not resolve stays under **Not resolved yet** until the next sync retries it, and each imported row has a trash button that forgets the import and stops backing it up. Lifeline never handles your Google login, and the collector never reads cookies or storage.
 
 ## What gets written
 
@@ -171,14 +171,14 @@ Each video is a single list item with Dataview inline fields:
 
 ### Liked videos and Liked music
 
-Two opt-in rows under **Playlists** back up the system lists YouTube gives you no export for:
+Two opt-in toggles under **Playlists → Backed-up playlists → System lists** back up the lists YouTube gives you no export for:
 
-- **Back up liked videos** writes `Liked Videos.md` from the thumbs-up list (`LL`).
-- **Back up liked music** writes `Liked Music.md` from YouTube Music's liked songs (`LM`).
+- **Liked Videos** (`LL`) writes `Liked Videos.md` from the thumbs-up list.
+- **Liked Music** (`LM`) writes `Liked Music.md` from YouTube Music's liked songs.
 
 Both are off by default. They are read through the same `playlistItems.list` path as any other playlist, so every bullet keeps a real `date` from the day the item was added. Removed entries, Shorts fields, video bullet fields, thumbnails, and channel faces all behave exactly as they do in a playlist note. Their frontmatter type is `lifeline-liked`, which keeps them out of the Dashboard's playlist count, playlists panel, and new-since-sync feed.
 
-The two ids are undocumented, so Google could refuse them without notice. A refusal costs that one list for that run; the other lists still sync, and the existing note stays on disk. Turning a toggle off stops the fetch and leaves the note as a backup. Neither toggle writes anything into `trackedPlaylists` or `importedPlaylistIds`, so a hand edit that already tracked `LL` or `LM` keeps working; those installs simply get the dedicated note instead of `Playlists/LL.md`.
+The two ids are undocumented, so Google could refuse them without notice. A refusal costs that one list for that run; the other lists still sync, and the existing note stays on disk. Turning a toggle off stops the fetch and leaves the note as a backup. The toggles keep their state in `likedVideosEnabled`/`likedMusicEnabled`; an install that hand-tracked `LL` or `LM` still gets the dedicated note, and touching that system list's row cleans the old entry out of `trackedPlaylists` and `importedPlaylistIds` so the toggle is the only control.
 
 ### Removed videos
 

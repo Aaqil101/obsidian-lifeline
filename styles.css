@@ -219,6 +219,26 @@
 	font-size: var(--font-ui-smaller);
 }
 
+/* Saved-playlist collector: a collapsed section under the grouped playlist
+   list, since it adds to the same backed-up set. */
+.lifeline-collect-section {
+	margin-top: 8px;
+}
+
+.lifeline-collect-section > summary {
+	cursor: pointer;
+	padding: 10px var(--size-4-3, 12px);
+	border-radius: var(--radius-s);
+	background: var(--background-secondary);
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	font-weight: var(--font-semibold);
+}
+
+.lifeline-collect-section > summary:hover {
+	color: var(--text-normal);
+}
+
 .lifeline-collect-feedback p {
 	margin: 0;
 }
