@@ -272,6 +272,12 @@ const NOTE_VIEWS_CSS_SHARED = `
 .lifeline-views .lv-stats:empty {
     display: none;
 }
+/* The count expands to its full sentence on hover, reaching left across the
+   field, so the placeholder steps out of the way instead of running under it.
+   Scoped to the pill (:has) so hovering the input itself keeps the hint. */
+.lifeline-views .lv-glass-wrap:has(.lv-stats:hover) .lv-search::placeholder {
+    color: transparent;
+}
 .lifeline-views .lv-select {
     min-height: 36px;
     padding: 0 14px;
