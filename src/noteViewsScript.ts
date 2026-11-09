@@ -603,6 +603,13 @@ const NOTE_VIEWS_CSS_CHANNELS_TABLE = `
     background: var(--background-secondary);
     font-size: 0.88em;
 }
+/* Same theme override as the Ledger table above: the wrapper and results host
+   give this rule the extra class it needs to keep the table full width. */
+.lifeline-views .lv-results .lv-cover table.lv-cover-table {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+}
 .lifeline-views .lv-cover-table th {
     padding: 8px 12px;
     text-align: left;
@@ -1064,6 +1071,16 @@ const NOTE_VIEWS_CSS_VIDEO_TABLE = `
     overflow: hidden;
     background: var(--background-secondary);
     font-size: 0.88em;
+}
+/* Themes that size markdown tables by class (Minimal sets table width auto
+   at three classes plus the element) outrank the two-class rule above, which
+   let the Ledger table collapse to its content width. The view wrapper and
+   results host add the extra class, so the table wins the cascade without
+   needing !important, and max-width clears the theme's own cap. */
+.lifeline-views .lv-results .lv-ledger table.lv-ledger-table {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
 }
 .lifeline-views .lv-ledger-table th {
     padding: 8px 12px;

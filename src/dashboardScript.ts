@@ -598,6 +598,16 @@ export const DASHBOARD_CSS = `/* Glass cockpit: a banner mosaic hero, KPI chips,
 .lifeline-dash .lifeline-panel .lifeline-table {
   background: transparent;
 }
+/* Themes that size markdown tables by class (Minimal sets table width auto
+   at three classes plus the element) outrank the two-class rule above, which
+   let a panel table collapse to its content width. Four classes plus the
+   element wins the cascade without needing !important, and max-width clears
+   the theme's own cap. */
+.lifeline-dash .lifeline-panel .lifeline-scroll table.lifeline-table {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+}
 .lifeline-dash .lifeline-panel .lifeline-table th {
   background: transparent;
 }
