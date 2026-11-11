@@ -267,9 +267,10 @@ export interface VideoRecord {
 /**
  * Avatar for a channel that shows up in playlists but has no row in
  * Channels.md, because it was never subscribed to. The video scripts cannot
- * join a face from Channels.md for those, so sync fetches it once and the
- * video bullet carries it as its own image fields until the channel becomes
- * a subscription (at which point the entry is pruned and Channels.md wins).
+ * join a face from Channels.md for those, so sync resolves the URL once and
+ * the video bullet carries it as `avatar_url`. Nothing is downloaded for these
+ * channels, even in Download mode; the entry is pruned when the channel
+ * becomes a subscription, and Channels.md takes over the face and its file.
  */
 export interface ChannelFace {
 	/** Channel title as the playlist records it: the avatar's file name is built from it. */

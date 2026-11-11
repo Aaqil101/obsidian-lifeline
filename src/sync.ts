@@ -869,9 +869,11 @@ async function announceShortsProbes(plugin: LifelinePlugin, tally: ShortsTally):
  * every run, so an entry disappears as soon as its channel becomes a
  * subscription (Channels.md then carries the face) or stops appearing in any
  * playlist. Known avatars are carried over and only the gaps are fetched: a
- * channel never looked up before, or one whose fetch failed last run. Nothing
- * here throws: a failed call is recorded, the notes keep the letter badge for
- * those channels, and a later sync fills the gap.
+ * channel never looked up before, or one whose fetch failed last run. Only the
+ * URL is kept: these channels are not subscribed, so download mode never
+ * fetches an avatar for them. Nothing here throws: a failed call is recorded,
+ * the notes keep the letter badge for those channels, and a later sync fills
+ * the gap.
  */
 async function collectChannelFaces(
 	plugin: LifelinePlugin,
@@ -1039,12 +1041,11 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 				mode: plugin.settings.videoThumbnails,
 				available: await collectPlaylistThumbnails(plugin, ctx, run, playlistId, record),
 				blurred,
-				// Channel avatars ride their own mode and their own (already
-				// fetched) set, so the thumbnail mode never writes one and a
-				// local avatar is named only when that file is on disk.
+				// Channel avatars ride their own mode, so the thumbnail mode
+				// never writes one. Faces are URL-only: an unsubscribed channel
+				// is not downloaded, so no local avatar is ever named.
 				faces: {
 					mode: channelImages.mode,
-					available: channelImages.available,
 					channels: ctx.state.faces,
 				},
 			};
@@ -1214,7 +1215,6 @@ export async function rewritePlaylistNotes(
 		return undefined;
 	};
 	const blurred = blurredVideoIds(state.playlists, settings.blurredThumbnailVideos);
-	const channelAvailable = await localChannelImageBases(plugin, paths);
 
 	const tracked = offlineTrackedIds(settings, state);
 	const ids = (playlistIds ?? Array.from(tracked))
@@ -1232,7 +1232,6 @@ export async function rewritePlaylistNotes(
 			blurred,
 			faces: {
 				mode: settings.channelAvatars,
-				available: channelAvailable,
 				channels: state.faces,
 			},
 		};
@@ -1299,16 +1298,6 @@ export async function waitForSync(): Promise<void> {
 	} catch {
 		// The rewrite still runs; doSync reports its own failure.
 	}
-}
-
-/** Downloaded channel image base names, from disk only. */
-async function localChannelImageBases(
-	plugin: LifelinePlugin,
-	paths: OutputPaths,
-): Promise<ReadonlySet<string>> {
-	if (plugin.settings.channelAvatars !== 'download') return NO_THUMBNAILS;
-	const vault = plugin.app.vault;
-	return new Set<string>([...(await listBases(vault, paths.avatars)), ...(await listBases(vault, paths.banners))]);
 }
 
 /** One playlist's downloaded thumbnail base names, from disk only. */
@@ -1942,6 +1931,10 @@ async function fetchBatch(vault: Vault, run: ThumbnailRun, jobs: ThumbnailJob[])
  * is written, and returns the base names now present in either folder.
  * Nothing here throws: an image that cannot be fetched leaves that one bullet
  * on its remote URL field or with no image.
+ *
+ * Only subscribed channels are downloaded. A playlist owner with no row in
+ * Channels.md is not subscribed, so its face stays URL-only; any file an
+ * earlier build downloaded for one is removed here.
  */
 async function collectChannelImages(
 	plugin: LifelinePlugin,
@@ -1960,12 +1953,18 @@ async function collectChannelImages(
 		wanted.push({ folder: avatars, base: channelImageBase(channel.title, id), url: channel.avatar ?? '' });
 		wanted.push({ folder: banners, base: channelBannerImageBase(channel.title, id), url: channel.banner ?? '' });
 	}
-	// Playlist-owner channels with no row of their own: their avatar rides the
-	// same toggle and the same folder, so the video bullets can name a local
-	// copy too. The base is built from the stored title, the same one the note
-	// renderer uses, so both agree on the file name.
+	// Unsubscribed playlist owners: the video bullet carries their avatar_url
+	// and the view reads it online, so nothing is queued. Drop the copy an
+	// earlier build may have downloaded, and take it out of `present` so no
+	// bullet can name it.
 	for (const [id, face] of Object.entries(ctx.state.faces)) {
-		wanted.push({ folder: avatars, base: channelImageBase(face.title, id), url: face.avatar });
+		const base = channelImageBase(face.title, id);
+		if (!present.delete(base)) continue;
+		try {
+			await vault.adapter.remove(`${avatars}/${base}.jpg`);
+		} catch {
+			// Already gone or locked: the bullet is URL-only either way.
+		}
 	}
 	const jobs = await takeJobs(vault, run, thumbnails, wanted, present);
 	for (const base of await fetchBatch(vault, run, jobs)) present.add(base);

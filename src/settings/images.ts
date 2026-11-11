@@ -34,7 +34,7 @@ export function imagesGroup(host: SettingsHost): SettingDefinitionGroup {
 	const avatars = imageModeRow(
 		host,
 		'Channel avatars and banners',
-		'Adds avatar_url/banner_url to each channel bullet (avatar/banner too once Download has fetched them). Link loads them from Google when a view renders; Download fetches them once during sync, so views work offline.',
+		'Adds avatar_url/banner_url to each channel bullet (avatar/banner too once Download has fetched them). A channel you are not subscribed to keeps only the online avatar. Link loads images from Google when a view renders; Download fetches them once during sync, so views work offline.',
 		'channelAvatars',
 	);
 

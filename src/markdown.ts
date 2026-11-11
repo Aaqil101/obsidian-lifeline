@@ -100,8 +100,9 @@ export function normalizeFolder(path: string): string {
 
 /**
  * What one `bulletImageFields` call needs: the mode the fields follow and the
- * file base names already on disk. Both image kinds below are shaped like it,
- * which is why the renderer can hand either one to the same helper.
+ * file base names already on disk. Downloaded channel images and video
+ * thumbnails are both shaped like it, so the renderer hands either one to the
+ * same helper.
  */
 export interface ImageFields {
 	mode: ImageMode;
@@ -121,14 +122,17 @@ export interface BulletImages extends ImageFields {
 }
 
 /**
- * The channel faces a video note's bullets carry themselves: `mode` and
- * `available` follow Channel avatars and banners (not the thumbnail mode, so
- * the two stay independent), and `channels` holds the avatar per channel id
- * for the channels that are playlist owners only. Subscribing to one prunes
- * its entry at the next sync, which drops the fields again and lets the view
- * join the face from Channels.md instead.
+ * The channel faces a video note's bullets carry themselves: `mode` follows
+ * Channel avatars and banners (not the thumbnail mode, so the two stay
+ * independent), and `channels` holds the avatar per channel id for the
+ * channels that are playlist owners only. Those channels are not subscribed,
+ * so nothing is downloaded for them: the bullet carries `avatar_url` only and
+ * the view reads it online. Subscribing to one prunes its entry at the next
+ * sync, which drops the field again and lets the view join the face from
+ * Channels.md instead.
  */
-export interface FaceImages extends ImageFields {
+export interface FaceImages {
+	mode: ImageMode;
 	channels: Record<string, ChannelFace>;
 }
 
@@ -412,11 +416,12 @@ export function renderChannelsNote(
  * which the views read to draw its picture blurred. Omitted or `off`, the
  * output is unchanged.
  *
- * `images.faces` adds the channel's avatar the same way (`avatar_url`, plus
- * `avatar` once downloaded) but only for a channel with no row in
- * Channels.md, since a channel that has one is joined by the view from there.
- * Its own mode (Channel avatars and banners) governs it, so the thumbnail
- * mode never writes an avatar and vice versa.
+ * `images.faces` adds the channel's avatar as `avatar_url` only, for a channel
+ * with no row in Channels.md (a playlist owner you are not subscribed to),
+ * since a channel that has one is joined by the view from there. Those
+ * channels are never downloaded: the view reads the URL. Its own mode (Channel
+ * avatars and banners) governs the field, so the thumbnail mode never writes
+ * an avatar and vice versa.
  *
  * `date-added` behaves the same for `journal` as `subscribed_on` does for
  * Channels: the `date` field wikilinks that day's journal note when it
@@ -558,17 +563,12 @@ export function renderPlaylistNote(
 		// join one from (a playlist owner you do not subscribe to). Gated on
 		// Channel avatars and banners, exactly like the fields on a channel
 		// bullet; nothing is written for a channel the view can join instead.
-		const face = images?.faces?.channels[video.channelId];
-		if (face) {
-			parts.push(
-				...bulletImageFields(
-					images.faces,
-					channelImageBase(face.title, video.channelId),
-					face.avatar,
-					'avatar_url',
-					'avatar',
-				),
-			);
+		// That channel is not subscribed, so its face is never downloaded: the
+		// field always carries the online URL and the view reads it from there.
+		const faces = images?.faces;
+		const face = faces?.channels[video.channelId];
+		if (faces && faces.mode !== 'off' && face?.avatar) {
+			parts.push(`[avatar_url:: ${face.avatar}]`);
 		}
 		return parts.join(' ');
 	};

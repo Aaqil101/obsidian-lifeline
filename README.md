@@ -111,7 +111,7 @@ Default layout. Folder names are configurable, as noted in each comment.
 │   └── Watched later.md
 ├── thumbnails/                      # Images folder: video thumbnails, one sub-folder per playlist
 │   └── Favorites/
-├── avatars/                         # Images folder: channel avatars (Download mode)
+├── avatars/                         # Images folder: channel avatars, downloaded channels only (Download mode)
 └── banners/                         # Images folder: channel banners (Download mode)
 
 98 - Organize/Scripts/               # Script folder
@@ -305,6 +305,8 @@ Two opt-in image settings, under **Images**:
 - **Video thumbnails** adds `thumbnail_url` to each playlist and Watch Later bullet, and `thumbnail` once a file is downloaded.
 
 Image fields are inline data in the bullet, not `![[...]]` embeds. The views draw the picture from them. They are written whether or not **Views in notes** is on. Both settings default to **Off**. The channel image fields can each be dropped with the **Avatar** and **Banner** checkboxes under **Channels.md fields**.
+
+A channel you are not subscribed to has no row in Channels.md, so a video bullet carries that channel's `avatar_url` itself, and the view draws it from there. Those channels are never downloaded, even in Download mode: the field stays `avatar_url` only, and any file an earlier version saved for one is removed on the next sync. This is the usual case on `Liked Videos.md` and `Liked Music.md`.
 
 Each setting has three modes:
 
