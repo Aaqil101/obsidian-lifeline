@@ -208,6 +208,8 @@ Frontmatter records the resolved choice as `removed_mode: keep` or `removed_mode
 - `duration` is the video's length in whole seconds, so Dataview can sort by it as a number. The views format it for reading.
 - `short` is written only for a Short. A regular video carries no `short` field, and a video the classifier could not place carries neither `short` nor a guess.
 
+While **Video thumbnails** is set to **Download**, a Short keeps only `thumbnail_url`: its landscape frame is cropped in every layout, so Lifeline never fetches a file for one and deletes any copy an earlier version saved. The picture still draws, from Google. A video the classifier has not placed yet may be downloaded once, then removed on the sync that identifies it.
+
 There are three choices:
 
 - **Confirm with YouTube** (default): a video longer than 3 minutes is a regular video with no request at all. Anything shorter is looked up once on `youtube.com`, where the page itself says whether it is a Short. **This makes one full page request per video under 3 minutes.** It costs no API quota, the answer is cached in `state/playlists.json`, and each video is requested at most once (an unclear page is retried on a later sync). At most 50 pages are fetched per sync, a fraction of a second apart, so a long list of Shorts fills in over several runs. Answers are saved as they arrive, so a sync you interrupt keeps the ones it already checked.
@@ -312,7 +314,7 @@ Each setting has three modes:
 
 - **Off** (default): no image fields. The notes are byte-for-byte what Lifeline wrote before this option existed.
 - **Link**: the bullet carries the remote URL, for example `[thumbnail_url:: https://i.ytimg.com/vi/abc123/mqdefault.jpg]`. The view loads it from Google's image hosts (`yt3.ggpht.com` for avatars and banners, `i.ytimg.com` for thumbnails) **every time the view renders**. That is one request per render, and it tells those hosts which note you opened.
-- **Download**: Lifeline fetches each image **once, during sync**, checks the bytes are really an image (JPEG, PNG, GIF, or WebP), and saves it. The bullet then also carries a local wikilink, for example `[avatar:: [[Blender Guru_UCxyz_avatar.jpg]]]`, `[banner:: [[Blender Guru_UCxyz_banner.jpg]]]`, or `[thumbnail:: [[Some Channel_abc123_Video Title_abc123.jpg]]]`. The view prefers the local file, so nothing is requested when you open a note. Images already on disk are never fetched again. Banners are large, often 100-300 KB each. A removed or unavailable video's downloaded thumbnail is deleted on the next sync, and its bullet keeps only `thumbnail_url`.
+- **Download**: Lifeline fetches each image **once, during sync**, checks the bytes are really an image (JPEG, PNG, GIF, or WebP), and saves it. The bullet then also carries a local wikilink, for example `[avatar:: [[Blender Guru_UCxyz_avatar.jpg]]]`, `[banner:: [[Blender Guru_UCxyz_banner.jpg]]]`, or `[thumbnail:: [[Some Channel_abc123_Video Title_abc123.jpg]]]`. The view prefers the local file, so nothing is requested when you open a note. Images already on disk are never fetched again. Banners are large, often 100-300 KB each. A removed or unavailable video's downloaded thumbnail is deleted on the next sync, and its bullet keeps only `thumbnail_url`. A Short works the same way while **Identify Shorts** is on: it is never downloaded, and an existing file is removed.
 
 Where Download saves files:
 

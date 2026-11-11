@@ -17,7 +17,7 @@
  * (query via `file.lists`).
  */
 import { normalizePath } from 'obsidian';
-import type { ChannelsFieldSettings, ChannelFace, ImageMode, PlaylistRecord, RemovedVideosMode, SyncState, VideoFieldSettings } from './types';
+import type { ChannelsFieldSettings, ChannelFace, ImageMode, PlaylistRecord, RemovedVideosMode, SyncState, VideoFieldSettings, VideoRecord } from './types';
 
 export interface OutputPaths {
 	folder: string;
@@ -225,6 +225,24 @@ function bulletImageFields(
 }
 
 /**
+ * Whether one playlist bullet may name a downloaded thumbnail file.
+ *
+ * Removed and unavailable entries never do: sync deletes their file, and the
+ * bullet keeps the remote `thumbnail_url`. While Identify Shorts is on, a
+ * Short never does either: its `mqdefault.jpg` is a landscape frame cut from a
+ * vertical video, and every layout crops it, so the download is dead weight
+ * and the bullet carries the online URL only.
+ *
+ * The renderer and the download pass share this one rule, so a bullet never
+ * names a file sync skipped, and sync never keeps a file no bullet draws. A
+ * video the classifier has not placed (`short` absent) counts as a regular
+ * video, so it may be downloaded once before a later run identifies it.
+ */
+export function allowsLocalThumbnail(video: VideoRecord, shortsOn: boolean): boolean {
+	return !video.removed && !video.unavailable && !(shortsOn && video.short === true);
+}
+
+/**
  * Journal-folder context, handed in by sync.ts (which owns the vault reads).
  * `names` holds the base names of the notes sitting in the configured journal
  * folder; `today` is the sync day, YYYY-MM-DD, so a date on or after it links
@@ -414,7 +432,8 @@ export function renderChannelsNote(
  * with that video's thumbnail as fields (`thumbnail_url`, plus `thumbnail`
  * when the local file exists). A blurred video also gets `[sensitive:: true]`,
  * which the views read to draw its picture blurred. Omitted or `off`, the
- * output is unchanged.
+ * output is unchanged. A removed video, and a Short while Identify Shorts is
+ * on, get `thumbnail_url` only (see `allowsLocalThumbnail()`).
  *
  * `images.faces` adds the channel's avatar as `avatar_url` only, for a channel
  * with no row in Channels.md (a playlist owner you are not subscribed to),
@@ -432,8 +451,11 @@ export function renderChannelsNote(
  *
  * `options.shorts` is the Identify Shorts gate: while true, a video with a
  * known duration gets `[duration:: N]` (whole seconds, so Dataview sorts it as
- * a number) and, when it is a Short, `[short:: true]`. Off (or omitted)
- * writes neither, which is the byte-identical path.
+ * a number) and, when it is a Short, `[short:: true]`. A Short also stops
+ * naming its downloaded `thumbnail` while this gate is on, because every
+ * layout crops its landscape frame (see `allowsLocalThumbnail()`). Off (or
+ * omitted) writes neither field and lets the download pass treat the video as
+ * an ordinary one, which is the byte-identical path.
  *
  * `options.fields` is the separate video-fields checklist: `published` writes
  * the upload date as bare ISO text (never a journal link, since an upload date
@@ -552,10 +574,7 @@ export function renderPlaylistNote(
 			videoThumbnailUrl(videoId),
 			'thumbnail_url',
 			'thumbnail',
-			// A removed video keeps its remote URL but never its local copy:
-			// sync deletes that file, so a leftover or hand-restored bullet
-			// still draws the thumbnail online instead of a dead wikilink.
-			!video.removed,
+			allowsLocalThumbnail(video, options?.shorts === true),
 		);
 		if (imageParts.length > 0 && images?.blurred?.has(videoId)) imageParts.push('[sensitive:: true]');
 		parts.push(...imageParts);

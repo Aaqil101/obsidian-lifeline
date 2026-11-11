@@ -41,7 +41,7 @@ export function imagesGroup(host: SettingsHost): SettingDefinitionGroup {
 	const thumbnails = imageModeRow(
 		host,
 		'Video thumbnails',
-		'Adds thumbnail_url to every playlist and Watch Later bullet (thumbnail too once Download has fetched it). Link loads it from Google when a view renders; Download fetches it once during sync.',
+		'Adds thumbnail_url to every playlist and Watch Later bullet (thumbnail too once Download has fetched it). Shorts keep only the online thumbnail while Identify Shorts is on. Link loads it from Google when a view renders; Download fetches it once during sync.',
 		'videoThumbnails',
 	);
 

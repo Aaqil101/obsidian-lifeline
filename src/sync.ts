@@ -18,6 +18,7 @@ import {
 	renderDashboardScript,
 } from './dashboardScript';
 import {
+	allowsLocalThumbnail,
 	channelBannerImageBase,
 	channelImageBase,
 	dataviewBlock,
@@ -1975,7 +1976,9 @@ async function collectChannelImages(
  * One playlist's video thumbnails, in a sub-folder of thumbnails/ named after
  * the playlist's note. Runs just before that playlist's note is written, and
  * returns the base names now present in its folder. A renamed playlist
- * carries its folder across.
+ * carries its folder across. Videos whose bullet cannot name a local copy
+ * (removed, unavailable, or a Short while Identify Shorts is on) are skipped
+ * and their existing file is deleted.
  */
 async function collectPlaylistThumbnails(
 	plugin: LifelinePlugin,
@@ -1994,16 +1997,19 @@ async function collectPlaylistThumbnails(
 		await renameFolder(vault, `${thumbnails}/${previous}`, folder);
 	}
 
+	const shortsOn = plugin.settings.shortsDetection !== 'off';
 	const present = await listBases(vault, folder);
 	const wanted: ThumbnailJob[] = [];
 	const stale: string[] = [];
 	for (const [videoId, video] of Object.entries(record.videos)) {
 		const base = videoImageBase(video.channelTitle, video.title, videoId);
 		// Removed and unavailable entries never draw a bullet picture from a
-		// local file, so their downloaded copy is dead weight. Drop it from the
-		// present set (so the bullet gets the remote URL only) and delete the
-		// file, which also frees space for a video that may never return.
-		if (video.removed || video.unavailable) {
+		// local file, and neither does a Short while Identify Shorts is on: its
+		// bullet keeps the online `thumbnail_url` only. Drop each from the
+		// present set (so the bullet gets the remote URL) and delete the file,
+		// which also frees space for a video that may never return, or whose
+		// Short status only became known after its first download.
+		if (!allowsLocalThumbnail(video, shortsOn)) {
 			if (present.delete(base)) stale.push(base);
 			continue;
 		}
