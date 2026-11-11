@@ -1977,8 +1977,9 @@ async function collectChannelImages(
  * the playlist's note. Runs just before that playlist's note is written, and
  * returns the base names now present in its folder. A renamed playlist
  * carries its folder across. Videos whose bullet cannot name a local copy
- * (removed, unavailable, or a Short while Identify Shorts is on) are skipped
- * and their existing file is deleted.
+ * (removed, unavailable, or a Short while Identify Shorts is on) are skipped,
+ * and the folder is swept of every file no current bullet can name, including
+ * an old title left by an upstream rename or a purged entry.
  */
 async function collectPlaylistThumbnails(
 	plugin: LifelinePlugin,
@@ -2000,20 +2001,26 @@ async function collectPlaylistThumbnails(
 	const shortsOn = plugin.settings.shortsDetection !== 'off';
 	const present = await listBases(vault, folder);
 	const wanted: ThumbnailJob[] = [];
+	const expected = new Set<string>();
 	const stale: string[] = [];
 	for (const [videoId, video] of Object.entries(record.videos)) {
-		const base = videoImageBase(video.channelTitle, video.title, videoId);
 		// Removed and unavailable entries never draw a bullet picture from a
 		// local file, and neither does a Short while Identify Shorts is on: its
-		// bullet keeps the online `thumbnail_url` only. Drop each from the
-		// present set (so the bullet gets the remote URL) and delete the file,
-		// which also frees space for a video that may never return, or whose
-		// Short status only became known after its first download.
-		if (!allowsLocalThumbnail(video, shortsOn)) {
-			if (present.delete(base)) stale.push(base);
-			continue;
-		}
+		// bullet keeps the online `thumbnail_url` only. Nothing is queued for
+		// them; the sweep below deletes whichever copy is on disk.
+		if (!allowsLocalThumbnail(video, shortsOn)) continue;
+		const base = videoImageBase(video.channelTitle, video.title, videoId);
+		expected.add(base);
 		wanted.push({ folder, base, url: videoThumbnailUrl(videoId) });
+	}
+	// Any other file in this playlist's folder is dead weight: an old base left
+	// by a channel or video renamed upstream (the file name carries both
+	// titles), an entry that was purged, or a video no longer in the record.
+	// The folder holds only this playlist's thumbnails, so nothing else belongs.
+	for (const name of [...present]) {
+		if (expected.has(name)) continue;
+		present.delete(name);
+		stale.push(name);
 	}
 	const jobs = await takeJobs(vault, run, thumbnails, wanted, present);
 	for (const base of await fetchBatch(vault, run, jobs)) present.add(base);
