@@ -13,7 +13,11 @@
  */
 import { Notice, Setting, type SettingDefinitionGroup } from 'obsidian';
 import { normalizeScriptsFolder } from '../dashboardScript';
-import { normalizeFolder } from '../markdown';
+import {
+	MAX_NOTE_CHUNK_SIZE,
+	normalizeFolder,
+	normalizeNoteChunkSize,
+} from '../markdown';
 import { normalizeStylesFolder } from '../noteViewsScript';
 import { writeNoteViewScripts } from '../sync';
 import { DEFAULT_CHANNELS_FIELDS, DEFAULT_VIDEO_FIELDS } from '../types';
@@ -184,6 +188,42 @@ export function notesGroup(host: SettingsHost): SettingDefinitionGroup {
 		},
 	);
 
+	// Long-note chunking: Obsidian renders a single Markdown list as one block
+	// in one shot, so a note with thousands of bullets is slow to open and
+	// scroll. Splitting it into independent lists lets the reading view unload
+	// and reload blocks. A whole number is typed rather than picked from a
+	// dropdown, because the useful size depends on the note; 0 turns it off.
+	// Committed on blur or Enter like Items per page, so a half-typed value
+	// never becomes the setting.
+	const chunking = renderRow(
+		'Long-note chunking',
+		'Splits a note with many bullets into independent lists every N items, so Obsidian can render and scroll it in blocks instead of one giant list. 0 turns it off; otherwise 25-1000. The note still reads as one continuous list, and Dataview queries are unchanged. Applies on the next sync.',
+		(setting) => {
+			setting.addText((text) => {
+				text.inputEl.type = 'number';
+				text.inputEl.min = '0';
+				text.inputEl.max = String(MAX_NOTE_CHUNK_SIZE);
+				text.inputEl.step = '1';
+				text.setValue(String(normalizeNoteChunkSize(settings.noteChunkSize)));
+				const commit = async (): Promise<void> => {
+					const next = normalizeNoteChunkSize(text.getValue());
+					text.setValue(String(next));
+					if (next === settings.noteChunkSize) return;
+					settings.noteChunkSize = next;
+					await plugin.saveSettings();
+				};
+				text.inputEl.addEventListener('blur', () => {
+					void commit();
+				});
+				text.inputEl.addEventListener('keydown', (event) => {
+					if (event.key !== 'Enter') return;
+					event.preventDefault();
+					text.inputEl.blur();
+				});
+			});
+		},
+	);
+
 	const channelsFields = pageDefinition(
 		host,
 		'Channels.md fields',
@@ -223,6 +263,7 @@ export function notesGroup(host: SettingsHost): SettingDefinitionGroup {
 			outputFolder,
 			journalFolder,
 			shorts,
+			chunking,
 			videoFields,
 			views,
 			stylesFolder,

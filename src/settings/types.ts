@@ -9,6 +9,7 @@
  * else.
  */
 import { DEFAULT_VIEW_PAGE_SIZE, NOTE_VIEW_KINDS, type NoteViewKind } from '../noteViewsScript';
+import { DEFAULT_NOTE_CHUNK_SIZE } from '../markdown';
 import {
 	DEFAULT_CHANNELS_FIELDS,
 	DEFAULT_DASHBOARD_LIMITS,
@@ -421,6 +422,12 @@ export interface LifelineSettings {
 	 *  Watch Later.md. Read live at render time, so changing it needs no sync.
 	 *  Ignored while `noteViews` is off. */
 	viewSortOrder: ViewSortOrder;
+	/** Split every generated bullet list into independent lists every N items,
+	 *  so Obsidian can render and scroll a long note in blocks instead of one
+	 *  giant list. 0 disables the split. Applies to every note type even while
+	 *  `noteViews` is off, because the bullets are what the reading view has to
+	 *  render. Read at sync time, so a change lands on the next sync. */
+	noteChunkSize: number;
 	/** How Identify Shorts classifies videos during sync. Writes `duration`
 	 *  and `short` into playlist and Watch Later bullets; changing it needs one
 	 *  sync to add or strip those fields. Not gated on the views toggle: the
@@ -508,6 +515,7 @@ export const DEFAULT_SETTINGS: LifelineSettings = {
 	noteLayouts: { ...DEFAULT_NOTE_LAYOUTS },
 	viewPageSize: DEFAULT_VIEW_PAGE_SIZE,
 	viewSortOrder: DEFAULT_VIEW_SORT_ORDER,
+	noteChunkSize: DEFAULT_NOTE_CHUNK_SIZE,
 	shortsDetection: DEFAULT_SHORTS_DETECTION,
 	shortsFilter: DEFAULT_SHORTS_FILTER,
 	removedFilter: DEFAULT_REMOVED_FILTER,

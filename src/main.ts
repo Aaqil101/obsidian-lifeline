@@ -6,8 +6,9 @@
 import { Notice, Plugin, TFile, normalizePath } from 'obsidian';
 import { AuthManager } from './auth';
 import { DATAVIEW_REQUIRED_NOTICE, isDataviewEnabled } from './dashboard';
-import { formatTime } from './markdown';
+import { formatTime, normalizeNoteChunkSize } from './markdown';
 import { SyncLogModal } from './ui/syncLogModal';
+import { registerNoteChunkStyle } from './noteChunkStyle';
 import { readSyncLog, removeLegacySyncLog } from './syncLog';
 import { adoptCatalog, mergeCatalog, runSync, writeDashboardNote } from './sync';
 import { listOwnedPlaylists, listPlaylistsByIds, listSubscriptions, QuotaTracker } from './youtubeApi';
@@ -96,11 +97,19 @@ export default class LifelinePlugin extends Plugin {
 			Object.entries(this.settings.removedVideoOverrides).some(
 				([id, mode]) => storedRemovedOverrides?.[id] !== mode,
 			);
+		// Long-note chunking: 0 turns it off, otherwise the value is clamped to
+		// the typed range. Anything non-numeric falls back to the default. A
+		// valid stored value writes nothing on an ordinary load.
+		const storedChunkSize = this.settings.noteChunkSize;
+		this.settings.noteChunkSize = normalizeNoteChunkSize(storedChunkSize);
+		const chunkSizeChanged = this.settings.noteChunkSize !== storedChunkSize;
 		// Persist the migrations once, and only when a legacy or retired key was
 		// actually found. Startup stays read-only on every other load, and the
 		// stale noteTables and noteLayout keys are purged from data.json instead
 		// of waiting for some later settings change to happen to write them out.
-		if (hadLegacyTables || hadStaleLayout || normalizedLayouts || removedSettingsChanged) await this.saveSettings();
+		if (hadLegacyTables || hadStaleLayout || normalizedLayouts || removedSettingsChanged || chunkSizeChanged) {
+			await this.saveSettings();
+		}
 		this.stateStore = new StateStore(
 			this.app.vault.adapter,
 			this.manifest.dir ?? `${this.app.vault.configDir}/plugins/lifeline`,
@@ -126,6 +135,7 @@ export default class LifelinePlugin extends Plugin {
 		this.auth = new AuthManager(this);
 
 		this.addSettingTab(new LifelineSettingTab(this.app, this));
+		registerNoteChunkStyle(this);
 
 		this.addCommand({
 			id: 'sync-now',

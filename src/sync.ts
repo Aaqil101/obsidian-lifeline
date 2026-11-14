@@ -555,6 +555,7 @@ function playlistNoteContent(
 		removedMode: resolveRemovedMode(plugin.settings, playlistId),
 		archivedCount: archived,
 		noteType,
+		chunkSize: plugin.settings.noteChunkSize,
 	});
 }
 
@@ -1028,6 +1029,7 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 					channelsView,
 					channelImages,
 					journal,
+					plugin.settings.noteChunkSize,
 				),
 			);
 		} catch (err) {

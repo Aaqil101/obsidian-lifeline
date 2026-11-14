@@ -5,6 +5,26 @@
 	cursor: pointer;
 }
 
+/* Long-note chunking: the generated bullet lists are split into independent
+   lists every N items so Obsidian's reading view can render and unload them in
+   blocks. The post-processor tags those blocks only in Lifeline notes; these
+   rules remove the block spacing so the chunks still read as one continuous
+   list. A chunked note has no blank line between its lists, so Live Preview
+   needs no equivalent rule. */
+.lifeline-bullet-list {
+	margin-block: 0 !important;
+}
+
+.lifeline-bullet-block {
+	margin-block: 0 !important;
+	padding-block: 0 !important;
+}
+
+.lifeline-bullet-block + .lifeline-bullet-block {
+	margin-block-start: 0 !important;
+	padding-block-start: 0 !important;
+}
+
 /* Sync log modal: summary header, today's rows, and a toggle that reveals
    runs from earlier days. Status color comes from the row's
    lifeline-status-* class; errors expand in place. */

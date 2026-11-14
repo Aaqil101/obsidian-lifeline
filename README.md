@@ -234,6 +234,15 @@ Duration and `short` are deliberately not part of this checklist. They follow **
 
 The note views draw `blocked` as a red **Blocked** badge and `upcoming` as an amber **Upcoming** badge in Cinema, Ticket, and Ledger. The two differ in both colour and label. `live` is not drawn.
 
+### Long notes
+
+**Long-note chunking** (under **Notes**) keeps notes with thousands of bullets responsive. Obsidian renders a Markdown list as one block in a single shot and keeps it in the DOM, so one giant bullet list makes a note slow to open and scroll. Lifeline writes the bullets as independent lists every N items instead, which lets the reading view load and unload the note in blocks.
+
+- The default is 200 items. Enter a whole number from 25 to 1000, or `0` to turn chunking off and keep one list.
+- The chunks use alternating Markdown markers (`-`, `*`, `+`) with no blank line or visible separator, so the note still reads as one continuous list. Reading view spacing between chunks is collapsed, and Live Preview is unaffected.
+- The change applies on the next sync. Every bullet is still a normal list item, so `file.lists`, the note views, the Dashboard, and Dataview queries are unchanged.
+- Setting it to `0` restores the single-list output on the next sync.
+
 ### Journal links
 
 **Journal folder** (under **Notes**, required) controls whether a bullet's date becomes a wikilink:

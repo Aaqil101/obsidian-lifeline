@@ -294,6 +294,44 @@ export function formatDateTime(date: Date): string {
 	return `${formatDate(date)} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
 }
 
+/**
+ * Long notes are split into independent Markdown lists every N bullets.
+ * Obsidian renders a list as one block in a single shot and keeps it in the
+ * DOM, so one 5,000-bullet list is slow to open and scroll; several smaller
+ * lists can be unloaded and reloaded as the reader scrolls. `0` disables the
+ * split and keeps the single-list output.
+ */
+export const DEFAULT_NOTE_CHUNK_SIZE = 200;
+export const MIN_NOTE_CHUNK_SIZE = 25;
+export const MAX_NOTE_CHUNK_SIZE = 1000;
+
+/** Clamp a stored or typed chunk size: 0 (or less) means off, otherwise the
+ *  usable range, with anything non-numeric falling back to the default. */
+export function normalizeNoteChunkSize(value: unknown): number {
+	const raw = typeof value === 'string' ? value.trim() : value;
+	if (raw == null || raw === '') return DEFAULT_NOTE_CHUNK_SIZE;
+	const n = typeof raw === 'number' ? raw : Number(raw);
+	if (!Number.isFinite(n)) return DEFAULT_NOTE_CHUNK_SIZE;
+	if (n <= 0) return 0;
+	return Math.min(MAX_NOTE_CHUNK_SIZE, Math.max(MIN_NOTE_CHUNK_SIZE, Math.floor(n)));
+}
+
+/**
+ * Bullet lines for one note, split into independent lists every `chunkSize`
+ * items. Changing the unordered-list marker starts a new list in CommonMark
+ * without a blank line or a visible separator, so the note still renders as
+ * one continuous list while the reading view gets separate blocks.
+ */
+const BULLET_MARKERS = ['-', '*', '+'];
+
+function bulletLines(texts: string[], chunkSize: number): string[] {
+	const size = chunkSize > 0 ? Math.floor(chunkSize) : 0;
+	return texts.map((text, index) => {
+		const chunk = size > 0 ? Math.floor(index / size) : 0;
+		return `${BULLET_MARKERS[chunk % BULLET_MARKERS.length]} ${text}`;
+	});
+}
+
 export function yamlString(value: string): string {
 	return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
@@ -350,6 +388,7 @@ export function renderChannelsNote(
 	viewBlock?: string,
 	images?: BulletImages,
 	journal?: JournalDates,
+	chunkSize?: number,
 ): string {
 	const entries = Object.entries(state.channels).sort(([, a], [, b]) => a.title.localeCompare(b.title));
 	const lines: string[] = [
@@ -363,6 +402,7 @@ export function renderChannelsNote(
 		'',
 	];
 	if (viewBlock) lines.push(viewBlock, '');
+	const bullets: string[] = [];
 	for (const [id, channel] of entries) {
 		const parts = [`[channel:: [${labelText(channel.title)}](${channel.url})]`];
 		if (fields.channelId) parts.push(`[id:: ${id}]`);
@@ -401,8 +441,9 @@ export function renderChannelsNote(
 				),
 			);
 		}
-		lines.push(`- ${parts.join(' ')}`);
+		bullets.push(parts.join(' '));
 	}
+	lines.push(...bulletLines(bullets, chunkSize ?? 0));
 	lines.push('');
 	return lines.join('\n');
 }
@@ -487,6 +528,9 @@ export interface PlaylistNoteOptions {
 	/** Entries in state/purged.json for this playlist: never drawn, but still
 	 *  counted in `video_count` and `removed_count` until the archive is wiped. */
 	archivedCount?: number;
+	/** Split the bullet list every N items so Obsidian can render long notes
+	 *  in blocks. Omitted or 0 keeps the single-list output. */
+	chunkSize?: number;
 }
 
 export function renderPlaylistNote(
@@ -591,7 +635,12 @@ export function renderPlaylistNote(
 		}
 		return parts.join(' ');
 	};
-	for (const entry of [...live, ...removed]) lines.push(`- ${bullet(entry[0], entry[1])}`);
+	lines.push(
+		...bulletLines(
+			[...live, ...removed].map(([videoId, video]) => bullet(videoId, video)),
+			options?.chunkSize ?? 0,
+		),
+	);
 	lines.push('');
 	return lines.join('\n');
 }
