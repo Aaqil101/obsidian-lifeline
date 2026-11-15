@@ -99,6 +99,53 @@ export function normalizeFolder(path: string): string {
 }
 
 /**
+ * The companion data note for a generated note: `Name.md` becomes
+ * `Name.data.md`, beside it in the same folder.
+ *
+ * Generated notes keep their bullets in that companion while the views are on,
+ * so the note a user opens renders one view instead of parsing every bullet,
+ * and the two files stay beside each other so an image field resolves against
+ * the same folder either way.
+ */
+export function dataNotePath(path: string): string {
+	return /\.md$/i.test(path) ? path.replace(/\.md$/i, '.data.md') : `${path}.data.md`;
+}
+
+/** Where a generated note's bullet block starts, or -1 when it has none. */
+function firstBulletLine(lines: string[]): number {
+	return lines.findIndex((line) => /^[-*+] /.test(line));
+}
+
+/**
+ * Split a rendered generated note into the note a user opens and the bullet
+ * block that goes into its data note.
+ *
+ * The renderer writes one bullet per line, after the frontmatter, the H1, and
+ * the optional view block, so the first bullet line is the split point and the
+ * blank line before it is dropped from the head. Chunking markers (`-`, `*`,
+ * `+`) all count, so every chunk moves across. A note with no bullets (an empty
+ * playlist, or views off) comes back whole.
+ */
+export function splitNoteBullets(content: string): { visible: string; bullets: string } {
+	const lines = content.split('\n');
+	const first = firstBulletLine(lines);
+	if (first < 0) return { visible: content, bullets: '' };
+	const head = lines.slice(0, first);
+	while (head.length > 0 && (head[head.length - 1] ?? '').trim() === '') head.pop();
+	return { visible: head.join('\n'), bullets: lines.slice(first).join('\n').replace(/\s+$/, '') };
+}
+
+/**
+ * The bullet block of a data note, for folding it back into the note it
+ * belongs to when the views are turned off. Empty when the note carries none.
+ */
+export function noteBullets(content: string): string {
+	const lines = content.split('\n');
+	const first = firstBulletLine(lines);
+	return first < 0 ? '' : lines.slice(first).join('\n').replace(/\s+$/, '');
+}
+
+/**
  * What one `bulletImageFields` call needs: the mode the fields follow and the
  * file base names already on disk. Downloaded channel images and video
  * thumbnails are both shaped like it, so the renderer hands either one to the
@@ -366,8 +413,10 @@ export function viewCall(viewName: string, options: Record<string, string | bool
  * exists, so the note degrades to just the channel link when everything is off.
  *
  * When `viewBlock` is provided (opt-in DataviewJS views), it renders
- * directly under the H1, above the bullets. The bullets always stay: the
- * view is additive so `file.lists` queries are unaffected.
+ * directly under the H1, above the bullets. This renderer always writes the
+ * bullets; sync splits them into the companion data note (see
+ * `splitNoteBullets()` and `dataNotePath()`) so the note a user opens renders
+ * one view instead of every channel row.
  *
  * When `images` is provided (and its mode is not `off`), each bullet ends
  * with that channel's images as fields: `avatar_url`, plus `avatar` when the
@@ -466,8 +515,11 @@ export function renderChannelsNote(
  * counts once, under `removed`, so they always add up to the hidden total.
  *
  * When `viewBlock` is provided (opt-in DataviewJS views), it renders
- * directly under the H1, above the bullets. The bullets always stay: the
- * view is additive so `file.lists` queries are unaffected.
+ * directly under the H1, above the bullets. This renderer always writes the
+ * bullets; sync splits them into the companion data note (see
+ * `splitNoteBullets()` and `dataNotePath()`) so the note a user opens renders
+ * one view instead of every bullet, and the two files together carry what one
+ * note used to.
  *
  * When `images` is provided (and its mode is not `off`), each bullet ends
  * with that video's thumbnail as fields (`thumbnail_url`, plus `thumbnail`
@@ -642,5 +694,51 @@ export function renderPlaylistNote(
 		),
 	);
 	lines.push('');
+	return lines.join('\n');
+}
+
+/**
+ * The companion data note for a playlist, Watch Later note, or liked note: the
+ * exact bullet block the visible note would otherwise carry, plus the little
+ * frontmatter a query needs to find it. Never drawn with a view: the visible
+ * note beside it is what a user opens, and this file is only ever read through
+ * Dataview's index.
+ *
+ * The heading names the note it belongs to, so a user who opens the file by
+ * accident knows what it is and where the note they want is.
+ */
+export function renderPlaylistDataNote(
+	playlistId: string,
+	title: string,
+	syncedAt: Date,
+	bullets: string,
+): string {
+	const lines: string[] = [
+		'---',
+		'type: lifeline-data',
+		`playlist_id: ${playlistId}`,
+		`title: ${yamlString(title)}`,
+		`last_synced: ${yamlString(formatDateTime(syncedAt))}`,
+		'---',
+		'',
+		`# ${title} (data)`,
+		'',
+	];
+	if (bullets) lines.push(bullets, '');
+	return lines.join('\n');
+}
+
+/** The companion data note for Channels.md, shaped as above. */
+export function renderChannelsDataNote(syncedAt: Date, bullets: string): string {
+	const lines: string[] = [
+		'---',
+		'type: lifeline-data',
+		`last_synced: ${yamlString(formatDateTime(syncedAt))}`,
+		'---',
+		'',
+		'# YouTube subscriptions (data)',
+		'',
+	];
+	if (bullets) lines.push(bullets, '');
 	return lines.join('\n');
 }

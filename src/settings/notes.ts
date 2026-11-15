@@ -242,8 +242,8 @@ export function notesGroup(host: SettingsHost): SettingDefinitionGroup {
 		host,
 		'Views in notes',
 		settings.noteViews
-			? 'On. Live views above the entries in Channels.md, playlist notes, and Watch Later.md; open this page to change their layouts.'
-			: 'Off. Live views above the entries in Channels.md, playlist notes, and Watch Later.md.',
+			? 'On. Live views in place of the entries in Channels.md, playlist notes, and Watch Later.md, with the entries kept in a companion data note; open this page to change their layouts.'
+			: 'Off. Live views in place of the entries in Channels.md, playlist notes, and Watch Later.md.',
 		renderViewsPage,
 	);
 

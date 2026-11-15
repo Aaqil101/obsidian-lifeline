@@ -14,8 +14,10 @@
  * note. The old cards layout is gone; Channels draws Ambient as its poster
  * and Split as its chips, while the video lists draw Cinema and Ticket, and
  * each kind has its own table (Cover rows and Ledger). Every layout reads the
- * calling note's own list entries via dv.current().file.lists, so the view
- * always mirrors the bullets below it and needs no vault-wide query.
+ * calling note's entries through listSource(), which prefers the companion data
+ * note the sync writes beside it (Name.md -> Name.data.md) and falls back to
+ * the note itself, so the view always mirrors what the sync produced and needs
+ * no vault-wide query.
  *
  * Each view opens with a glass pill toolbar: the search box with the result
  * count inside it, a "search in" scope select, a segmented Layout control,
@@ -56,6 +58,7 @@
  * Pure: this module only builds strings; sync.ts owns the vault writes.
  */
 import { DASHBOARD_STYLESHEET_FILE, normalizeScriptsFolder } from './dashboardScript';
+import { dataNotePath } from './markdown';
 
 /** Which note a generated view script serves. */
 export type NoteViewKind = 'channels' | 'playlists' | 'watchlater' | 'liked' | 'likedmusic';
@@ -1732,19 +1735,54 @@ function noteViewsVideoJs(channelsPath: string): string {
 // Video layouts: Cinema poster, Ticket chips, Ledger table
 // ---------------------------------------------------------------------------
 
-// Channel faces for video entries, joined from Channels.md by channel URL
-// and by lowercased name. Built on first render, so a text-heavy layout never
-// pays for the lookup, and reset by Refresh so newly synced avatars land.
-// A local avatar file belongs to Channels.md, not to the video note this view
-// reads, which is why the image resolves against CHANNELS_PATH.
+// Channel faces for video entries, joined from Channels.md by channel URL and
+// by lowercased name. The join is the same for every playlist note, so it is
+// kept on window and reused across notes, keyed by the Channels note's path,
+// mtime and size; Refresh drops it so newly synced avatars land. A local avatar
+// file belongs to Channels.md, not to the video note this view reads, which is
+// why the image resolves against CHANNELS_PATH. The channel rows themselves
+// live in Channels.md's companion data note when sync split them out, so read
+// that first and fall back to the note itself for an install that has not
+// synced since.
 const CHANNELS_PATH = ${JSON.stringify(channelsPath)};
+const CHANNELS_DATA_PATH = ${JSON.stringify(dataNotePath(channelsPath))};
+const FACE_CACHE_KEY = "lifelineChannelFaceCache";
 let channelFaces = null;
+const faceCacheHost = () => {
+  try {
+    return window;
+  } catch (err) {
+    return null;
+  }
+};
+const channelPage = () => dv.page(CHANNELS_DATA_PATH) || dv.page(CHANNELS_PATH);
+const channelPageStamp = (page) => {
+  const file = page && page.file ? page.file : null;
+  const mtime = file && file.mtime ? file.mtime : "";
+  const size = file && file.size ? file.size : "";
+  return String(mtime) + "|" + String(size);
+};
 const channelFaceMap = () => {
   if (channelFaces) return channelFaces;
+  let page = null;
+  try {
+    page = channelPage();
+  } catch (err) {
+    page = null;
+  }
+  // The previous join is still good while Channels.md (or its companion) has
+  // not changed, which is what keeps opening another playlist from paying for
+  // the same 139 avatar lookups again.
+  const stamp = page ? channelPageStamp(page) : "";
+  const host = faceCacheHost();
+  const cached = host && stamp ? host[FACE_CACHE_KEY] : null;
+  if (cached && stamp && cached.path === CHANNELS_PATH && cached.stamp === stamp) {
+    channelFaces = cached.faces;
+    return channelFaces;
+  }
   channelFaces = new Map();
   const faceSrc = (row) => imageSrc(mdImage(row), CHANNELS_PATH);
   try {
-    const page = dv.page(CHANNELS_PATH);
     const raw = page && page.file ? page.file.lists : null;
     const rows = !raw ? [] : typeof raw.array === "function" ? raw.array() : Array.from(raw);
     for (const row of rows) {
@@ -1754,6 +1792,13 @@ const channelFaceMap = () => {
       if (link.href) channelFaces.set(link.href, src);
       const key = link.label.trim().toLowerCase();
       if (key) channelFaces.set(key, src);
+    }
+    if (host && stamp) {
+      try {
+        host[FACE_CACHE_KEY] = { path: CHANNELS_PATH, stamp: stamp, faces: channelFaces };
+      } catch (err) {
+        // A cache that cannot be stored only costs the next note its lookup.
+      }
     }
   } catch (err) {
     // No Channels.md, or no avatar fields on it: rows keep the plain name.
@@ -1772,6 +1817,14 @@ const channelFace = (channel, item) => {
 };
 const resetKindCache = () => {
   channelFaces = null;
+  const host = faceCacheHost();
+  if (host) {
+    try {
+      delete host[FACE_CACHE_KEY];
+    } catch (err) {
+      // Nothing to clear: the next build overwrites it either way.
+    }
+  }
 };
 
 // The channel face a video bullet carries itself, for a channel with no
@@ -2110,10 +2163,10 @@ export function renderNoteViewScript(
  *
  * The note invokes this file once:
  *   dv.view("98 - Organize/Scripts/${viewFile}", { layout: "poster"${kind === 'channels' ? ', fields: {...}' : ''} })
- * Layouts: poster, chips, table. Every layout reads the calling note's own
- * list entries (dv.current().file.lists), so the view mirrors the
- * inline-field entries below it. Regenerated on every sync while "Views in
- * notes" is on; hand edits are overwritten.
+ * Layouts: poster, chips, table. Every layout reads the calling note's
+ * entries through listSource(), which prefers the companion data note
+ * (Name.data.md) and falls back to the note itself. Regenerated on every
+ * sync while "Views in notes" is on; hand edits are overwritten.
  *
  * The toolbar at the top is a glass pill: search with the result count inside
  * it, a "search in" scope select, a segmented Layout control, and Refresh.
@@ -2191,9 +2244,33 @@ const isRemoved = (item) => {
   const value = item ? item.removed : null;
   return value === true || String(value).toLowerCase() === "true";
 };
-const listEntries = () => {
+// Where this view's bullets are. Sync moves a generated note's entries into the
+// companion data note beside it (Name.md -> Name.data.md) so opening the note
+// costs one view render instead of parsing every bullet; the view reads them
+// from there through Dataview's index. A note written before the split, or one
+// synced with the views off, has no companion and is the source itself.
+const dataPathOf = (path) => {
+  const text = String(path || "");
+  if (!text) return "";
+  return /\\.md$/i.test(text) ? text.replace(/\\.md$/i, ".data.md") : text + ".data.md";
+};
+const listSource = () => {
   const current = dv.current();
-  return toArr(current && current.file ? current.file.lists : current ? current.lists : null);
+  const path = current && current.file ? current.file.path : dv.currentFilePath;
+  const companion = path ? dataPathOf(path) : "";
+  if (companion) {
+    try {
+      const data = dv.page(companion);
+      if (data) return data;
+    } catch (err) {
+      // Unresolvable companion: read the note that is open.
+    }
+  }
+  return current;
+};
+const listEntries = () => {
+  const source = listSource();
+  return toArr(source && source.file ? source.file.lists : source ? source.lists : null);
 };
 
 // Bare ISO dates (subscribed_on:: 2026-10-20) come back from Dataview as Luxon
@@ -2722,7 +2799,7 @@ const viewCacheHost = (() => {
 })();
 const noteStamp = () => {
   try {
-    const page = dv.current();
+    const page = listSource();
     const file = page && page.file ? page.file : null;
     return String(file && file.mtime ? file.mtime : "") + "|" + String(file && file.size ? file.size : "");
   } catch (err) {

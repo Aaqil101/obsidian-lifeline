@@ -101,13 +101,18 @@ Default layout. Folder names are configurable, as noted in each comment.
 
 ```
 95 - Notes/YouTube/                  # Output folder
-├── Channels.md                      # one field-list entry per channel
+├── Channels.md                      # the channels view (the entries sit here with views off)
+├── Channels.data.md                 # the channel entries, while Views in notes is on
 ├── Dashboard.md                     # opt-in home note (Dataview)
 ├── Watch Later.md                   # your watch-later substitute playlist
+├── Watch Later.data.md              # its entries, while Views in notes is on
 ├── Liked Videos.md                  # opt-in: the thumbs-up list
+├── Liked Videos.data.md             # its entries, while Views in notes is on
 ├── Liked Music.md                   # opt-in: YouTube Music's liked songs
+├── Liked Music.data.md              # its entries, while Views in notes is on
 ├── Playlists/
 │   ├── Favorites.md
+│   ├── Favorites.data.md
 │   └── Watched later.md
 ├── thumbnails/                      # Images folder: video thumbnails, one sub-folder per playlist
 │   └── Favorites/
@@ -142,6 +147,18 @@ Default layout. Folder names are configurable, as noted in each comment.
 ```
 
 The Images folder defaults to the output folder, so its images land in `95 - Notes/YouTube/thumbnails/`, `avatars/`, and `banners/`. Lifeline writes the scripts and stylesheets only when the features that use them are on.
+
+### Where the entries live
+
+With **Views in notes** on, a generated note keeps its frontmatter, its heading, and its view block, and its bullets move into a companion data note beside it: `Channels.md` with `Channels.data.md`, `Playlists/Favorites.md` with `Playlists/Favorites.data.md`.
+
+That is what keeps a note fast to open. A note holding a few hundred field-heavy bullets costs Obsidian 150 to 250 ms to render on every open, before the view even runs, because the whole body is parsed. With the bullets in the companion, opening the note renders one view, and the view reads the entries from the companion through Dataview's index.
+
+- The companion carries `type: lifeline-data` and, for a playlist, the same `playlist_id`. It holds exactly the bullets the visible note would otherwise carry, chunked the same way.
+- Dataview queries about channels and videos target the companion, for example `FROM "95 - Notes/YouTube" WHERE type = "lifeline-data"`. Counts, dates, `removed_mode`, and `saved` stay on the visible note.
+- The Dashboard reads both: counts from the visible note, rows from the companion.
+- Turning **Views in notes** off folds the bullets back into the note and deletes the companion, either immediately when you switch the toggle off or on the next sync.
+- An install with **Views in notes** off keeps the old single-file layout, byte for byte.
 
 ### Channels.md entries
 
@@ -240,7 +257,7 @@ The note views draw `blocked` as a red **Blocked** badge and `upcoming` as an am
 
 - The default is 200 items. Enter a whole number from 25 to 1000, or `0` to turn chunking off and keep one list.
 - The chunks use alternating Markdown markers (`-`, `*`, `+`) with no blank line or visible separator, so the note still reads as one continuous list. Reading view spacing between chunks is collapsed, and Live Preview is unaffected.
-- The change applies on the next sync. Every bullet is still a normal list item, so `file.lists`, the note views, the Dashboard, and Dataview queries are unchanged.
+- The change applies on the next sync. Every bullet is still a normal list item, so `file.lists`, the note views, the Dashboard, and Dataview queries are unchanged. With **Views in notes** on, the chunking applies to the companion data note, which is where the bullet list now sits (see [Where the entries live](#where-the-entries-live)).
 - Setting it to `0` restores the single-list output on the next sync.
 
 ### Journal links
@@ -274,7 +291,7 @@ If Dataview is disabled later, Lifeline keeps the frontmatter and replaces the s
 
 ## Views in notes
 
-**Views in notes** is an opt-in toggle, off by default, on the **Notes → Views in notes** sub-page. When it's on, a live view draws above the entries in Channels.md, in every playlist note, in Watch Later.md, and in the two liked notes. Each note type has its own script in the **Script folder**: `lifeline-channels.js`, `lifeline-playlists.js`, `lifeline-watchlater.js`, `lifeline-liked.js`, and `lifeline-liked-music.js`. Turning the toggle on requires Dataview. Turning it off removes the view blocks from the notes and deletes the scripts. The bullets stay where they are.
+**Views in notes** is an opt-in toggle, off by default, on the **Notes → Views in notes** sub-page. When it's on, a live view replaces the entry list in Channels.md, in every playlist note, in Watch Later.md, and in the two liked notes, and the entries themselves move into the companion data note beside each note (see [Where the entries live](#where-the-entries-live)). Each note type has its own script in the **Script folder**: `lifeline-channels.js`, `lifeline-playlists.js`, `lifeline-watchlater.js`, `lifeline-liked.js`, and `lifeline-liked-music.js`. Turning the toggle on requires Dataview. Turning it off removes the view blocks from the notes, deletes the scripts, and folds the entries back into the notes.
 
 Each note type has its own layout row on the same sub-page: **Channels layout**, **Playlists layout**, **Watch Later layout**, **Liked videos layout**, and **Liked music layout**. Each offers Poster, Chips, or Table.
 
@@ -343,6 +360,8 @@ Image downloads cost no API quota. Thumbnail URLs are built from the video ID. T
 
 Query commands run in the order written (`FROM`, then `FLATTEN`, then `WHERE`), so flatten `file.lists` before filtering.
 
+While **Views in notes** is on, the list entries live in the companion data notes (`Channels.data.md`, `Playlists/<name>.data.md`), so queries that read rows should name the output folder or the companion rather than one note. The recipes below work either way: a note with no companion keeps its own lists.
+
 Every video across playlists and Watch Later:
 
 ```dataview
@@ -357,7 +376,7 @@ All subscriptions, with status. The `WHERE` clause uses the ID field, so **Chann
 
 ```dataview
 TABLE WITHOUT ID v.channel AS Channel, v.subscribed_on AS "Subscribed on", v.first_seen AS "First seen", v.status AS Status
-FROM "95 - Notes/YouTube/Channels.md"
+FROM "95 - Notes/YouTube"
 FLATTEN file.lists AS v
 WHERE v.id
 ```
@@ -366,7 +385,7 @@ Biggest channels, by subscribers. This needs the **Subscribers** and **Views** f
 
 ```dataview
 TABLE WITHOUT ID v.channel AS Channel, v.subscribers AS Subscribers, v.views AS "Total views"
-FROM "95 - Notes/YouTube/Channels.md"
+FROM "95 - Notes/YouTube"
 FLATTEN file.lists AS v
 WHERE v.subscribers
 SORT v.subscribers DESC
@@ -376,9 +395,9 @@ Watch Later only:
 
 ```dataview
 LIST WITHOUT ID v.title
-FROM "95 - Notes/YouTube/Watch Later.md"
+FROM "95 - Notes/YouTube"
 FLATTEN file.lists AS v
-WHERE v.title
+WHERE v.title AND (file.name = "Watch Later" OR file.name = "Watch Later.data")
 ```
 
 Saved playlists only:

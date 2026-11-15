@@ -21,13 +21,18 @@ import {
 	allowsLocalThumbnail,
 	channelBannerImageBase,
 	channelImageBase,
+	dataNotePath,
 	dataviewBlock,
 	formatDate,
+	noteBullets,
 	normalizeFolder,
 	outputPaths,
+	renderChannelsDataNote,
 	renderChannelsNote,
+	renderPlaylistDataNote,
 	renderPlaylistNote,
 	sanitizeFileName,
+	splitNoteBullets,
 	stripNoteViewBlocks,
 	videoImageBase,
 	videoThumbnailUrl,
@@ -1019,8 +1024,8 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 	// Channels.md: only write when the fetch succeeded or we have known channels.
 	if (ctx.channelsOk || Object.keys(ctx.state.channels).length > 0) {
 		try {
-			await writeNote(
-				vault,
+			await writeGeneratedNote(
+				plugin.app,
 				ctx.paths.channels,
 				renderChannelsNote(
 					ctx.state,
@@ -1031,6 +1036,7 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 					journal,
 					plugin.settings.noteChunkSize,
 				),
+				channelsView ? (bullets) => renderChannelsDataNote(ctx.now, bullets) : null,
 			);
 		} catch (err) {
 			ctx.errors.push(recordError(err, ctx.paths.channels));
@@ -1054,48 +1060,45 @@ async function writeOutputs(plugin: LifelinePlugin, ctx: WriteContext): Promise<
 			};
 			const archived = archivedCount(plugin.purgedState, ctx.state, playlistId);
 			const systemPath = systemPlaylistPath(ctx.paths, playlistId);
+			// Routed by id, not by setting: an install that already tracked LL or
+			// LM by hand lands in the dedicated note, and any note the old path
+			// left under Playlists/ is swept so the two never compete as copies.
+			const viewBlock = systemPath
+				? systemView(playlistId)
+				: playlistId === ctx.watchLaterId
+					? watchLaterView
+					: playlistView;
+			const path =
+				systemPath ??
+				(playlistId === ctx.watchLaterId
+					? ctx.paths.watchLater
+					: `${ctx.paths.playlistsFolder}/${record.fileName}.md`);
+			await writeGeneratedNote(
+				plugin.app,
+				path,
+				playlistNoteContent(
+					plugin,
+					playlistId,
+					record,
+					ctx.now,
+					viewBlock,
+					videoImages,
+					journal,
+					archived,
+					systemPath ? 'lifeline-liked' : undefined,
+				),
+				viewBlock ? (bullets) => renderPlaylistDataNote(playlistId, record.title, ctx.now, bullets) : null,
+			);
 			if (systemPath) {
-				// Routed by id, not by setting: an install that already tracked
-				// LL or LM by hand lands in the dedicated note, and any note the
-				// old path left under Playlists/ is swept so the two never
-				// compete as copies.
-				await writeNote(
-					vault,
-					systemPath,
-					playlistNoteContent(
-						plugin,
-						playlistId,
-						record,
-						ctx.now,
-						systemView(playlistId),
-						videoImages,
-						journal,
-						archived,
-						'lifeline-liked',
-					),
-				);
-				await deleteNote(plugin.app, `${ctx.paths.playlistsFolder}/${record.fileName}.md`);
-				const previous = ctx.previousFiles.get(playlistId);
-				if (previous && previous !== record.fileName) {
-					await deleteNote(plugin.app, `${ctx.paths.playlistsFolder}/${previous}.md`);
-				}
-			} else if (playlistId === ctx.watchLaterId) {
-				await writeNote(
-					vault,
-					ctx.paths.watchLater,
-					playlistNoteContent(plugin, playlistId, record, ctx.now, watchLaterView, videoImages, journal, archived),
-				);
-			} else {
-				const path = `${ctx.paths.playlistsFolder}/${record.fileName}.md`;
-				await writeNote(
-					vault,
-					path,
-					playlistNoteContent(plugin, playlistId, record, ctx.now, playlistView, videoImages, journal, archived),
-				);
-				const previous = ctx.previousFiles.get(playlistId);
-				if (previous && previous !== record.fileName) {
-					await deleteNote(plugin.app, `${ctx.paths.playlistsFolder}/${previous}.md`);
-				}
+				const stale = `${ctx.paths.playlistsFolder}/${record.fileName}.md`;
+				await deleteNote(plugin.app, stale);
+				await deleteNote(plugin.app, dataNotePath(stale));
+			}
+			const previous = ctx.previousFiles.get(playlistId);
+			if (previous && previous !== record.fileName) {
+				const stale = `${ctx.paths.playlistsFolder}/${previous}.md`;
+				await deleteNote(plugin.app, stale);
+				await deleteNote(plugin.app, dataNotePath(stale));
 			}
 		} catch (err) {
 			ctx.errors.push(recordError(err, `note ${record.title}`));
@@ -1250,8 +1253,8 @@ export async function rewritePlaylistNotes(
 				? paths.watchLater
 				: `${paths.playlistsFolder}/${record.fileName}.md`);
 		try {
-			await writeNote(
-				vault,
+			await writeGeneratedNote(
+				plugin.app,
 				path,
 				playlistNoteContent(
 					plugin,
@@ -1264,11 +1267,14 @@ export async function rewritePlaylistNotes(
 					archivedCount(plugin.purgedState, state, playlistId),
 					systemPath ? 'lifeline-liked' : undefined,
 				),
+				viewBlock ? (bullets) => renderPlaylistDataNote(playlistId, record.title, now, bullets) : null,
 			);
 			if (systemPath) {
 				// The old hand-tracked copy under Playlists/ must not survive
 				// beside the dedicated note.
-				await deleteNote(plugin.app, `${paths.playlistsFolder}/${record.fileName}.md`);
+				const stale = `${paths.playlistsFolder}/${record.fileName}.md`;
+				await deleteNote(plugin.app, stale);
+				await deleteNote(plugin.app, dataNotePath(stale));
 			}
 			rewritten++;
 		} catch (err) {
@@ -1600,6 +1606,9 @@ function markdownUnder(folder: TFolder | null): TFile[] {
  * recorded and the rest still lose their block.
  */
 export async function removeNoteViews(plugin: LifelinePlugin): Promise<void> {
+	// A sync writing these notes right now would fight the merge below, so let
+	// it finish first; the rewrite after this toggle-off is the newer intent.
+	await waitForSync();
 	const vault = plugin.app.vault;
 	const root = normalizeFolder(plugin.settings.outputFolder);
 	// '' (unset or the vault root) starts at the root folder, the same scope
@@ -1615,12 +1624,47 @@ export async function removeNoteViews(plugin: LifelinePlugin): Promise<void> {
 			firstErrors.push(err instanceof Error ? err : new Error(String(err)));
 		}
 	}
+	// A note that only held a view has its bullets in the companion data note;
+	// fold them back before the user sees an empty note. An orphan companion
+	// (its note gone) is left alone: no sync would know what to do with it.
+	for (const file of markdownUnder(start)) {
+		if (!/\.data\.md$/i.test(file.path)) continue;
+		try {
+			await mergeDataNote(plugin.app, file);
+		} catch (err) {
+			firstErrors.push(err instanceof Error ? err : new Error(String(err)));
+		}
+	}
 	for (const kind of NOTE_VIEW_KINDS) {
 		await deleteNote(plugin.app, noteViewScriptPath(kind, plugin.settings.dashboardScriptsFolder));
 		await deleteNote(plugin.app, viewsStylesheetPath(kind, plugin.settings.stylesFolder));
 	}
 	const firstError = firstErrors[0];
 	if (firstError !== undefined) throw firstError;
+}
+
+/**
+ * Fold a companion data note's bullets back into the note it belongs to, then
+ * trash the companion. The note it belongs to is the one at the same path
+ * without `.data`, so no state is needed here.
+ *
+ * Idempotent: a note that already carries bullets means the companion is a
+ * stale copy, so only the companion goes.
+ */
+async function mergeDataNote(app: App, dataFile: TFile): Promise<void> {
+	const visible = app.vault.getAbstractFileByPath(dataFile.path.replace(/\.data\.md$/i, '.md'));
+	if (!(visible instanceof TFile)) return;
+	const note = await app.vault.cachedRead(visible);
+	if (noteBullets(note)) {
+		await deleteNote(app, dataFile.path);
+		return;
+	}
+	const bullets = noteBullets(await app.vault.cachedRead(dataFile));
+	// No bullet block to recover: leave the companion for the next sync rather
+	// than deleting the only copy of it.
+	if (!bullets) return;
+	await app.vault.modify(visible, `${note.replace(/\s+$/, '')}\n\n${bullets}\n`);
+	await deleteNote(app, dataFile.path);
 }
 
 /**
@@ -2086,6 +2130,35 @@ async function ensureFolder(vault: Vault, folder: string): Promise<void> {
 			}
 		}
 	}
+}
+
+/**
+ * Write one generated note, moving its bullet block into the companion data
+ * note when the note carries a view (see `dataNotePath`).
+ *
+ * A note with 300 field-heavy bullets costs Obsidian 150 to 250 ms to open,
+ * every time, because the whole body is parsed and rendered before the view
+ * even runs. With the bullets in `Name.data.md` the note renders one view, and
+ * the view reads the bullets through Dataview's index. `dataContent` builds
+ * that companion from the bullet block; null means this note has no view, so it
+ * keeps every bullet and any stale companion is trashed, which is what turns
+ * Views in notes off back into the single-file layout.
+ */
+async function writeGeneratedNote(
+	app: App,
+	path: string,
+	content: string,
+	dataContent: ((bullets: string) => string) | null,
+): Promise<void> {
+	if (!dataContent) {
+		await writeNote(app.vault, path, content);
+		await deleteNote(app, dataNotePath(path));
+		return;
+	}
+	const { visible, bullets } = splitNoteBullets(content);
+	await writeNote(app.vault, path, visible);
+	if (bullets) await writeNote(app.vault, dataNotePath(path), dataContent(bullets));
+	else await deleteNote(app, dataNotePath(path));
 }
 
 async function writeNote(vault: Vault, path: string, content: string): Promise<void> {

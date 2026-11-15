@@ -404,10 +404,11 @@ export interface LifelineSettings {
 	/** Folder the script was last written to (null = never); lets a folder
 	 *  change trash the stale copy. Internal bookkeeping, not user-facing. */
 	dashboardScriptsFolderWritten: string | null;
-	/** Opt-in DataviewJS views above the entries in Channels.md, every
+	/** Opt-in DataviewJS views in place of the entries in Channels.md, every
 	 *  playlist note, and Watch Later.md (requires the community Dataview
 	 *  plugin). Draw from the generated lifeline-channels.js,
-	 *  lifeline-playlists.js, and lifeline-watchlater.js scripts. */
+	 *  lifeline-playlists.js, and lifeline-watchlater.js scripts, and keep the
+	 *  entries in a companion `Name.data.md` beside each note. */
 	noteViews: boolean;
 	/** How those views render, one row per note type (Notes group). Written
 	 *  back by each note's toolbar Layout select too, so switching there needs

@@ -11,11 +11,17 @@
  * rule: the chunks have no blank line there.
  *
  * Nothing is written to the note, and only notes whose frontmatter `type` is
- * one of the three Lifeline note kinds are touched.
+ * one of the Lifeline note kinds are touched. `lifeline-data` is the companion
+ * note the bullets now live in, so it needs the same rule when a user opens it.
  */
 import type { MarkdownPostProcessorContext, Plugin } from 'obsidian';
 
-const LIFELINE_NOTE_TYPES = new Set(['lifeline-channels', 'lifeline-playlist', 'lifeline-liked']);
+const LIFELINE_NOTE_TYPES = new Set([
+	'lifeline-channels',
+	'lifeline-playlist',
+	'lifeline-liked',
+	'lifeline-data',
+]);
 
 function isLifelineNote(ctx: MarkdownPostProcessorContext): boolean {
 	// `frontmatter` is typed as `any` in the public API, so narrow it before

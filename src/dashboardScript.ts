@@ -957,8 +957,12 @@ const isRemoved = (item) => {
 };
 // Removed bullets are a backup, not dashboard content: never list, count, or
 // feed them. Their frontmatter still reports them, which is why the hidden
-// total below reads the counts rather than the bullets.
-const listItems = (page) => toArr(page.file?.lists ?? page.lists).filter((item) => !isRemoved(item));
+// total below reads the counts rather than the bullets. The rows themselves sit
+// in the note's companion data note when sync split them out (see listSource).
+const listItems = (page) => {
+  const source = listSource(page);
+  return toArr(source.file?.lists ?? source.lists).filter((item) => !isRemoved(item));
+};
 
 // A note without removed_mode predates the setting, when removed videos were
 // only counted, so a missing value means count.
@@ -1176,10 +1180,27 @@ const PAGES = playlistPages(ALL);
 const CHANNELS_PAGE = ALL.find((p) => p.type === "lifeline-channels");
 const CHANNELS_PATH = CHANNELS_PAGE ? String(CHANNELS_PAGE.file.path) : "";
 
+// Sync keeps a generated note's bullets in the companion data note beside it
+// (Note.md -> Note.data.md) so opening a note costs one view render instead of
+// parsing every bullet. Frontmatter counts stay on the visible note; the rows
+// come from the companion, looked up by path so no frontmatter has to agree.
+const BY_PATH = new Map();
+for (const page of ALL) BY_PATH.set(String(page.file.path), page);
+const dataPathOf = (path) => {
+  const text = String(path || "");
+  if (!text) return "";
+  return /\\.md$/i.test(text) ? text.replace(/\\.md$/i, ".data.md") : text + ".data.md";
+};
+const listSource = (page) => {
+  if (!page || !page.file) return page;
+  return BY_PATH.get(dataPathOf(page.file.path)) || page;
+};
+const CHANNELS_DATA = listSource(CHANNELS_PAGE);
+
 const channelRows = () => {
   const out = [];
-  if (!CHANNELS_PAGE) return out;
-  for (const item of toArr(CHANNELS_PAGE.file?.lists ?? CHANNELS_PAGE.lists)) out.push(item);
+  if (!CHANNELS_DATA) return out;
+  for (const item of toArr(CHANNELS_DATA.file?.lists ?? CHANNELS_DATA.lists)) out.push(item);
   out.sort((a, b) => Number(b.subscribers ?? 0) - Number(a.subscribers ?? 0));
   return out;
 };

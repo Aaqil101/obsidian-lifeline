@@ -46,7 +46,7 @@ export function renderViewsPage(host: SettingsHost, containerEl: HTMLElement): v
 	new Setting(card)
 		.setName('Views in notes')
 		.setDesc(
-			'Draw a live view above the entries in each note, with search and a layout picker. Changes apply on the next sync.',
+			'Draw a live view in place of the entries in each note, with search and a layout picker, and keep the entries in a companion data note beside it. Changes apply on the next sync.',
 		)
 		.addToggle((toggle) =>
 			toggle.setValue(settings.noteViews).onChange(async (on) => {
