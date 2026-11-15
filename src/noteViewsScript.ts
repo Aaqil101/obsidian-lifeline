@@ -1487,7 +1487,7 @@ const posterAvatar = (item, label) => {
     const img = document.createElement("img");
     img.src = src;
     img.alt = label == null ? "" : String(label);
-    img.loading = "lazy";
+    img.loading = "lazy"; img.decoding = "async";
     img.addEventListener("error", () => {
       badge.textContent = initialOf(label);
     });
@@ -1520,7 +1520,7 @@ const posterCard = (item) => {
     const img = document.createElement("img");
     img.src = bannerSrc;
     img.alt = "";
-    img.loading = "lazy";
+    img.loading = "lazy"; img.decoding = "async";
     // A dead banner link leaves the gradient backdrop behind, never a
     // broken-image icon.
     img.addEventListener("error", () => img.remove());
@@ -1605,7 +1605,7 @@ const coverFace = (src, label) => {
   const img = document.createElement("img");
   img.src = src;
   img.alt = "";
-  img.loading = "lazy";
+  img.loading = "lazy"; img.decoding = "async";
   img.addEventListener("error", () => {
     img.remove();
     box.textContent = initialOf(label);
@@ -1646,7 +1646,7 @@ const coverRow = (item) => {
     const img = document.createElement("img");
     img.src = banner;
     img.alt = "";
-    img.loading = "lazy";
+    img.loading = "lazy"; img.decoding = "async";
     img.addEventListener("error", () => img.remove());
     art.appendChild(img);
   }
@@ -1819,7 +1819,7 @@ const channelBadge = (channel, item) => {
     const img = document.createElement("img");
     img.src = src;
     img.alt = "";
-    img.loading = "lazy";
+    img.loading = "lazy"; img.decoding = "async";
     img.addEventListener("error", () => {
       img.remove();
       node.classList.remove("lv-cine-badge--img");
@@ -1891,7 +1891,7 @@ const posterCard = (item) => {
     const img = document.createElement("img");
     img.src = bannerSrc;
     img.alt = "";
-    img.loading = "lazy";
+    img.loading = "lazy"; img.decoding = "async";
     img.addEventListener("error", () => {
       handleImageError(img, thumbData, () => {
         img.remove();
@@ -1979,7 +1979,7 @@ const chipRow = (item) => {
     const img = document.createElement("img");
     img.src = face;
     img.alt = "";
-    img.loading = "lazy";
+    img.loading = "lazy"; img.decoding = "async";
     img.addEventListener("error", () => ring.remove());
     ring.appendChild(img);
     meta.appendChild(ring);
@@ -2046,7 +2046,7 @@ const renderTableRows = (host, items, onPaint) => {
       const img = document.createElement("img");
       img.src = src;
       img.alt = "";
-      img.loading = "lazy";
+      img.loading = "lazy"; img.decoding = "async";
       img.addEventListener("error", () => img.remove());
       softened(item, img);
       frame.appendChild(img);
@@ -2464,7 +2464,7 @@ const thumb = (item, label, pick) => {
   const img = document.createElement("img");
   img.src = src;
   img.alt = label == null ? "" : String(label);
-  img.loading = "lazy";
+  img.loading = "lazy"; img.decoding = "async";
   img.addEventListener("error", () => {
     handleImageError(img, data, () => {
       box.textContent = initialOf(label);
@@ -2705,6 +2705,30 @@ const STASH = (() => {
   }
 })();
 const viewKey = String(dv.currentFilePath || "");
+// The processed rows are cached for the same note for a few minutes, like the
+// quotebook view: opening a note again should not re-read every bullet and
+// re-sort it. The cache is invalidated by the note's mtime/size, so a sync or
+// hand edit still rebuilds it; the TTL is the fallback when Dataview has no
+// mtime for the page.
+const VIEW_CACHE_KEY = "lifelineNoteViewCache";
+const VIEW_CACHE_TTL_MS = 5 * 60 * 1000;
+const viewCacheKey = kind + "|" + viewKey;
+const viewCacheHost = (() => {
+  try {
+    return window;
+  } catch (err) {
+    return null;
+  }
+})();
+const noteStamp = () => {
+  try {
+    const page = dv.current();
+    const file = page && page.file ? page.file : null;
+    return String(file && file.mtime ? file.mtime : "") + "|" + String(file && file.size ? file.size : "");
+  } catch (err) {
+    return "";
+  }
+};
 
 // Poster is the layout every kind opens on. The retired cards layout meant the
 // same card grid this poster now provides, so a stored or baked "cards" lands
@@ -2755,13 +2779,14 @@ const scopesFor = (item) => {
 };
 
 // One indexed row: the raw item, its date key, the two filter flags, and the
-// lowercased search fields. Built when rows are read, never per render.
+// search fields. The search fields are built lazily on the first real query,
+// so opening a note does not parse every title and date just to draw a page.
 const entryFor = (item) => ({
   item,
   key: sortDate(item),
   short: isShort(item),
   removed: isRemoved(item),
-  scopes: scopesFor(item).map(([key, value]) => [key, String(value).toLowerCase()]),
+  scopes: null,
 });
 
 const readEntries = () =>
@@ -2773,21 +2798,54 @@ const readEntries = () =>
       .map(entryFor),
   );
 
-let rows = readEntries();
+let rows = [];
 let sortedBy = liveSortOrder();
-let orderedRows = orderEntries(rows, sortedBy);
-let shortPresent = rows.some((entry) => isShortField(entry.item));
-let removedPresent = rows.some((entry) => entry.removed);
+let orderedRows = [];
+let shortPresent = false;
+let removedPresent = false;
 
 // Re-read the note's bullets and rebuild every per-row cache in one pass. Used
 // by Refresh and by the controls that deliberately pick up a sync that landed
-// while the view was open.
-const refreshRows = () => {
+// while the view was open. The force flag skips the window cache; the initial
+// paint uses it, so reopening an unchanged note is immediate.
+const refreshRows = (force) => {
+  const stamp = noteStamp();
+  const cached = viewCacheHost && viewCacheHost[VIEW_CACHE_KEY];
+  if (
+    !force &&
+    cached &&
+    cached.key === viewCacheKey &&
+    cached.stamp === stamp &&
+    Date.now() - cached.at < VIEW_CACHE_TTL_MS
+  ) {
+    rows = cached.rows;
+    sortedBy = cached.sortedBy;
+    orderedRows = cached.orderedRows;
+    shortPresent = cached.shortPresent;
+    removedPresent = cached.removedPresent;
+    return;
+  }
   rows = readEntries();
   sortedBy = liveSortOrder();
   orderedRows = orderEntries(rows, sortedBy);
   shortPresent = rows.some((entry) => isShortField(entry.item));
   removedPresent = rows.some((entry) => entry.removed);
+  if (viewCacheHost) {
+    try {
+      viewCacheHost[VIEW_CACHE_KEY] = {
+        key: viewCacheKey,
+        stamp: stamp,
+        at: Date.now(),
+        rows: rows,
+        sortedBy: sortedBy,
+        orderedRows: orderedRows,
+        shortPresent: shortPresent,
+        removedPresent: removedPresent,
+      };
+    } catch (err) {
+      // A cache that cannot be stored only costs the next open its reuse.
+    }
+  }
 };
 
 // The sort order is read live at render time. Only a real change re-sorts the
@@ -2797,12 +2855,17 @@ const ensureOrder = () => {
   if (order === sortedBy) return;
   sortedBy = order;
   orderedRows = orderEntries(rows, order);
+  const cached = viewCacheHost && viewCacheHost[VIEW_CACHE_KEY];
+  if (cached && cached.key === viewCacheKey) {
+    cached.sortedBy = sortedBy;
+    cached.orderedRows = orderedRows;
+  }
 };
 
 let matchQuery = "";
 const matches = (entry) => {
   if (!matchQuery) return true;
-  const pairs = entry.scopes;
+  const pairs = entry.scopes || (entry.scopes = scopesFor(entry.item).map(([key, value]) => [key, String(value).toLowerCase()]));
   if (state.scope === "all") return pairs.some((pair) => pair[1].indexOf(matchQuery) >= 0);
   const hit = pairs.find((pair) => pair[0] === state.scope);
   return hit != null && hit[1].indexOf(matchQuery) >= 0;
@@ -3073,6 +3136,10 @@ const clear = (node) => {
   while (node.firstChild) node.removeChild(node.firstChild);
 };
 
+// The note paints before the view reads its rows; this keeps the block from
+// looking empty for that frame.
+host.appendChild(el("div", "lv-empty", "Loading " + noun + "..."));
+
 // The Shorts control hides itself while no bullet carries the field, so a note
 // synced before Identify Shorts existed draws exactly as it did before. Only a
 // visible control filters; the hidden one is ignored.
@@ -3171,7 +3238,7 @@ const applyLayout = (value) => {
   // A sync may have rewritten the bullets since this view first rendered, so
   // re-read them before repainting. The layout change is also a natural
   // moment to pick up a removed video's new image fields.
-  refreshRows();
+  refreshRows(true);
   // Stash the search for the re-render the refresh below triggers, then
   // apply locally (instant, and the fallback when that refresh does not
   // happen, for example when Dataview's own auto refresh is switched off).
@@ -3193,7 +3260,7 @@ if (shortsSelect) {
     persistShortsFilter(state.shorts);
     // A filter switch is a read of the current note, not a repaint of an old
     // snapshot: a sync may have rewritten the bullets since this view opened.
-    refreshRows();
+    refreshRows(true);
     // A filter switch is shared with the dashboard feed and every open video
     // view, so stash this view's search across the refresh it triggers, then
     // apply locally in case that refresh does not happen.
@@ -3214,7 +3281,7 @@ if (removedSelect) {
     // Re-read the bullets before repainting: switching to Removed right after
     // a sync must show the new fields, not the snapshot from before the sync
     // deleted the local thumbnail and wrote the URL.
-    refreshRows();
+    refreshRows(true);
     // Shared by every open video view, so refresh them too and keep this
     // view's search across the re-render.
     if (STASH) STASH[viewKey] = { query: search.value, scope: scope.value };
@@ -3231,7 +3298,7 @@ refresh.addEventListener("click", () => {
   // synced avatars land. Then re-read the note's own bullets (Dataview's
   // index is current by the time a view renders) and keep any active search.
   resetKindCache();
-  refreshRows();
+  refreshRows(true);
   state.query = search.value;
   render();
 });
@@ -3259,9 +3326,24 @@ if (STASH && STASH[viewKey]) {
   syncPlaceholder();
 }
 
-// The toolbar stays even on an empty note, so the layout can still be
-// switched; render() owns both empty states (nothing synced vs. no match).
-render();
+// The note gets the first paint: reading the note's lists and drawing the
+// first page is deferred to the next task, so opening a long note does not
+// wait for the view. Dataview cannot catch work that runs outside its call,
+// so this renders its own message if the view throws.
+const start = () => {
+  try {
+    refreshRows();
+    render();
+  } catch (err) {
+    clear(host);
+    const pre = document.createElement("pre");
+    pre.className = "lv-error";
+    pre.textContent = "Lifeline view error: " + (err && err.stack ? err.stack : String(err));
+    dv.container.appendChild(pre);
+    console.error("Lifeline: note view failed", err);
+  }
+};
+window.setTimeout(start, 0);
 `;
 }
 
