@@ -2146,27 +2146,32 @@ const CSS_PATH = ${JSON.stringify(viewsStylesheetPath(kind, stylesFolder))};
 // otherwise keep the old look until the whole app restarts (a hot reload of
 // the plugin does not empty document.head). Replacing the text in place means
 // new rules land on the next render.
-const ensureStyle = async () => {
-  let css = "";
+const ensureStyle = () => {
+  const apply = (css) => {
+    const existing = document.getElementById(STYLE_ID);
+    if (!css) {
+      if (existing) existing.remove();
+      return;
+    }
+    if (existing) {
+      if (existing.textContent !== css) existing.textContent = css;
+      return;
+    }
+    const el = document.createElement("style");
+    el.id = STYLE_ID;
+    el.textContent = css;
+    document.head.appendChild(el);
+  };
   try {
     const file = app.vault.getAbstractFileByPath(CSS_PATH);
-    css = file ? await app.vault.cachedRead(file) : "";
+    if (!file) {
+      apply("");
+      return;
+    }
+    app.vault.cachedRead(file).then(apply).catch(() => apply(""));
   } catch (err) {
-    css = "";
+    apply("");
   }
-  const existing = document.getElementById(STYLE_ID);
-  if (!css) {
-    if (existing) existing.remove();
-    return;
-  }
-  if (existing) {
-    if (existing.textContent !== css) existing.textContent = css;
-    return;
-  }
-  const el = document.createElement("style");
-  el.id = STYLE_ID;
-  el.textContent = css;
-  document.head.appendChild(el);
 };
 
 dv.container.classList.add("lifeline-views");
@@ -2175,7 +2180,7 @@ dv.container.classList.add("lifeline-views");
 // app restarts, so drop it here.
 const legacyStyle = document.getElementById("lifeline-views-style");
 if (legacyStyle) legacyStyle.remove();
-await ensureStyle();
+ensureStyle();
 
 // List entries of the calling note, in document order: channels are already
 // alphabetical and playlist entries already in playlist position order.
@@ -2500,7 +2505,7 @@ const mount = (host, items, renderOne, onPaint, buttonHost) => {
   const pageSize = livePageSize();
   const paint = (count) => {
     const end = Math.min(items.length, shown + count);
-    for (let i = shown; i < end; i++) host.appendChild(renderOne(items[i]));
+    for (let i = shown; i < end; i++) host.appendChild(renderOne(items[i].item));
     shown = end;
     if (more) {
       more.textContent = "Show more (" + (items.length - shown) + ")";
@@ -2642,13 +2647,16 @@ const sortDate = (item) => {
   const found = /(\\d{4})-(\\d{2})-(\\d{2})/.exec(fmtDate(v) + " " + String(v));
   return found ? found[0] : "";
 };
-const orderRows = (list) => {
-  const keyed = Array.from(list, (item) => ({ item, key: sortDate(item) }));
-  const dated = keyed.filter((e) => e.key !== "");
-  const undated = keyed.filter((e) => e.key === "");
+// Sort the prebuilt entries by their cached date key. The filter and sort keys
+// are computed once when rows are read, so a search keystroke or a layout
+// switch never re-parses every bullet's links and dates.
+const orderEntries = (list, order) => {
+  const entries = Array.from(list);
+  const dated = entries.filter((entry) => entry.key !== "");
+  const undated = entries.filter((entry) => entry.key === "");
   dated.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-  if (liveSortOrder() !== "desc") dated.reverse();
-  return dated.concat(undated).map((e) => e.item);
+  if (order !== "desc") dated.reverse();
+  return dated.concat(undated);
 };
 
 const persistLayout = (value) => {
@@ -2724,14 +2732,10 @@ const state = {
 // carry a title (and a channel). The title check keeps playlist entries out of
 // a channels view should a note ever hold both shapes. Re-read on demand so
 // the Refresh button picks up bullets edited since this view was rendered.
-const readRows = () =>
-  listEntries().filter((item) =>
-    section === "channels" ? item.channel != null && item.title == null : item.title != null,
-  );
-let rows = readRows();
-
+//
 // Search covers the readable text of each entry, optionally scoped to one
-// field. Dates are matched in their compact yyyy-MM-dd form.
+// field. Dates are matched in their compact yyyy-MM-dd form. Every value is
+// lowercased once here rather than on each keystroke.
 const scopesFor = (item) => {
   if (section === "channels") {
     return [
@@ -2750,13 +2754,58 @@ const scopesFor = (item) => {
   ];
 };
 
-const matches = (item) => {
-  const query = state.query.trim().toLowerCase();
-  if (!query) return true;
-  const pairs = scopesFor(item);
-  if (state.scope === "all") return pairs.some((pair) => pair[1].toLowerCase().indexOf(query) >= 0);
+// One indexed row: the raw item, its date key, the two filter flags, and the
+// lowercased search fields. Built when rows are read, never per render.
+const entryFor = (item) => ({
+  item,
+  key: sortDate(item),
+  short: isShort(item),
+  removed: isRemoved(item),
+  scopes: scopesFor(item).map(([key, value]) => [key, String(value).toLowerCase()]),
+});
+
+const readEntries = () =>
+  Array.from(
+    listEntries()
+      .filter((item) =>
+        section === "channels" ? item.channel != null && item.title == null : item.title != null,
+      )
+      .map(entryFor),
+  );
+
+let rows = readEntries();
+let sortedBy = liveSortOrder();
+let orderedRows = orderEntries(rows, sortedBy);
+let shortPresent = rows.some((entry) => isShortField(entry.item));
+let removedPresent = rows.some((entry) => entry.removed);
+
+// Re-read the note's bullets and rebuild every per-row cache in one pass. Used
+// by Refresh and by the controls that deliberately pick up a sync that landed
+// while the view was open.
+const refreshRows = () => {
+  rows = readEntries();
+  sortedBy = liveSortOrder();
+  orderedRows = orderEntries(rows, sortedBy);
+  shortPresent = rows.some((entry) => isShortField(entry.item));
+  removedPresent = rows.some((entry) => entry.removed);
+};
+
+// The sort order is read live at render time. Only a real change re-sorts the
+// cached entries; filtering them afterwards preserves the order.
+const ensureOrder = () => {
+  const order = liveSortOrder();
+  if (order === sortedBy) return;
+  sortedBy = order;
+  orderedRows = orderEntries(rows, order);
+};
+
+let matchQuery = "";
+const matches = (entry) => {
+  if (!matchQuery) return true;
+  const pairs = entry.scopes;
+  if (state.scope === "all") return pairs.some((pair) => pair[1].indexOf(matchQuery) >= 0);
   const hit = pairs.find((pair) => pair[0] === state.scope);
-  return hit != null && hit[1].toLowerCase().indexOf(query) >= 0;
+  return hit != null && hit[1].indexOf(matchQuery) >= 0;
 };
 
 const noun = section === "channels" ? "channels" : "videos";
@@ -2890,7 +2939,7 @@ syncSeg();
 let shortsWrap = null;
 let shortsSelect = null;
 const shortsButtons = [];
-const hasShortFields = () => rows.some(isShortField);
+const hasShortFields = () => shortPresent;
 
 const syncShortsSeg = () => {
   if (!shortsSelect) return;
@@ -2943,7 +2992,7 @@ if (section === "playlist") {
 let removedWrap = null;
 let removedSelect = null;
 const removedButtons = [];
-const hasRemovedFields = () => rows.some(isRemoved);
+const hasRemovedFields = () => removedPresent;
 
 const syncRemovedSeg = () => {
   if (!removedSelect) return;
@@ -3029,8 +3078,8 @@ const clear = (node) => {
 // visible control filters; the hidden one is ignored.
 const applyShortsFilter = (list) => {
   if (!shortsWrap || shortsWrap.style.display === "none") return list;
-  if (state.shorts === "hide") return list.filter((item) => !isShort(item));
-  if (state.shorts === "only") return list.filter(isShort);
+  if (state.shorts === "hide") return list.filter((entry) => !entry.short);
+  if (state.shorts === "only") return list.filter((entry) => entry.short);
   return list;
 };
 
@@ -3040,8 +3089,8 @@ const applyShortsFilter = (list) => {
 // filter.
 const applyRemovedFilter = (list) => {
   if (!removedWrap || removedWrap.style.display === "none") return list;
-  if (state.removed === "hide") return list.filter((item) => !isRemoved(item));
-  if (state.removed === "only") return list.filter(isRemoved);
+  if (state.removed === "hide") return list.filter((entry) => !entry.removed);
+  if (state.removed === "only") return list.filter((entry) => entry.removed);
   return list;
 };
 
@@ -3063,8 +3112,11 @@ const render = () => {
   // The Removed control appears only when the note actually carries a removed
   // bullet, and hides again once a sync strips them (Count mode).
   if (removedWrap) removedWrap.style.display = hasRemovedFields() ? "" : "none";
-  const visible = applyRemovedFilter(applyShortsFilter(rows.filter(matches)));
-  const ordered = orderRows(visible);
+  // The order is cached with the rows; only a live sort-order change re-sorts.
+  // The query is normalized once, not once per entry.
+  ensureOrder();
+  matchQuery = state.query.trim().toLowerCase();
+  const visible = applyRemovedFilter(applyShortsFilter(orderedRows.filter(matches)));
   // The count says Found (not Showing) while either filter narrows the list,
   // and a filter-only empty list is a filter miss, not an empty note.
   const filtered =
@@ -3090,9 +3142,9 @@ const render = () => {
     setStatsText(text);
   };
   if (resolved === "table") {
-    renderTableRows(host, ordered, setStats);
+    renderTableRows(host, visible, setStats);
   } else {
-    mount(host, ordered, resolved === "poster" ? posterCard : chipRow, setStats);
+    mount(host, visible, resolved === "poster" ? posterCard : chipRow, setStats);
   }
 };
 
@@ -3119,7 +3171,7 @@ const applyLayout = (value) => {
   // A sync may have rewritten the bullets since this view first rendered, so
   // re-read them before repainting. The layout change is also a natural
   // moment to pick up a removed video's new image fields.
-  rows = readRows();
+  refreshRows();
   // Stash the search for the re-render the refresh below triggers, then
   // apply locally (instant, and the fallback when that refresh does not
   // happen, for example when Dataview's own auto refresh is switched off).
@@ -3141,7 +3193,7 @@ if (shortsSelect) {
     persistShortsFilter(state.shorts);
     // A filter switch is a read of the current note, not a repaint of an old
     // snapshot: a sync may have rewritten the bullets since this view opened.
-    rows = readRows();
+    refreshRows();
     // A filter switch is shared with the dashboard feed and every open video
     // view, so stash this view's search across the refresh it triggers, then
     // apply locally in case that refresh does not happen.
@@ -3162,7 +3214,7 @@ if (removedSelect) {
     // Re-read the bullets before repainting: switching to Removed right after
     // a sync must show the new fields, not the snapshot from before the sync
     // deleted the local thumbnail and wrote the URL.
-    rows = readRows();
+    refreshRows();
     // Shared by every open video view, so refresh them too and keep this
     // view's search across the re-render.
     if (STASH) STASH[viewKey] = { query: search.value, scope: scope.value };
@@ -3179,7 +3231,7 @@ refresh.addEventListener("click", () => {
   // synced avatars land. Then re-read the note's own bullets (Dataview's
   // index is current by the time a view renders) and keep any active search.
   resetKindCache();
-  rows = readRows();
+  refreshRows();
   state.query = search.value;
   render();
 });
