@@ -50,9 +50,10 @@ Lifeline uses the YouTube Data API v3 with your own OAuth credentials, so your q
 2. Enable the API: open the [YouTube Data API v3 library page](https://console.cloud.google.com/apis/library/youtube.googleapis.com) and select **Enable**.
 3. Configure the app:
    - Open the [Google Auth Platform](https://console.cloud.google.com/auth/overview) (**APIs & Services → Google Auth Platform**).
-   - Under **Branding**, fill in the app name and a support email. The other optional fields can stay blank.
+   - Under **Branding**, fill in the app name, a support email, and a developer contact email.
+   - Add `github.com` under **Authorized domains**. Then set **Application home page** and **Application privacy policy link** to `https://github.com/Aaqil101/obsidian-lifeline`. The repository describes Lifeline, and its **Security & privacy** section is the policy, which Google requires to be hosted on the same domain as the home page. Leave **Application Terms of Service link** blank.
    - Under **Audience**, add yourself under **Test users**. The user type is **External**.
-   - **Important:** while the app is in *Testing* mode, Google **expires refresh tokens after 7 days**. To avoid re-authenticating every week, select **Publish app** under **Audience**. For personal use you can leave the app unverified. Google may show an unverified-app warning once during authorization.
+   - **Important:** while the app is in *Testing* mode, Google **expires refresh tokens after 7 days**. Blank Branding links keep **Publish app** disabled, so the app cannot leave *Testing* until the fields above are saved. Then select **Publish app** under **Audience** and confirm. The confirmation mentions verification because Lifeline requests a sensitive YouTube scope. Verification is not required for personal use, and the unverified-app warning appears once during authorization. If you authenticated before publishing, select **Re-authenticate** afterward so the refresh token is issued in production.
 4. Create the client:
    - Open the [Clients page](https://console.developers.google.com/auth/clients) and select **Create client** (or **Create OAuth client** on the OAuth overview).
    - Application type: **Desktop app**, not **Web application**.
@@ -64,13 +65,17 @@ If authorization later fails with a `deleted_client` error, Google has deleted y
 ## Connect Obsidian
 
 1. Open **Settings → Lifeline**. The **Google account** group shows **Not connected** until you authenticate.
-2. Select the chevron row **Google credentials**. Next to **OAuth client ID**, create a new secret (or select an existing one) and store the copied client ID as its value.
-3. Do the same for **OAuth client secret**. Both values are kept in your system keychain through Obsidian's secret storage. They are never written to a file in your vault. `data.json` stores only the secret names and your preferences.
-4. Go back to **Settings → Lifeline**, select **Authenticate with Google**, and approve read-only YouTube access. The row then reads **Connected** and the button becomes **Re-authenticate**.
-5. Under **Notes**, set **Output folder** (required; sync asks you to set it if blank). Folder fields suggest matches as you type, or you can select the folder icon to browse. A path that does not exist yet is fine, because the sync creates it.
-6. Under **Playlists**, optionally set **Watch later playlist**. Open **Backed-up playlists** to see the playlists you created and the ones you saved from other channels in separate groups, and toggle any you don't want backed up. Everything is backed up by default on the first sync. The refresh icon reloads the list. For playlists the API misses, expand **Add missing saved playlists**; see [Saved playlists](#saved-playlists).
-7. Optionally open **Notes → Dashboard** and turn on **Dashboard note**. See [Dashboard note](#dashboard-note).
-8. Select **Sync now** under **Sync**, use the ribbon icon, or run the command **Lifeline: Sync now**.
+2. Select the chevron row **Google credentials**.
+3. Next to **Google client ID**, select **Create a new secret**. Obsidian's dialog asks for two different things:
+   - **Secret ID**: a local nickname for the keychain entry, using lowercase letters, digits, and dashes. Use `lifeline-client-id`, the name Lifeline uses by default.
+   - **Secret value**: paste Google's **Client ID** here, the value that ends in `.apps.googleusercontent.com`. Do not put it in **Secret ID**: the dots are rejected as invalid characters.
+4. Next to **Google client secret**, repeat with `lifeline-client-secret` as the **Secret ID** and Google's **Client secret** in **Secret value**.
+5. Both values are kept in your system keychain through Obsidian's secret storage. They are never written to a file in your vault. `data.json` stores only the secret names and your preferences.
+6. Go back to **Settings → Lifeline**, select **Authenticate with Google**, and approve read-only YouTube access. The row then reads **Connected** and the button becomes **Re-authenticate**.
+7. Under **Notes**, set **Output folder** (required; sync asks you to set it if blank). Folder fields suggest matches as you type, or you can select the folder icon to browse. A path that does not exist yet is fine, because the sync creates it.
+8. Under **Playlists**, optionally set **Watch later playlist**. Open **Backed-up playlists** to see the playlists you created and the ones you saved from other channels in separate groups, and toggle any you don't want backed up. Everything is backed up by default on the first sync. The refresh icon reloads the list. For playlists the API misses, expand **Add missing saved playlists**; see [Saved playlists](#saved-playlists).
+9. Optionally open **Notes → Dashboard** and turn on **Dashboard note**. See [Dashboard note](#dashboard-note).
+10. Select **Sync now** under **Sync**, use the ribbon icon, or run the command **Lifeline: Sync now**.
 
 ## Settings reference
 
@@ -78,7 +83,7 @@ The settings tab has five groups. Chevron rows open sub-pages.
 
 | Group | Rows |
 | --- | --- |
-| **Google account** | Connection status and **Authenticate with Google** / **Re-authenticate**. Sub-page **Google credentials**: OAuth client ID, OAuth client secret, and a **Security notes** button. |
+| **Google account** | Connection status and **Authenticate with Google** / **Re-authenticate**. Sub-page **Google credentials**: Google client ID, Google client secret, and a **Security notes** button. |
 | **Notes** | **Output folder**, **Journal folder**, **Identify Shorts**, sub-page **Video bullet fields**, sub-page **Views in notes**, **Styles folder**, **Script folder**, sub-page **Channels.md fields**, sub-page **Dashboard**. |
 | **Images** | **Channel avatars and banners**, **Video thumbnails** (each Off, Link, or Download), **Blurred thumbnails**, and **Images folder** (shown only while one of the two modes is Download). |
 | **Playlists** | Sub-page **Backed-up playlists**, **Watch later playlist**, **Removed videos in notes**, and sub-page **Removed videos**. |

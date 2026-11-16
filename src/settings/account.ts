@@ -5,6 +5,7 @@
  * screen for things that are checked regularly.
  */
 import { Notice, SecretComponent, Setting, type SettingDefinitionGroup } from 'obsidian';
+import { DEFAULT_SETTINGS } from './types';
 import { SECURITY_URL, authErrorMessage, group, pageDefinition, renderRow, type SettingsHost } from './ui';
 
 /** Landing group: are we connected, and how to change that. */
@@ -62,9 +63,9 @@ export function renderCredentialsPage(host: SettingsHost, containerEl: HTMLEleme
 	const card = group(containerEl, 'Google credentials');
 
 	new Setting(card)
-		.setName('Client ID')
+		.setName('Google client ID')
 		.setDesc(
-			'Create a desktop app client in the Google cloud console, under credentials. Stored in the system keychain.',
+			`Create a secret named ${DEFAULT_SETTINGS.clientIdName}, then paste Google's client ID into the secret value field. The name is only a local label.`,
 		)
 		.addComponent((el) =>
 			new SecretComponent(host.plugin.app, el)
@@ -76,8 +77,10 @@ export function renderCredentialsPage(host: SettingsHost, containerEl: HTMLEleme
 		);
 
 	new Setting(card)
-		.setName('Client secret')
-		.setDesc('Selected or created here, then kept in the system keychain. Never written to data.json.')
+		.setName('Google client secret')
+		.setDesc(
+			`Create a secret named ${DEFAULT_SETTINGS.clientSecretName}, then paste Google's client secret into the secret value field.`,
+		)
 		.addComponent((el) =>
 			new SecretComponent(host.plugin.app, el)
 				.setValue(settings.clientSecretName)
