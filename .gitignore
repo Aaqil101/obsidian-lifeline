@@ -28,3 +28,7 @@ debug-*.json
 
 # Exclude macOS Finder (System Explorer) View States
 .DS_Store
+
+# Local MCP tool state (Playwright page snapshots, Serena project cache)
+.playwright-mcp/
+.serena/
