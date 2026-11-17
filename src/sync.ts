@@ -65,8 +65,10 @@ import {
 	systemPlaylistViewKind,
 } from './systemPlaylists';
 import {
+	isPlaceholderTitle,
 	listChannelFaces,
 	listChannelStatistics,
+	listLiveVideos,
 	listOwnedPlaylists,
 	listPlaylistsByIds,
 	listPlaylistItems,
@@ -393,11 +395,25 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 		const previousFiles = new Map(
 			Object.entries(state.playlists).map(([id, record]) => [id, record.fileName] as const),
 		);
+		// Read before the diff below flips this run's flags: the thumbnail pass
+		// needs to know which files belonged to an entry that was already
+		// unavailable last run (sweep it) and which one only went unavailable
+		// now (keep it one more run).
+		const previousUnavailable = new Map(
+			Object.entries(state.playlists).map(([id, record]) => {
+				const ids = new Set<string>();
+				for (const [videoId, video] of Object.entries(record.videos)) {
+					if (video.unavailable) ids.add(videoId);
+				}
+				return [id, ids] as const;
+			}),
+		);
 		const today = formatDate(now);
 
 		for (const target of targets) {
 			try {
 				const { title: upstreamTitle, items } = await listPlaylistItems(target.id, plugin.auth, quota);
+				await dropFalsePlaceholders(plugin, state, target, items, quota, errors);
 				const systemEntry = systemPlaylistForId(target.id);
 				const title = systemEntry
 					? systemPlaylistTitle(systemEntry, upstreamTitle || target.title)
@@ -465,6 +481,7 @@ async function doSync(plugin: LifelinePlugin): Promise<SyncRunResult> {
 			trackedIds,
 			watchLaterId: plugin.settings.watchLaterPlaylistId,
 			previousFiles,
+			previousUnavailable,
 			channelsOk,
 			quotaSoftWarn: quota.softWarn,
 			playlistsSynced,
@@ -529,6 +546,8 @@ interface WriteContext {
 	trackedIds: Set<string>;
 	watchLaterId: string;
 	previousFiles: Map<string, string>;
+	/** Video ids already unavailable before this run's diff, per playlist. */
+	previousUnavailable: Map<string, ReadonlySet<string>>;
 	channelsOk: boolean;
 	/** Snapshot inputs so the dashboard header shows this run's status. */
 	quotaSoftWarn: boolean;
@@ -564,11 +583,13 @@ function playlistNoteContent(
 	});
 }
 
+type PlaylistTarget = { id: string; title: string; saved: boolean };
+
 function buildTargets(
 	plugin: LifelinePlugin,
 	playlistsOk: boolean,
 	playlists: PlaylistSummary[],
-): { trackedIds: Set<string>; targets: Array<{ id: string; title: string; saved: boolean }> } {
+): { trackedIds: Set<string>; targets: PlaylistTarget[] } {
 	const settings = plugin.settings;
 	const trackedIds = new Set(settings.trackedPlaylists ?? []);
 	if (settings.watchLaterPlaylistId) trackedIds.add(settings.watchLaterPlaylistId);
@@ -585,7 +606,7 @@ function buildTargets(
 	}
 
 	const catalog = new Map(playlists.map((playlist) => [playlist.id, playlist] as const));
-	const targets: Array<{ id: string; title: string; saved: boolean }> = [];
+	const targets: PlaylistTarget[] = [];
 	for (const id of trackedIds) {
 		const systemEntry = systemPlaylistForId(id);
 		const fromCatalog = catalog.get(id);
@@ -621,6 +642,54 @@ function buildTargets(
 		// Catalog OK but id missing → playlist deleted upstream; skip quietly.
 	}
 	return { trackedIds, targets };
+}
+
+/**
+ * A playlist row that arrives flagged unavailable because YouTube returned a
+ * "Deleted video"/"Private video" placeholder is usually right, but the API has
+ * also reported live videos that way. Left unchecked that one wrong answer
+ * drops the bullet, deletes the downloaded thumbnail, and overwrites the last
+ * known title, so before sync believes it, ask videos.list about the entries
+ * that newly look dead. One that still answers with a real title is live and is
+ * put back; a genuinely dead id does not resolve and stays unavailable, and a
+ * failed lookup changes nothing, so the placeholder remains the answer.
+ *
+ * Only transitions are checked (an entry new to the record, or one that was
+ * available last run), so a playlist that always holds dead entries pays this
+ * call once per entry rather than on every sync.
+ */
+async function dropFalsePlaceholders(
+	plugin: LifelinePlugin,
+	state: SyncState,
+	target: PlaylistTarget,
+	items: PlaylistVideoItem[],
+	quota: QuotaTracker,
+	errors: SyncErrorRecord[],
+): Promise<void> {
+	const previous = state.playlists[target.id]?.videos;
+	const suspects = items.filter((item) => {
+		// Only the placeholder is hearsay. An explicit `privacyStatus: private`
+		// is a positive statement about the video, so a row carrying it keeps
+		// the original treatment even if the id still resolves, which it does
+		// for the owner's own private videos.
+		if (!item.unavailable || !isPlaceholderTitle(item.title)) return false;
+		const known = previous?.[item.videoId];
+		return !known || !known.unavailable;
+	});
+	if (suspects.length === 0) return;
+	const { videos, syncErrors } = await listLiveVideos(
+		suspects.map((item) => item.videoId),
+		plugin.auth,
+		quota,
+	);
+	errors.push(...syncErrors.map((err) => recordError(err, `playlist ${target.title}`)));
+	for (const item of suspects) {
+		const live = videos.get(item.videoId);
+		if (!live) continue;
+		item.unavailable = false;
+		item.title = live.title;
+		if (live.channelTitle) item.channelTitle = live.channelTitle;
+	}
 }
 
 function applyPlaylistDiff(
@@ -664,7 +733,10 @@ function applyPlaylistDiff(
 	for (const item of items) {
 		const existing = record.videos[item.videoId];
 		if (existing) {
-			existing.title = item.title;
+			// A placeholder means "gone", not a new title: keep the last known
+			// one, so a genuinely deleted video still carries its name in the
+			// backup and a false placeholder cannot erase it.
+			existing.title = isPlaceholderTitle(item.title) ? existing.title : item.title;
 			existing.channelTitle = item.channelTitle || existing.channelTitle;
 			existing.channelId = item.channelId || existing.channelId;
 			existing.dateAdded = item.dateAdded || existing.dateAdded;
@@ -2026,6 +2098,14 @@ async function collectChannelImages(
  * (removed, unavailable, or a Short while Identify Shorts is on) are skipped,
  * and the folder is swept of every file no current bullet can name, including
  * an old title left by an upstream rename or a purged entry.
+ *
+ * One exception to the sweep: an entry that only became unavailable in this
+ * run keeps its file for now. The dead-entry answer is occasionally wrong (see
+ * `dropFalsePlaceholders()`), and keeping one run's copy means a video that
+ * answers again next run still has its picture, while a real deletion is swept
+ * on the following run, when the entry was already unavailable. Nothing draws
+ * the file in the meantime: the renderer only names a local copy for a video
+ * `allowsLocalThumbnail()` accepts.
  */
 async function collectPlaylistThumbnails(
 	plugin: LifelinePlugin,
@@ -2045,15 +2125,27 @@ async function collectPlaylistThumbnails(
 	}
 
 	const shortsOn = plugin.settings.shortsDetection !== 'off';
+	const previouslyUnavailable = ctx.previousUnavailable.get(playlistId);
 	const present = await listBases(vault, folder);
 	const wanted: ThumbnailJob[] = [];
 	const expected = new Set<string>();
 	const stale: string[] = [];
 	for (const [videoId, video] of Object.entries(record.videos)) {
-		// Removed and unavailable entries never draw a bullet picture from a
-		// local file, and neither does a Short while Identify Shorts is on: its
-		// bullet keeps the online `thumbnail_url` only. Nothing is queued for
-		// them; the sweep below deletes whichever copy is on disk.
+		// An entry that only went unavailable in this run keeps its file for
+		// one more run (see the doc comment above). Listing it as expected
+		// spares it from the sweep; nothing is queued, since the bullet cannot
+		// name a local copy. The stored title still matches the file name,
+		// because a placeholder never replaces a known title.
+		if (video.unavailable) {
+			if (previouslyUnavailable && !previouslyUnavailable.has(videoId)) {
+				expected.add(videoImageBase(video.channelTitle, video.title, videoId));
+			}
+			continue;
+		}
+		// Removed entries never draw a bullet picture from a local file, and
+		// neither does a Short while Identify Shorts is on: its bullet keeps the
+		// online `thumbnail_url` only. Nothing is queued for them; the sweep
+		// below deletes whichever copy is on disk.
 		if (!allowsLocalThumbnail(video, shortsOn)) continue;
 		const base = videoImageBase(video.channelTitle, video.title, videoId);
 		expected.add(base);

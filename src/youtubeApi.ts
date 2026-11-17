@@ -394,6 +394,19 @@ export async function listPlaylistsByIds(
 }
 
 /**
+ * The titles YouTube substitutes into a playlist row when the video it points
+ * at is gone or hidden from the caller. They are the API's only dead-entry
+ * signal, but they are hearsay: live videos have come back this way, so sync
+ * double-checks the transition before it trusts one (see `listLiveVideos()`).
+ */
+const PLACEHOLDER_TITLES = new Set(['Deleted video', 'Private video']);
+
+/** Whether a playlist row's title is YouTube's dead-entry placeholder. */
+export function isPlaceholderTitle(title: string): boolean {
+	return PLACEHOLDER_TITLES.has(title);
+}
+
+/**
  * Entries of one playlist (playlistItems.list) with snippet + status parts,
  * plus the playlist's upstream title when the API echoes one
  * (`snippet.playlistTitle`, undocumented and often empty; imported ids get
@@ -442,7 +455,7 @@ export async function listPlaylistItems(
 
 		const title = asString(snippet?.title);
 		const privacy = asString(asRecord(item.status)?.privacyStatus);
-		const placeholder = title === 'Deleted video' || title === 'Private video';
+		const placeholder = isPlaceholderTitle(title);
 		items.push({
 			videoId,
 			title: title || 'Untitled video',
@@ -548,6 +561,65 @@ export async function listVideoMetadata(
 					live: liveBroadcast === 'live',
 					upcoming: liveBroadcast === 'upcoming',
 				});
+			}
+		} catch (err) {
+			syncErrors.push(err instanceof SyncError ? err : new SyncError('api', 'videos', errorMessage(err)));
+		}
+	}
+	return { videos, syncErrors };
+}
+
+/** A video that still resolves, with the title and channel the API reports now. */
+export interface LiveVideo {
+	title: string;
+	channelTitle: string;
+}
+
+/**
+ * The given ids that still resolve to a watchable video, with their real titles
+ * (videos.list, snippet only, one quota unit per 50 ids). This exists to veto a
+ * playlist row the API reported as a private/deleted placeholder: those rows
+ * are usually right, but a false one would make sync drop the bullet and delete
+ * the downloaded thumbnail and the last known title, so a video that answers
+ * here is kept live instead (see `dropFalsePlaceholders()` in sync.ts).
+ *
+ * An id that does not resolve is simply absent, and a failed chunk is reported
+ * rather than treated as evidence either way, so a network or quota problem can
+ * never flip a video one direction or the other on its own.
+ */
+export async function listLiveVideos(
+	videoIds: string[],
+	auth: ApiAuth,
+	quota: QuotaTracker,
+): Promise<{ videos: Map<string, LiveVideo>; syncErrors: SyncError[] }> {
+	const videos = new Map<string, LiveVideo>();
+	const syncErrors: SyncError[] = [];
+	for (let start = 0; start < videoIds.length; start += STAT_CHUNK_SIZE) {
+		const chunk = videoIds.slice(start, start + STAT_CHUNK_SIZE);
+		try {
+			const json = await requestJson(
+				{
+					endpoint: 'videos',
+					resource: 'videos',
+					quotaUnits: 1,
+					params: {
+						part: 'snippet',
+						id: chunk.join(','),
+						maxResults: String(STAT_CHUNK_SIZE),
+					},
+				},
+				auth,
+				quota,
+			);
+			for (const raw of asArray(asRecord(json)?.items) ?? []) {
+				const item = asRecord(raw);
+				const id = asString(item?.id);
+				const snippet = asRecord(item?.snippet);
+				const title = asString(snippet?.title);
+				// An id whose own title is a placeholder proves nothing; only a
+				// real title is the live answer this lookup exists to find.
+				if (!id || !title || isPlaceholderTitle(title)) continue;
+				videos.set(id, { title, channelTitle: asString(snippet?.channelTitle) });
 			}
 		} catch (err) {
 			syncErrors.push(err instanceof SyncError ? err : new SyncError('api', 'videos', errorMessage(err)));
